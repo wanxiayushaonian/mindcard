@@ -16,6 +16,9 @@ dist/
 .vscode/
 .idea/
 
+# Claude
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -27,3 +30,8 @@ miniprogram_npm/
 # WeChat mini program
 miniapp/miniprogram_npm/
 miniapp/.miniprogram_npm/
+miniapp/project.config.json
+miniapp/project.private.config.json
+
+# Plan docs
+plan/

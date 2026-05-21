@@ -108,6 +108,18 @@ async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{card_id}/relations")
 async def add_relation(card_id: str, req: CardRelationCreate, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select as sa_select
+
+    existing = await db.execute(
+        sa_select(CardRelation).where(
+            CardRelation.card_id == uuid.UUID(card_id),
+            CardRelation.related_card_id == uuid.UUID(req.related_card_id),
+            CardRelation.relation_type == req.relation_type,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return {"ok": True, "duplicate": True}
+
     rel = CardRelation(
         card_id=uuid.UUID(card_id),
         related_card_id=uuid.UUID(req.related_card_id),

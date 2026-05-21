@@ -1,5 +1,8 @@
+import uuid
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -70,8 +73,15 @@ async def ask_stream(req: RAGRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/similar/{card_id}", response_model=list[CardResponse])
 async def find_similar(card_id: str, limit: int = 5, db: AsyncSession = Depends(get_db)):
-    """Find similar cards using vector cosine distance."""
-    cards = await rag_service.find_similar(db, card_id, limit=limit)
+    """Find similar cards using vector cosine distance, excluding already-related cards."""
+    from app.models.card import CardRelation
+
+    result = await db.execute(
+        select(CardRelation.related_card_id).where(CardRelation.card_id == uuid.UUID(card_id))
+    )
+    related_ids = [str(row[0]) for row in result.all()]
+
+    cards = await rag_service.find_similar(db, card_id, limit=limit, exclude_ids=related_ids)
     return [CardResponse.model_validate(c) for c in cards]
 
 

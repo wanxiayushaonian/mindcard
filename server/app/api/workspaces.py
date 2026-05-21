@@ -81,7 +81,20 @@ async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)
 
 @router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberResponse])
 async def list_members(workspace_id: str, db: AsyncSession = Depends(get_db)):
+    from app.models.user import User
+
     result = await db.execute(
-        select(WorkspaceMember).where(WorkspaceMember.workspace_id == uuid.UUID(workspace_id))
+        select(WorkspaceMember, User.nickname)
+        .join(User, User.id == WorkspaceMember.user_id)
+        .where(WorkspaceMember.workspace_id == uuid.UUID(workspace_id))
     )
-    return result.scalars().all()
+    rows = result.all()
+    return [
+        WorkspaceMemberResponse(
+            user_id=member.user_id,
+            nickname=nickname,
+            role=member.role,
+            joined_at=member.joined_at,
+        )
+        for member, nickname in rows
+    ]

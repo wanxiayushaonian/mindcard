@@ -74,10 +74,10 @@ User question: {question}"""
         }
 
     async def find_similar(
-        self, db: AsyncSession, card_id: str, limit: int = 5
+        self, db: AsyncSession, card_id: str, limit: int = 5, exclude_ids: list[str] | None = None
     ) -> list[Card]:
         """Find similar cards using vector cosine distance (replaces agent.js)."""
-        return await self._find_similar_cards(db, card_id, limit)
+        return await self._find_similar_cards(db, card_id, limit, exclude_ids=exclude_ids)
 
     async def generate_insights(self, db: AsyncSession, workspace_id: str) -> dict:
         """Analyze workspace inspiration patterns."""
@@ -117,7 +117,11 @@ Respond in JSON format:
                 json_str = answer.split("```json")[1].split("```")[0]
             elif "```" in answer:
                 json_str = answer.split("```")[1].split("```")[0]
-            return json.loads(json_str.strip())
+            data = json.loads(json_str.strip())
+            # Normalize types: LLM may return trends as a list instead of string
+            if isinstance(data.get("trends"), list):
+                data["trends"] = "\n".join(data["trends"])
+            return data
         except (json.JSONDecodeError, IndexError):
             return {
                 "themes": [],
@@ -127,18 +131,22 @@ Respond in JSON format:
             }
 
     async def _find_similar_cards(
-        self, db: AsyncSession, card_id: str, limit: int = 5
+        self, db: AsyncSession, card_id: str, limit: int = 5, exclude_ids: list[str] | None = None
     ) -> list[Card]:
         card = await db.get(Card, uuid.UUID(card_id))
         if not card:
             return []
+
+        exclude = {uuid.UUID(card_id)}
+        if exclude_ids:
+            exclude.update(uuid.UUID(rid) for rid in exclude_ids)
 
         if card.embedding is None:
             # Fallback: return recent cards from the same workspace
             result = await db.execute(
                 select(Card)
                 .where(Card.workspace_id == card.workspace_id)
-                .where(Card.id != card.id)
+                .where(Card.id.notin_(exclude))
                 .order_by(Card.created_at.desc())
                 .limit(limit)
             )
@@ -147,7 +155,7 @@ Respond in JSON format:
         result = await db.execute(
             select(Card)
             .where(Card.workspace_id == card.workspace_id)
-            .where(Card.id != card.id)
+            .where(Card.id.notin_(exclude))
             .order_by(Card.embedding.cosine_distance(card.embedding))
             .limit(limit)
         )

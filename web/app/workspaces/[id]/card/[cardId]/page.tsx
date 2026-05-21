@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
 import { useState } from "react";
-import { cardApi, commentApi, ragApi, type Card, type Comment } from "@/lib/api";
+import { cardApi, commentApi, ragApi, type Card, type Comment, type SearchResult } from "@/lib/api";
 
 const COLORS = ["#B8D4E3", "#E8A87C", "#D4A5A5", "#7EC8B0", "#B8A9C9", "#F0C987", "#87CEEB", "#DDA0DD"];
 
@@ -35,6 +35,13 @@ export default function CardDetailPage() {
   const [editColor, setEditColor] = useState("#B8D4E3");
   const [editEmotionTag, setEditEmotionTag] = useState("");
   const [saving, setSaving] = useState(false);
+  const [addedRelations, setAddedRelations] = useState<Set<string>>(new Set());
+
+  // Cards already related (from existing relations + newly added)
+  const relatedIds = new Set([
+    ...(relatedCards?.map((c) => c.id) || []),
+    ...addedRelations,
+  ]);
 
   const startEdit = () => {
     if (!card) return;
@@ -100,6 +107,16 @@ export default function CardDetailPage() {
     if (!confirm("确定删除这条评论？")) return;
     await commentApi.delete(cardId, commentId);
     mutate(`comments-${cardId}`);
+  };
+
+  const handleAddRelation = async (relatedCardId: string) => {
+    try {
+      await cardApi.addRelation(cardId, relatedCardId);
+      setAddedRelations((prev) => new Set(prev).add(relatedCardId));
+      mutate(`related-${cardId}`);
+    } catch (e: any) {
+      alert("添加关联失败: " + e.message);
+    }
   };
 
   if (!card) {
@@ -198,12 +215,26 @@ export default function CardDetailPage() {
                     {sc.keywords[0] || ""}
                   </span>
                 </div>
-                <button
-                  onClick={() => router.push(`/workspaces/${workspaceId}/card/${sc.id}`)}
-                  className="rounded-lg bg-primary px-3 py-1 text-xs text-white"
-                >
-                  查看
-                </button>
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => router.push(`/workspaces/${workspaceId}/card/${sc.id}`)}
+                    className="rounded-lg bg-primary px-3 py-1 text-xs text-white"
+                  >
+                    查看
+                  </button>
+                  {!relatedIds.has(sc.id) ? (
+                    <button
+                      onClick={() => handleAddRelation(sc.id)}
+                      className="rounded-lg bg-primary/10 px-3 py-1 text-xs text-primary-dark"
+                    >
+                      关联
+                    </button>
+                  ) : (
+                    <span className="rounded-lg bg-green-50 px-3 py-1 text-center text-xs text-green-600">
+                      已关联
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>

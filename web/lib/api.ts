@@ -115,6 +115,10 @@ export const workspaceApi = {
     }),
   delete: (id: string) =>
     request<{ ok: boolean }>(`/api/workspaces/${id}`, { method: "DELETE" }),
+  members: (id: string) =>
+    request<{ user_id: string; nickname: string; role: string; joined_at: string }[]>(
+      `/api/workspaces/${id}/members`
+    ),
 };
 
 // --- Cards ---
@@ -158,6 +162,11 @@ export const cardApi = {
   delete: (id: string) =>
     request<{ ok: boolean }>(`/api/cards/${id}`, { method: "DELETE" }),
   getRelated: (id: string) => request<Card[]>(`/api/cards/${id}/relations`),
+  addRelation: (cardId: string, relatedCardId: string, relationType = "manual") =>
+    request<{ ok: boolean }>(`/api/cards/${cardId}/relations`, {
+      method: "POST",
+      body: JSON.stringify({ related_card_id: relatedCardId, relation_type: relationType }),
+    }),
 };
 
 // --- Comments ---
