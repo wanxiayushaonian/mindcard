@@ -14,6 +14,7 @@
     "useCompilerPlugins": false,
     "minifyWXML": true
   },
+  "cloudfunctionRoot": "cloudfunctions/",
   "compileType": "miniprogram",
   "simulatorPluginLibVersion": {},
   "packOptions": {

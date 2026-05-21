@@ -193,10 +193,20 @@ Page({
     const app = getApp();
     const wsId = app.globalData.currentWorkspaceId;
     const wsCardIds = new Set(app.getWorkspaceCards().map(c => c.id));
+    const deletedCardIds = [...wsCardIds];
+    const deletedChatIds = app.globalData.aiChats.filter(c => wsCardIds.has(c.cardId)).map(c => c.id);
+
     app.globalData.cards = app.globalData.cards.filter(c => c.workspaceId !== wsId);
     app.globalData.aiChats = app.globalData.aiChats.filter(c => !wsCardIds.has(c.cardId));
     wx.setStorageSync('inspiration_cards', app.globalData.cards);
     wx.setStorageSync('ai_chats', app.globalData.aiChats);
+
+    // Cloud cascade delete
+    if (app._cloudStorage) {
+      app._cloudStorage.deleteCards(deletedCardIds);
+      app._cloudStorage.deleteChats(deletedChatIds);
+    }
+
     this.setData({ showClearConfirm: false });
     this.loadStats();
     wx.showToast({ title: '当前空间数据已清空', icon: 'success' });

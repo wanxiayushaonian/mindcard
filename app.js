@@ -1,5 +1,6 @@
 // app.js
 const { mockCards, mockChats } = require('./utils/mock-data');
+const CloudStorage = require('./utils/cloud-storage');
 
 App({
   globalData: {
@@ -8,13 +9,91 @@ App({
     settings: {},
     workspaces: [],
     currentWorkspaceId: '',
+    cloudReady: false,
   },
 
   onLaunch() {
-    this._loadWorkspaces();
-    this._loadData();
+    this._cloudStorage = new CloudStorage();
+    this._cloudStorage.init();
+    this._loadAllData();
+  },
+
+  async _loadAllData() {
+    try {
+      const result = await this._cloudStorage.loadAll();
+      if (result.isCloud) {
+        this.globalData.workspaces = result.workspaces;
+        this.globalData.cards = result.cards;
+        this.globalData.aiChats = result.aiChats;
+        this.globalData.settings = result.settings || {};
+        this.globalData.cloudReady = true;
+
+        const cur = wx.getStorageSync('current_workspace');
+        this.globalData.currentWorkspaceId = cur || (result.workspaces[0] && result.workspaces[0].id) || '';
+
+        // First launch: no data anywhere
+        if (result.workspaces.length === 0 && !wx.getStorageSync('workspaces')) {
+          this._seedFirstLaunch();
+        } else {
+          // Sync merged data to cloud if needed
+          this._migrateToCloud();
+        }
+      } else {
+        // Offline: load from local
+        this._loadWorkspaces();
+        this._loadData();
+        this._loadSettings();
+      }
+    } catch (e) {
+      console.error('[CloudStorage] loadAll failed, using local:', e);
+      this._loadWorkspaces();
+      this._loadData();
+      this._loadSettings();
+    }
     this._migrateEmotionTags();
-    this._loadSettings();
+  },
+
+  _seedFirstLaunch() {
+    const defaultWs = {
+      id: 'ws_default',
+      name: '默认空间',
+      icon: '💡',
+      color: '#94B4C8',
+      createdAt: this._formatTime(new Date()),
+    };
+    this.globalData.workspaces = [defaultWs];
+    this.globalData.currentWorkspaceId = 'ws_default';
+    this.globalData.cards = mockCards.map(c => ({ ...c, workspaceId: c.workspaceId || 'ws_default' }));
+    this.globalData.aiChats = mockChats;
+    this.globalData.settings = {};
+
+    wx.setStorageSync('workspaces', this.globalData.workspaces);
+    wx.setStorageSync('current_workspace', 'ws_default');
+    wx.setStorageSync('inspiration_cards', this.globalData.cards);
+    wx.setStorageSync('ai_chats', this.globalData.aiChats);
+
+    // Write to cloud (fire-and-forget)
+    this._cloudStorage.saveWorkspace(defaultWs);
+    this.globalData.cards.forEach(c => this._cloudStorage.saveCard(c));
+    this.globalData.aiChats.forEach(c => this._cloudStorage.saveChat(c));
+  },
+
+  async _migrateToCloud() {
+    if (wx.getStorageSync('cloud_migrated')) return;
+    if (!this.globalData.cloudReady) return;
+
+    try {
+      const result = await this._cloudStorage.migrateLocalToCloud({
+        workspaces: this.globalData.workspaces,
+        cards: this.globalData.cards,
+        aiChats: this.globalData.aiChats,
+        settings: this.globalData.settings,
+      });
+      console.log('[Migration] Cloud migration complete:', result);
+      wx.setStorageSync('cloud_migrated', true);
+    } catch (e) {
+      console.error('[Migration] Failed, will retry next launch:', e);
+    }
   },
 
   // ── Workspace Management ──
@@ -64,6 +143,7 @@ App({
     };
     this.globalData.workspaces = [...this.globalData.workspaces, ws];
     wx.setStorageSync('workspaces', this.globalData.workspaces);
+    this._cloudStorage.saveWorkspace(ws);
     return ws;
   },
 
@@ -72,10 +152,15 @@ App({
     if (idx !== -1) {
       this.globalData.workspaces[idx] = { ...this.globalData.workspaces[idx], ...updates };
       wx.setStorageSync('workspaces', this.globalData.workspaces);
+      this._cloudStorage.saveWorkspace(this.globalData.workspaces[idx]);
     }
   },
 
   deleteWorkspace(id) {
+    // Capture IDs for cloud cascade before filtering
+    const deletedCardIds = this.globalData.cards.filter(c => c.workspaceId === id).map(c => c.id);
+    const deletedChatIds = this.globalData.aiChats.filter(c => deletedCardIds.includes(c.cardId)).map(c => c.id);
+
     // Remove all cards and chats belonging to this workspace
     this.globalData.cards = this.globalData.cards.filter(c => c.workspaceId !== id);
     const remainingCardIds = new Set(this.globalData.cards.map(c => c.id));
@@ -91,6 +176,11 @@ App({
     wx.setStorageSync('workspaces', this.globalData.workspaces);
     wx.setStorageSync('inspiration_cards', this.globalData.cards);
     wx.setStorageSync('ai_chats', this.globalData.aiChats);
+
+    // Cloud cascade delete
+    this._cloudStorage.deleteWorkspaces([id]);
+    this._cloudStorage.deleteCards(deletedCardIds);
+    this._cloudStorage.deleteChats(deletedChatIds);
 
     // Switch to first workspace if current was deleted
     if (this.globalData.currentWorkspaceId === id && this.globalData.workspaces.length > 0) {
@@ -203,6 +293,7 @@ App({
 
   _saveSettings() {
     wx.setStorageSync('app_settings', this.globalData.settings);
+    this._cloudStorage.saveSettings(this.globalData.settings);
   },
 
   getSetting(key, defaultValue) {
@@ -231,6 +322,7 @@ App({
       };
       this.globalData.cards[idx] = updated;
       wx.setStorageSync('inspiration_cards', this.globalData.cards);
+      this._cloudStorage.saveCard(updated);
     }
   },
 
@@ -258,6 +350,7 @@ App({
     recs.forEach(function (r) { newCard.agentScores[r.id] = r.score; });
     this.globalData.cards.unshift(newCard);
     wx.setStorageSync('inspiration_cards', this.globalData.cards);
+    this._cloudStorage.saveCard(newCard);
     // Background AI: auto-extract keywords + auto-generate title
     if ((newCard.content || '').trim()) {
       if (newCard.keywords.length === 0) {
@@ -276,6 +369,9 @@ App({
 
   deleteCards(ids) {
     var idSet = new Set(ids);
+    // Capture chat IDs for cloud cascade before filtering
+    var deletedChatIds = this.globalData.aiChats.filter(c => idSet.has(c.cardId)).map(c => c.id);
+
     this.globalData.cards = this.globalData.cards
       .filter(c => !idSet.has(c.id))
       .map(card => ({
@@ -286,6 +382,10 @@ App({
     this.globalData.aiChats = this.globalData.aiChats.filter(c => !idSet.has(c.cardId));
     wx.setStorageSync('inspiration_cards', this.globalData.cards);
     wx.setStorageSync('ai_chats', this.globalData.aiChats);
+
+    // Cloud cascade delete
+    this._cloudStorage.deleteCards(ids);
+    this._cloudStorage.deleteChats(deletedChatIds);
   },
 
   // ── Chat Persistence ──
@@ -302,11 +402,13 @@ App({
       this.globalData.aiChats.push(chat);
     }
     wx.setStorageSync('ai_chats', this.globalData.aiChats);
+    this._cloudStorage.saveChat(chat);
   },
 
   deleteChat(chatId) {
     this.globalData.aiChats = this.globalData.aiChats.filter(c => c.id !== chatId);
     wx.setStorageSync('ai_chats', this.globalData.aiChats);
+    this._cloudStorage.deleteChats([chatId]);
   },
 
   _formatTime(date) {

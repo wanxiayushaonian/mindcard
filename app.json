@@ -16,6 +16,7 @@
     "navigationBarTextStyle": "black",
     "navigationStyle": "custom"
   },
+  "cloud": true,
   "style": "v2",
   "renderer": "skyline",
   "rendererOptions": {
