@@ -11,6 +11,10 @@ class WorkspaceCreate(BaseModel):
     color: str = "#94B4C8"
 
 
+class JoinWorkspaceRequest(BaseModel):
+    invite_code: str
+
+
 class WorkspaceUpdate(BaseModel):
     name: str | None = None
     icon: str | None = None
