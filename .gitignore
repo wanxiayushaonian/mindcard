@@ -1,4 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.venv/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
-project.private.config.json
+Thumbs.db
+
+# Node
 node_modules/
-.cloudbase/
+miniprogram_npm/
+
+# WeChat mini program
+miniapp/miniprogram_npm/
+miniapp/.miniprogram_npm/

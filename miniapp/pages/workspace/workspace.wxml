@@ -1,0 +1,202 @@
+<!--pages/workspace/workspace.wxml-->
+<navigation-bar title="我的灵感空间" back="{{false}}" background="#F9FAFC">
+  <view slot="right" class="nav-right">
+    <view class="nav-icon-btn" bindtap="onProfile">
+      <text class="nav-icon-text">☻</text>
+    </view>
+  </view>
+</navigation-bar>
+
+<scroll-view class="scrollarea" scroll-y type="list">
+  <!-- Workspace grid -->
+  <view class="ws-grid">
+    <view
+      wx:for="{{workspaces}}"
+      wx:key="id"
+      class="ws-card"
+      style="border-top: 6rpx solid {{item.color}};"
+      bindtap="onWorkspaceTap"
+      bindlongpress="onWorkspaceLongPress"
+      data-id="{{item.id}}"
+    >
+      <text class="ws-icon">{{item.icon}}</text>
+      <text class="ws-name">{{item.name}}</text>
+      <view class="ws-meta">
+        <text class="ws-count">{{item._cardCount}} 张卡片</text>
+        <text wx:if="{{item._memberCount > 1}}" class="ws-member-badge">{{item._memberCount}} 人</text>
+      </view>
+      <text class="ws-time">{{item.createdAt}}</text>
+    </view>
+
+    <!-- Add workspace -->
+    <view class="ws-card ws-add" bindtap="onCreateWorkspace">
+      <text class="ws-add-icon">+</text>
+      <text class="ws-add-text">新建空间</text>
+    </view>
+
+    <!-- Join workspace -->
+    <view class="ws-card ws-join" bindtap="onShowJoinModal">
+      <text class="ws-add-icon">🔗</text>
+      <text class="ws-add-text">加入空间</text>
+    </view>
+  </view>
+
+  <!-- Shared workspaces section -->
+  <view wx:if="{{sharedWorkspaces.length > 0}}" class="section-header">
+    <text class="section-title">共享空间</text>
+  </view>
+  <view class="ws-grid" wx:if="{{sharedWorkspaces.length > 0}}">
+    <view
+      wx:for="{{sharedWorkspaces}}"
+      wx:key="localId"
+      class="ws-card ws-shared"
+      style="border-top: 6rpx solid {{item.color}};"
+      bindtap="onWorkspaceTap"
+      data-id="{{item.localId}}"
+    >
+      <text class="ws-icon">{{item.icon}}</text>
+      <text class="ws-name">{{item.name}}</text>
+      <view class="ws-meta">
+        <text class="ws-shared-badge">共享</text>
+        <text class="ws-member-badge">{{item._memberCount}} 人</text>
+      </view>
+    </view>
+  </view>
+</scroll-view>
+
+<!-- Create/Rename dialog -->
+<view class="modal-mask" wx:if="{{showCreateModal}}" bindtap="onCloseCreateModal">
+  <view class="create-modal" catchtap="onStopPropagation">
+    <text class="modal-title">{{editingWorkspaceId ? '编辑空间' : '新建空间'}}</text>
+
+    <input
+      class="modal-input"
+      placeholder="空间名称"
+      placeholder-style="color: #C0C4CC;"
+      value="{{wsName}}"
+      bindinput="onNameInput"
+      maxlength="20"
+    />
+
+    <text class="modal-section-label">选择图标</text>
+    <view class="icon-picker">
+      <view
+        wx:for="{{WS_ICONS}}"
+        wx:key="*this"
+        class="icon-option {{wsIcon === item ? 'icon-option-active' : ''}}"
+        bindtap="onIconSelect"
+        data-icon="{{item}}"
+      >
+        <text>{{item}}</text>
+      </view>
+    </view>
+
+    <text class="modal-section-label">选择配色</text>
+    <view class="color-picker">
+      <view
+        wx:for="{{WS_COLORS}}"
+        wx:key="*this"
+        class="color-option {{wsColor === item ? 'color-option-active' : ''}}"
+        style="background: {{item}};"
+        bindtap="onColorSelect"
+        data-color="{{item}}"
+      ></view>
+    </view>
+
+    <view class="modal-actions">
+      <view class="modal-btn modal-cancel" bindtap="onCloseCreateModal">
+        <text>取消</text>
+      </view>
+      <view class="modal-btn modal-confirm" bindtap="onConfirmCreate">
+        <text>{{editingWorkspaceId ? '保存' : '创建'}}</text>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- Delete confirm -->
+<view class="modal-mask" wx:if="{{showDeleteConfirm}}" bindtap="onHideDelete">
+  <view class="confirm-dialog" catchtap="onStopPropagation">
+    <text class="confirm-title">确认删除</text>
+    <text class="confirm-msg">删除空间后，其中的所有灵感和AI对话将无法恢复。</text>
+    <view class="confirm-actions">
+      <view class="confirm-btn confirm-cancel" bindtap="onHideDelete">
+        <text>取消</text>
+      </view>
+      <view class="confirm-btn confirm-danger" bindtap="onConfirmDelete">
+        <text>删除</text>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- Invite code modal -->
+<view class="modal-mask" wx:if="{{showInviteModal}}" bindtap="onCloseInviteModal">
+  <view class="confirm-dialog" catchtap="onStopPropagation">
+    <text class="confirm-title">邀请加入「{{inviteWsName}}」</text>
+    <text class="confirm-msg">分享以下邀请码给好友，对方在「加入空间」中输入即可加入。</text>
+    <view class="invite-code-display">
+      <text class="invite-code-text">{{inviteCode}}</text>
+    </view>
+    <view class="confirm-actions">
+      <view class="confirm-btn confirm-cancel" bindtap="onCloseInviteModal">
+        <text>关闭</text>
+      </view>
+      <view class="confirm-btn modal-confirm" bindtap="onCopyInviteCode">
+        <text>复制邀请码</text>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- Join workspace modal -->
+<view class="modal-mask" wx:if="{{showJoinModal}}" bindtap="onCloseJoinModal">
+  <view class="confirm-dialog" catchtap="onStopPropagation">
+    <text class="confirm-title">加入空间</text>
+    <input
+      class="modal-input"
+      placeholder="输入6位邀请码"
+      placeholder-style="color: #C0C4CC;"
+      value="{{joinCodeInput}}"
+      bindinput="onJoinCodeInput"
+      maxlength="6"
+    />
+    <view class="confirm-actions">
+      <view class="confirm-btn confirm-cancel" bindtap="onCloseJoinModal">
+        <text>取消</text>
+      </view>
+      <view class="confirm-btn modal-confirm" bindtap="onConfirmJoin">
+        <text>加入</text>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- Members management modal -->
+<view class="modal-mask" wx:if="{{showMembersModal}}" bindtap="onCloseMembersModal">
+  <view class="confirm-dialog" catchtap="onStopPropagation">
+    <text class="confirm-title">「{{membersWsName}}」成员</text>
+    <view class="members-list">
+      <view wx:for="{{membersList}}" wx:key="openId" class="member-item">
+        <view class="member-info">
+          <text class="member-name">{{item.nickName}}</text>
+          <text class="member-role">{{item.role === 'owner' ? '管理员' : '成员'}}</text>
+        </view>
+        <view
+          wx:if="{{item.role !== 'owner'}}"
+          class="member-remove"
+          catchtap="onRemoveMember"
+          data-openid="{{item.openId}}"
+          data-name="{{item.nickName}}"
+        >
+          <text>移除</text>
+        </view>
+      </view>
+    </view>
+    <view class="confirm-actions">
+      <view class="confirm-btn modal-confirm" bindtap="onCloseMembersModal">
+        <text>关闭</text>
+      </view>
+    </view>
+  </view>
+</view>

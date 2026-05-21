@@ -1,0 +1,209 @@
+<!--pages/card-detail/card-detail.wxml-->
+<navigation-bar title="" back="{{true}}" background="#F9FAFC">
+  <view slot="right" class="nav-right">
+    <view class="nav-icon-btn" bindtap="onToggleFav">
+      <text class="heart-icon {{card.isFavorite ? 'heart-active' : ''}}">{{card.isFavorite ? '❤' : '♡'}}</text>
+    </view>
+    <view class="nav-icon-btn" bindtap="onShowMore">
+      <view class="icon-more">
+        <view class="dot"></view>
+        <view class="dot"></view>
+        <view class="dot"></view>
+      </view>
+    </view>
+  </view>
+</navigation-bar>
+
+<scroll-view class="scrollarea" scroll-y type="list">
+  <!-- Card Display -->
+  <view class="detail-card" style="border-left: 8rpx solid {{card.color}};">
+    <view class="detail-card-tag" style="background: {{card.color}};" wx:if="{{card.emotionTag}}">
+      <text>{{card.emotionTag}}</text>
+    </view>
+    <view class="detail-card-keywords" wx:if="{{card.keywords.length > 0}}">
+      <view
+        wx:for="{{card.keywords}}"
+        wx:key="*this"
+        class="detail-kw"
+        style="background: {{card.color}};"
+      >
+        <text>{{item}}</text>
+      </view>
+    </view>
+    <text class="detail-card-title" wx:if="{{card.title}}">{{card.title}}</text>
+    <text class="detail-card-content">{{card.content}}</text>
+    <view class="detail-card-meta">
+      <text class="detail-meta-item">创建于 {{card.createdAt}}</text>
+      <text class="detail-meta-item" wx:if="{{card.updatedAt}}">更新于 {{card.updatedAt}}</text>
+    </view>
+    <!-- #24: AI badge clickable -->
+    <view class="detail-card-badges" wx:if="{{card.hasAiChat}}" bindtap="onAiBadgeTap">
+      <view class="ai-badge">
+        <text>AI对话记录 ></text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Action Buttons -->
+  <view class="action-bar">
+    <view class="action-item" bindtap="onEdit">
+      <view class="action-icon"><text class="icon-text">✎</text></view>
+      <text class="action-label">编辑</text>
+    </view>
+    <view class="action-item" bindtap="onAiChat">
+      <view class="action-icon"><text class="icon-text">AI</text></view>
+      <text class="action-label">AI对话</text>
+    </view>
+    <view class="action-item" bindtap="onRelate">
+      <view class="action-icon"><text class="icon-text">⇄</text></view>
+      <text class="action-label">关联卡片</text>
+    </view>
+    <view class="action-item" bindtap="onMindLink">
+      <view class="action-icon"><text class="icon-text">⊛</text></view>
+      <text class="action-label">思维链路</text>
+    </view>
+    <view class="action-item" bindtap="onNetwork">
+      <view class="action-icon"><text class="icon-text">⊚</text></view>
+      <text class="action-label">关联网络</text>
+    </view>
+  </view>
+
+  <!-- Related Cards - always show -->
+  <view class="section">
+    <view class="section-header">
+      <text class="section-title">关联卡片</text>
+      <text class="section-count" wx:if="{{relatedCards.length > 0}}">{{relatedCards.length}} 张</text>
+    </view>
+    <scroll-view class="related-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view
+        wx:for="{{relatedCards}}"
+        wx:key="id"
+        class="related-card"
+        style="border-left: 4rpx solid {{item.color}};"
+        bindtap="onRelatedCardTap"
+        data-id="{{item.id}}"
+      >
+        <text class="related-card-content">{{item.content}}</text>
+        <text class="related-card-tag" style="color: {{item.color}};">{{item.keywords[0] || ''}}</text>
+      </view>
+      <view class="related-card related-add" bindtap="onAddRelate">
+        <text class="related-add-plus">+</text>
+        <text class="related-add-text">添加关联</text>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- AI Recommended Cards -->
+  <view class="section" wx:if="{{recommendCards.length > 0}}">
+    <view class="section-header">
+      <text class="section-title">AI推荐关联</text>
+    </view>
+    <view class="recommend-list">
+      <view
+        wx:for="{{recommendCards}}"
+        wx:key="id"
+        class="recommend-card"
+      >
+        <view class="recommend-info" style="border-left: 4rpx solid {{item.color}};">
+          <text class="recommend-content">{{item.content}}</text>
+          <view class="recommend-footer">
+            <text class="recommend-tag" style="background: {{item.color}};">{{item.keywords[0] || ''}}</text>
+            <text class="recommend-match">匹配度 {{item.matchScore}}%</text>
+          </view>
+        </view>
+        <view class="recommend-btn" bindtap="onQuickRelate" data-id="{{item.id}}">
+          <text>关联</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Comments Section -->
+  <view class="section">
+    <view class="section-header">
+      <text class="section-title">评论</text>
+      <text class="section-count" wx:if="{{comments.length > 0}}">{{comments.length}} 条</text>
+    </view>
+
+    <!-- Comment list -->
+    <view class="comment-list" wx:if="{{comments.length > 0}}">
+      <view wx:for="{{comments}}" wx:key="id" class="comment-item">
+        <view class="comment-header">
+          <text class="comment-author">{{item.authorNickName || '匿名'}}</text>
+          <text class="comment-time">{{item.createdAt}}</text>
+        </view>
+        <text class="comment-content">{{item.content}}</text>
+        <view class="comment-actions" bindtap="onDeleteComment" data-id="{{item.id}}">
+          <text class="comment-delete">删除</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="comment-empty" wx:if="{{!commentsLoading && comments.length === 0}}">
+      <text class="comment-empty-text">暂无评论</text>
+    </view>
+
+    <!-- Comment input -->
+    <view class="comment-input-bar">
+      <input
+        class="comment-input"
+        placeholder="写评论..."
+        placeholder-style="color: #C0C4CC;"
+        value="{{commentText}}"
+        bindinput="onCommentInput"
+        confirm-type="send"
+        bindconfirm="onAddComment"
+      />
+      <view class="comment-send-btn {{commentText ? 'comment-send-active' : ''}}" bindtap="onAddComment">
+        <text>发送</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Bottom spacer -->
+  <view style="height: 60rpx;"></view>
+</scroll-view>
+
+<!-- More Actions Popup -->
+<view class="modal-mask" wx:if="{{showMoreMenu}}" bindtap="onHideMore">
+  <view class="more-menu" catchtap="onStopPropagation">
+    <view class="more-item" bindtap="onArchive">
+      <text>归档整理</text>
+    </view>
+    <!-- #13: Share option -->
+    <view class="more-item" bindtap="onShare">
+      <text>分享</text>
+    </view>
+    <view class="more-item more-item-danger" bindtap="onDelete">
+      <text>删除卡片</text>
+    </view>
+    <view class="more-item more-item-cancel" bindtap="onHideMore">
+      <text>取消</text>
+    </view>
+  </view>
+</view>
+
+<!-- Delete Confirm -->
+<view class="modal-mask" wx:if="{{showDeleteConfirm}}" bindtap="onHideDelete">
+  <view class="confirm-dialog" catchtap="onStopPropagation">
+    <text class="confirm-title">确认删除</text>
+    <text class="confirm-msg">删除后无法恢复，关联关系和AI对话记录也会同步删除。</text>
+    <view class="confirm-actions">
+      <view class="confirm-btn confirm-cancel" bindtap="onHideDelete">
+        <text>取消</text>
+      </view>
+      <view class="confirm-btn confirm-danger" bindtap="onConfirmDelete">
+        <text>删除</text>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- Card Picker -->
+<card-picker
+  visible="{{showCardPicker}}"
+  title="{{cardPickerTitle || '选择卡片'}}"
+  excludeIds="{{pickerExclude || []}}"
+  bind:select="onCardPickerSelect"
+  bind:close="onCardPickerClose"
+/>
