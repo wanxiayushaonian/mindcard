@@ -1,0 +1,47 @@
+<!--pages/search/search.wxml-->
+<navigation-bar title="搜索" back="{{true}}" background="#F9FAFC">
+</navigation-bar>
+
+<scroll-view class="scrollarea" scroll-y type="list">
+  <view class="search-bar">
+    <input class="search-input" placeholder="搜索卡片内容、标签、标题..." placeholder-style="color: #C0C4CC;" value="{{query}}" bindinput="onInput" bindconfirm="doSearch" confirm-type="search" focus="{{true}}" />
+    <view class="search-cancel" bindtap="onCancel"><text>取消</text></view>
+  </view>
+
+  <view class="results-section" wx:if="{{results.length > 0}}">
+    <text class="results-count">找到 {{results.length}} 张卡片</text>
+    <view class="results-list">
+      <view wx:for="{{results}}" wx:key="id" class="result-card" style="border-left: 6rpx solid {{item.color}};" bindtap="onResultTap" data-id="{{item.id}}">
+        <view class="card-keywords" wx:if="{{item.keywords.length > 0}}">
+          <view
+            wx:for="{{item.keywords}}"
+            wx:for-item="kw"
+            wx:key="*this"
+            class="card-kw"
+            style="background: {{item.color}};"
+          >
+            <text>{{kw}}</text>
+          </view>
+        </view>
+        <text class="result-title" wx:if="{{item.title}}">{{item.title}}</text>
+        <text class="result-content">{{item.content}}</text>
+        <text class="result-time">{{item.createdAt}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="results-section" wx:if="{{chatResults.length > 0}}">
+    <text class="results-count">找到 {{chatResults.length}} 条AI对话</text>
+    <view class="results-list">
+      <view wx:for="{{chatResults}}" wx:key="id" class="result-card result-chat" bindtap="onChatResultTap" data-card-id="{{item.cardId}}">
+        <text class="result-chat-title">{{item.title}}</text>
+        <text class="result-chat-time">{{item.createdAt}} · {{item.messages.length}} 条消息</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty-state" wx:if="{{query && searched && results.length === 0 && chatResults.length === 0}}">
+    <text class="empty-text">没有找到相关内容</text>
+  </view>
+  <view class="search-hint" wx:if="{{!query}}"><text>输入关键词搜索灵感卡片和AI对话记录</text></view>
+</scroll-view>

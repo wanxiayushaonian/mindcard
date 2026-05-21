@@ -1,0 +1,37 @@
+<!--components/card-picker/card-picker.wxml-->
+<view class="picker-mask" wx:if="{{visible}}" bindtap="onClose">
+  <view class="picker-modal" catchtap="onStopPropagation">
+    <view class="picker-header">
+      <text class="picker-title">{{title || '选择卡片'}}</text>
+      <view class="picker-close" bindtap="onClose">
+        <text class="close-text">✕</text>
+      </view>
+    </view>
+    <input
+      class="picker-search"
+      placeholder="搜索卡片内容..."
+      placeholder-style="color: #C0C4CC;"
+      value="{{query}}"
+      bindinput="onSearch"
+    />
+    <scroll-view class="picker-list" scroll-y>
+      <view
+        wx:for="{{filteredCards}}"
+        wx:key="id"
+        class="picker-item"
+        style="border-left: 4rpx solid {{item.color}};"
+        bindtap="onSelect"
+        data-id="{{item.id}}"
+      >
+        <view class="picker-item-tag" style="background: {{item.color}};">
+          <text>{{item.keywords[0] || ''}}</text>
+        </view>
+        <text class="picker-item-content">{{item.content}}</text>
+        <text class="picker-item-time">{{item.createdAt}}</text>
+      </view>
+      <view class="picker-empty" wx:if="{{filteredCards.length === 0}}">
+        <text>没有找到匹配的卡片</text>
+      </view>
+    </scroll-view>
+  </view>
+</view>

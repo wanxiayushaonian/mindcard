@@ -1,0 +1,113 @@
+<!--pages/ai-chat/ai-chat.wxml-->
+<navigation-bar title="AI灵感助手" back="{{true}}" background="#F9FAFC">
+  <view slot="right" class="nav-icon-btn" bindtap="onSettings">
+    <text class="nav-icon-text">⚙</text>
+  </view>
+</navigation-bar>
+
+<scroll-view class="scrollarea" scroll-y type="list" scroll-into-view="{{scrollTarget}}">
+  <!-- Context hint -->
+  <view class="context-bar" wx:if="{{contextCard}}">
+    <view class="context-inner">
+      <view class="context-label">当前上下文</view>
+      <text class="context-content">{{contextCard.content}}</text>
+    </view>
+    <view class="context-change" bindtap="onChangeContext">
+      <text>更换</text>
+    </view>
+  </view>
+
+  <!-- Chat messages -->
+  <view class="chat-list">
+    <view
+      wx:for="{{messages}}"
+      wx:key="id"
+      id="msg-{{item.id}}"
+    >
+      <!-- User message -->
+      <view class="msg msg-user" wx:if="{{item.role === 'user'}}" bindlongpress="onMsgLongPress" data-msg-id="{{item.id}}">
+        <view class="msg-bubble msg-bubble-user">
+          <text>{{item.content}}</text>
+        </view>
+        <text class="msg-time">{{item.time}}</text>
+      </view>
+
+      <!-- AI message -->
+      <view class="msg msg-ai" wx:if="{{item.role === 'ai'}}" bindlongpress="onMsgLongPress" data-msg-id="{{item.id}}">
+        <view class="msg-avatar">AI</view>
+        <view class="msg-body">
+          <view class="msg-bubble msg-bubble-ai">
+            <text>{{item.content}}</text>
+          </view>
+          <view class="msg-actions">
+            <view class="msg-action-btn" bindtap="onApplyToCard" data-msg-id="{{item.id}}">
+              <text>应用到卡片</text>
+            </view>
+            <view class="msg-action-btn {{precipitating ? 'msg-action-disabled' : ''}}" bindtap="onPrecipitate" data-msg-id="{{item.id}}">
+              <text>{{precipitating ? '沉淀中...' : '一键沉淀'}}</text>
+            </view>
+          </view>
+          <text class="msg-time">{{item.time}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- Loading indicator -->
+    <view class="msg msg-ai" wx:if="{{isLoading}}">
+      <view class="msg-avatar">AI</view>
+      <view class="msg-body">
+        <view class="msg-bubble msg-bubble-ai msg-loading">
+          <view class="loading-dots">
+            <view class="dot"></view>
+            <view class="dot"></view>
+            <view class="dot"></view>
+          </view>
+          <text>AI思考中...</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view id="scroll-bottom" style="height: 20rpx;"></view>
+</scroll-view>
+
+<!-- Input area -->
+<view class="input-area">
+  <view class="quick-prompts">
+    <view class="quick-btn" bindtap="onQuickPrompt" data-prompt="完善这个灵感">
+      <text>完善灵感</text>
+    </view>
+    <view class="quick-btn" bindtap="onQuickPrompt" data-prompt="拓展思路方向">
+      <text>拓展思路</text>
+    </view>
+    <view class="quick-btn" bindtap="onQuickPrompt" data-prompt="润色优化内容">
+      <text>润色内容</text>
+    </view>
+  </view>
+  <view class="input-row">
+    <textarea
+      class="chat-input"
+      placeholder="输入你的需求，如'完善这个灵感'..."
+      placeholder-style="color: #C0C4CC;"
+      value="{{inputText}}"
+      bindinput="onInput"
+      bindconfirm="onSend"
+      confirm-type="send"
+      auto-height
+      maxlength="-1"
+      style="max-height: 160rpx;"
+    />
+    <view class="send-btn {{inputText.trim() ? 'send-btn-active' : ''}}" bindtap="onSend">
+      <text>发送</text>
+    </view>
+  </view>
+</view>
+
+<!-- Card Picker for context switch -->
+<card-picker
+  visible="{{showCardPicker}}"
+  title="选择上下文卡片"
+  excludeIds="{{[]}}"
+  bind:select="onContextPickerSelect"
+  bind:close="onContextPickerClose"
+/>

@@ -1,0 +1,34 @@
+{
+  "pages": [
+    "pages/workspace/workspace",
+    "pages/index/index",
+    "pages/card-detail/card-detail",
+    "pages/card-edit/card-edit",
+    "pages/category/category",
+    "pages/ai-chat/ai-chat",
+    "pages/mind-link/mind-link",
+    "pages/profile/profile",
+    "pages/search/search",
+    "pages/ai-records/ai-records",
+    "pages/network/network"
+  ],
+  "window": {
+    "navigationBarTextStyle": "black",
+    "navigationStyle": "custom"
+  },
+  "style": "v2",
+  "renderer": "skyline",
+  "rendererOptions": {
+    "skyline": {
+      "defaultDisplayBlock": true,
+      "defaultContentBox": true,
+      "tagNameStyleIsolation": "legacy",
+      "disableABTest": true,
+      "sdkVersionBegin": "3.0.0",
+      "sdkVersionEnd": "15.255.255"
+    }
+  },
+  "componentFramework": "glass-easel",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

@@ -1,0 +1,127 @@
+/**app.wxss**/
+
+/* Global theme colors */
+page {
+  --color-bg: #F9FAFC;
+  --color-primary: #94B4C8;
+  --color-primary-dark: #7A9BB0;
+  --color-text: #2C3E50;
+  --color-text-secondary: #8E9AAF;
+  --color-border: #E8ECF1;
+  --color-white: #FFFFFF;
+  --color-tag-brainstorm: #B8D4E3;
+  --color-tag-halfbaked: #C4D7B2;
+  --color-tag-todo: #E8C9A0;
+  --color-tag-fragment: #D4B5D0;
+  --color-tag-night: #A0B8C8;
+  --color-tag-draft: #D4C5A9;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+/* Scroll area common */
+.scrollarea {
+  flex: 1;
+  overflow-y: hidden;
+  background: var(--color-bg);
+}
+
+/* Common card style */
+.card {
+  border-radius: 24rpx;
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+  background: var(--color-white);
+  box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.04);
+  border: 2rpx solid var(--color-border);
+  position: relative;
+}
+
+/* #15: truncate to 2 lines on home page cards */
+.card-content-text {
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: var(--color-text);
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.card-tag {
+  display: inline-block;
+  padding: 6rpx 16rpx;
+  border-radius: 12rpx;
+  font-size: 20rpx;
+  color: var(--color-white);
+  margin-bottom: 16rpx;
+}
+
+.card-keywords {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin-bottom: 16rpx;
+}
+
+.card-kw {
+  display: inline-block;
+  padding: 4rpx 14rpx;
+  border-radius: 10rpx;
+  font-size: 20rpx;
+  color: var(--color-white);
+}
+
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16rpx;
+}
+
+.card-time {
+  font-size: 20rpx;
+  color: var(--color-text-secondary);
+}
+
+.card-ai-badge {
+  font-size: 18rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  background: rgba(148, 180, 200, 0.15);
+  color: var(--color-primary-dark);
+}
+
+/* Common button styles */
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-white);
+  border: none;
+  border-radius: 16rpx;
+  padding: 20rpx 40rpx;
+  font-size: 28rpx;
+  text-align: center;
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--color-primary);
+  border: 2rpx solid var(--color-primary);
+  border-radius: 16rpx;
+  padding: 16rpx 32rpx;
+  font-size: 26rpx;
+  text-align: center;
+}
+
+/* Section title */
+.section-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 20rpx;
+}

@@ -1,0 +1,122 @@
+<!--pages/mind-link/mind-link.wxml-->
+<navigation-bar title="思维链路" back="{{true}}" background="#F9FAFC">
+  <view slot="right" class="nav-action" bindtap="onSaveTemplate">
+    <text class="nav-action-text">☰</text>
+  </view>
+</navigation-bar>
+
+<scroll-view class="scrollarea" scroll-y type="list">
+  <!-- Mind link visualization -->
+  <view class="mind-map">
+    <!-- Center node (current card) -->
+    <view class="node-center" style="background: {{centerCard.color}};">
+      <text class="node-center-label">当前灵感</text>
+      <text class="node-center-text">{{centerCard.content}}</text>
+      <text class="node-center-tag" style="background: rgba(255,255,255,0.3);">{{centerCard.keywords[0] || ''}}</text>
+    </view>
+
+    <!-- Connection lines + related nodes -->
+    <view class="link-section" wx:if="{{relatedNodes.length > 0 || aiNodes.length > 0}}">
+      <text class="link-section-title">关联脉络</text>
+
+      <!-- Related card nodes -->
+      <view class="link-list">
+        <view
+          wx:for="{{relatedNodes}}"
+          wx:key="id"
+          class="link-item"
+          bindtap="onNodeTap"
+          bindlongpress="onNodeLongPress"
+          data-id="{{item.id}}"
+        >
+          <view class="link-line" style="background: {{item.color}};"></view>
+          <view class="node-related" style="border-color: {{item.color}};">
+            <view class="node-tag" style="background: {{item.color}};">
+              <text>{{item.keywords[0] || ''}}</text>
+            </view>
+            <text class="node-text">{{item.content}}</text>
+            <text class="node-type">灵感卡片</text>
+          </view>
+        </view>
+
+        <!-- AI dialog nodes -->
+        <view
+          wx:for="{{aiNodes}}"
+          wx:key="id"
+          class="link-item"
+          bindtap="onAiNodeTap"
+          data-id="{{item.id}}"
+        >
+          <view class="link-line link-line-ai"></view>
+          <view class="node-ai">
+            <view class="node-tag node-tag-ai">
+              <text>AI引导</text>
+            </view>
+            <text class="node-text">{{item.title}}</text>
+            <text class="node-type">AI对话</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- Empty state for links -->
+    <view class="link-empty" wx:if="{{relatedNodes.length === 0 && aiNodes.length === 0}}">
+      <text class="link-empty-text">暂无关联节点</text>
+      <text class="link-empty-hint">添加关联卡片或AI思路来构建思维链路</text>
+    </view>
+  </view>
+
+  <!-- Thought flow analysis -->
+  <view class="flow-section">
+    <text class="flow-section-title">思维流分析</text>
+    <view class="flow-generate-btn {{generatingFlow ? 'flow-generate-disabled' : ''}}" bindtap="onGenerateFlow">
+      <text>{{generatingFlow ? '分析中...' : '生成分析'}}</text>
+    </view>
+    <view class="flow-card" wx:if="{{thoughtFlow}}">
+      <text class="flow-text">{{thoughtFlow}}</text>
+    </view>
+  </view>
+
+  <!-- Actions -->
+  <view class="link-actions">
+    <view class="link-action-btn" bindtap="onAddCard">
+      <view class="link-action-icon"><text class="action-icon-text">+</text></view>
+      <text>添加关联卡片</text>
+    </view>
+    <view class="link-action-btn" bindtap="onAddAiNode">
+      <view class="link-action-icon"><text class="action-icon-text">AI</text></view>
+      <text>添加AI思路</text>
+    </view>
+  </view>
+</scroll-view>
+
+<!-- #10: Card picker -->
+<card-picker
+  visible="{{showCardPicker}}"
+  title="选择关联卡片"
+  excludeIds="{{pickerExclude || []}}"
+  bind:select="onCardPickerSelect"
+  bind:close="onCardPickerClose"
+/>
+
+<!-- #11: Save template dialog -->
+<view class="modal-mask" wx:if="{{showSaveDialog}}" bindtap="onCancelSaveTemplate">
+  <view class="save-dialog" catchtap="onStopPropagation">
+    <text class="save-dialog-title">保存思路模板</text>
+    <input
+      class="save-dialog-input"
+      placeholder="输入模板名称..."
+      placeholder-style="color: #C0C4CC;"
+      value="{{templateName}}"
+      bindinput="onTemplateNameInput"
+    />
+    <view class="save-dialog-actions">
+      <view class="save-dialog-btn save-dialog-cancel" bindtap="onCancelSaveTemplate">
+        <text>取消</text>
+      </view>
+      <view class="save-dialog-btn save-dialog-confirm" bindtap="onConfirmSaveTemplate">
+        <text>保存</text>
+      </view>
+    </view>
+  </view>
+</view>

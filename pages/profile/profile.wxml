@@ -1,0 +1,234 @@
+<!--pages/profile/profile.wxml-->
+<navigation-bar title="个人中心" back="{{true}}" background="#F9FAFC">
+</navigation-bar>
+
+<scroll-view class="scrollarea" scroll-y type="list">
+  <!-- Stats Overview -->
+  <!-- #23: Added tempCards stat -->
+  <view class="stats-grid">
+    <view class="stat-item">
+      <text class="stat-number">{{stats.totalCards}}</text>
+      <text class="stat-label">灵感卡片</text>
+    </view>
+    <view class="stat-item">
+      <text class="stat-number">{{stats.weeklyNew}}</text>
+      <text class="stat-label">本周新增</text>
+    </view>
+    <view class="stat-item">
+      <text class="stat-number">{{stats.favorites}}</text>
+      <text class="stat-label">收藏数</text>
+    </view>
+    <view class="stat-item">
+      <text class="stat-number">{{stats.tempCards}}</text>
+      <text class="stat-label">临时灵感</text>
+    </view>
+    <view class="stat-item">
+      <text class="stat-number">{{stats.aiChats}}</text>
+      <text class="stat-label">AI对话</text>
+    </view>
+  </view>
+
+  <!-- Data Management -->
+  <view class="settings-section">
+    <text class="settings-section-title">数据管理</text>
+    <view class="settings-list">
+      <view class="settings-item" bindtap="onBackup">
+        <view class="settings-left">
+          <text class="settings-icon icon-backup">☁</text>
+          <text class="settings-text">数据备份</text>
+        </view>
+        <view class="settings-arrow"></view>
+      </view>
+      <view class="settings-item" bindtap="onClearData">
+        <view class="settings-left">
+          <text class="settings-icon icon-clear">✕</text>
+          <text class="settings-text danger-text">清空数据</text>
+        </view>
+        <view class="settings-arrow"></view>
+      </view>
+      <view class="settings-item" bindtap="onAiChatRecords">
+        <view class="settings-left">
+          <text class="settings-icon icon-chat-records">💬</text>
+          <text class="settings-text">AI对话记录</text>
+        </view>
+        <view class="settings-right-info">
+          <text class="settings-count">{{stats.aiChats}} 条</text>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Function Settings -->
+  <view class="settings-section">
+    <text class="settings-section-title">功能设置</text>
+    <view class="settings-list">
+      <view class="settings-item" bindtap="onAgentSettings">
+        <view class="settings-left">
+          <text class="settings-icon icon-agent">⚡</text>
+          <text class="settings-text">Agent推荐灵敏度</text>
+        </view>
+        <view class="settings-right-info">
+          <text class="settings-value">{{agentSensitivity}}</text>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+      <view class="settings-item" bindtap="onDefaultColor">
+        <view class="settings-left">
+          <text class="settings-icon icon-color">🎨</text>
+          <text class="settings-text">卡片默认配色</text>
+        </view>
+        <view class="settings-right-info">
+          <view class="color-preview" style="background: #D4B5D0;"></view>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+      <view class="settings-item" bindtap="onWalkSettings">
+        <view class="settings-left">
+          <text class="settings-icon icon-walk">👣</text>
+          <text class="settings-text">灵感漫游灵敏度</text>
+        </view>
+        <view class="settings-right-info">
+          <text class="settings-value">{{walkSensitivity}}</text>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- AI Settings -->
+  <view class="settings-section">
+    <text class="settings-section-title">AI设置</text>
+    <view class="settings-list">
+      <view class="settings-item" bindtap="onSetProvider">
+        <view class="settings-left">
+          <text class="settings-icon icon-provider">🔌</text>
+          <text class="settings-text">AI 服务商</text>
+        </view>
+        <view class="settings-right-info">
+          <text class="settings-value">{{providerName}}</text>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+      <view class="settings-item" bindtap="onSetApiKey">
+        <view class="settings-left">
+          <text class="settings-icon icon-api-key">🔑</text>
+          <text class="settings-text">{{providerName}} API Key</text>
+        </view>
+        <view class="settings-right-info">
+          <text class="settings-value">{{apiKeyDisplay || '未配置'}}</text>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+      <view class="settings-item" bindtap="onSetModel">
+        <view class="settings-left">
+          <text class="settings-icon icon-model">🤖</text>
+          <text class="settings-text">AI 模型</text>
+        </view>
+        <view class="settings-right-info">
+          <text class="settings-value">{{currentModelName}}</text>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+      <view class="settings-item" wx:if="{{aiProvider === 'mimo'}}" bindtap="onSetMimoBaseUrl">
+        <view class="settings-left">
+          <text class="settings-icon icon-base-url">🌐</text>
+          <text class="settings-text">MiMo API 地址</text>
+        </view>
+        <view class="settings-right-info">
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+      <view class="settings-item" bindtap="onAiTone">
+        <view class="settings-left">
+          <text class="settings-icon icon-ai-tone">🗣</text>
+          <text class="settings-text">AI对话语气</text>
+        </view>
+        <view class="settings-right-info">
+          <text class="settings-value">{{aiTone}}</text>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+      <view class="settings-item" bindtap="onAiDirection">
+        <view class="settings-left">
+          <text class="settings-icon icon-ai-direction">🧭</text>
+          <text class="settings-text">思路引导方向</text>
+        </view>
+        <view class="settings-right-info">
+          <text class="settings-value">{{aiDirection}}</text>
+          <view class="settings-arrow"></view>
+        </view>
+      </view>
+      <view class="settings-item" bindtap="onAiAutoRecommend">
+        <view class="settings-left">
+          <text class="settings-icon icon-auto">🤖</text>
+          <text class="settings-text">AI自动推荐编辑</text>
+        </view>
+        <view class="settings-right-info">
+          <view class="toggle {{aiAutoRecommend ? 'toggle-on' : ''}}">
+            <view class="toggle-dot"></view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Help -->
+  <view class="settings-section">
+    <view class="settings-list">
+      <view class="settings-item" bindtap="onHelp">
+        <view class="settings-left">
+          <text class="settings-icon icon-help">❓</text>
+          <text class="settings-text">操作说明</text>
+        </view>
+        <view class="settings-arrow"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Footer -->
+  <view class="profile-footer">
+    <text class="footer-text">思维灵感卡片 v1.0.0</text>
+    <text class="footer-subtext">基于微信小程序原生开发</text>
+  </view>
+</scroll-view>
+
+<!-- Clear confirm -->
+<view class="modal-mask" wx:if="{{showClearConfirm}}" bindtap="onHideClear">
+  <view class="confirm-dialog" catchtap="onStopPropagation">
+    <text class="confirm-title">确认清空数据</text>
+    <text class="confirm-msg">清空后所有灵感卡片和AI对话记录将被删除，且无法恢复。</text>
+    <view class="confirm-actions">
+      <view class="confirm-btn confirm-cancel" bindtap="onHideClear">
+        <text>取消</text>
+      </view>
+      <view class="confirm-btn confirm-danger" bindtap="onConfirmClear">
+        <text>清空</text>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- API Key Modal -->
+<view class="modal-mask" wx:if="{{showApiKeyModal}}" bindtap="onCloseApiKeyModal">
+  <view class="confirm-dialog" catchtap="onStopPropagation">
+    <text class="confirm-title">配置 {{providerName}} API Key</text>
+    <text class="confirm-msg">{{aiProvider === 'mimo' ? '输入 MiMo API Key' : '前往 platform.deepseek.com 注册并获取 API Key，粘贴到下方。'}}</text>
+    <input
+      class="modal-input-field"
+      placeholder="sk-..."
+      placeholder-style="color: #C0C4CC;"
+      value="{{apiKeyInput}}"
+      bindinput="onApiKeyInput"
+      maxlength="64"
+    />
+    <view class="confirm-actions">
+      <view class="confirm-btn confirm-cancel" bindtap="onCloseApiKeyModal">
+        <text>取消</text>
+      </view>
+      <view class="confirm-btn confirm-danger" style="background: var(--color-primary);" bindtap="onConfirmApiKey">
+        <text>保存</text>
+      </view>
+    </view>
+  </view>
+</view>

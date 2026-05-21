@@ -1,0 +1,76 @@
+<!--pages/network/network.wxml-->
+<navigation-bar title="关联网络" back="{{true}}" background="#F9FAFC">
+  <view slot="right" class="nav-right">
+    <view class="nav-icon-btn" bindtap="onResetView">
+      <text class="nav-icon-text">⌖</text>
+    </view>
+  </view>
+</navigation-bar>
+
+<!-- Keyword filter bar -->
+<scroll-view class="filter-bar" scroll-x enhanced show-scrollbar="{{false}}" enable-flex="{{true}}">
+  <view
+    class="filter-item {{selectedTag === '全部' ? 'filter-active' : ''}}"
+    bindtap="onFilterSelect"
+    data-tag="全部"
+  >
+    <text>全部</text>
+  </view>
+  <view
+    wx:for="{{allKeywords}}"
+    wx:key="*this"
+    class="filter-item {{selectedTag === item ? 'filter-active' : ''}}"
+    bindtap="onFilterSelect"
+    data-tag="{{item}}"
+  >
+    <text>{{item}}</text>
+  </view>
+</scroll-view>
+
+<!-- Canvas container -->
+<view class="canvas-container">
+  <canvas
+    type="2d"
+    id="network-canvas"
+    class="network-canvas"
+    bindtouchstart="onTouchStart"
+    bindtouchmove="onTouchMove"
+    bindtouchend="onTouchEnd"
+  ></canvas>
+
+  <!-- Legend -->
+  <view class="legend">
+    <view class="legend-item">
+      <view class="legend-line legend-line-solid"></view>
+      <text class="legend-text">手动关联</text>
+    </view>
+    <view class="legend-item">
+      <view class="legend-line legend-line-dash"></view>
+      <text class="legend-text">关键字关联</text>
+    </view>
+  </view>
+
+  <!-- Loading -->
+  <view class="loading-overlay" wx:if="{{simulating}}">
+    <text class="loading-text">正在计算布局...</text>
+  </view>
+
+  <!-- Node info tooltip -->
+  <view class="node-tooltip" wx:if="{{tooltipNode}}" style="left: {{tooltipX}}rpx; top: {{tooltipY}}rpx;" bindtap="onTooltipTap">
+    <view class="tooltip-keywords" wx:if="{{tooltipNode.keywords.length > 0}}">
+      <text
+        wx:for="{{tooltipNode.keywords}}"
+        wx:for-item="kw"
+        wx:key="*this"
+        class="tooltip-kw"
+        style="background: {{tooltipNode.color}};"
+      >{{kw}}</text>
+    </view>
+    <text class="tooltip-label">{{tooltipNode.fullLabel}}</text>
+    <view class="tooltip-shared" wx:if="{{tooltipNode.sharedKeywords.length > 0}}">
+      <text class="tooltip-shared-label">关联关键字：</text>
+      <text class="tooltip-shared-text">{{tooltipNode.sharedKeywords[0]}}{{tooltipNode.sharedKeywords[1] ? ' · ' + tooltipNode.sharedKeywords[1] : ''}}{{tooltipNode.sharedKeywords[2] ? ' · ' + tooltipNode.sharedKeywords[2] : ''}}</text>
+    </view>
+    <text class="tooltip-hint">点击查看详情</text>
+  </view>
+</view>

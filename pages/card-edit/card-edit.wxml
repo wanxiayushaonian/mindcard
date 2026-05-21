@@ -1,0 +1,139 @@
+<!--pages/card-edit/card-edit.wxml-->
+<navigation-bar title="{{isEdit ? '编辑卡片' : '新增卡片'}}" back="{{true}}" background="#F9FAFC">
+  <view slot="right" class="nav-save" bindtap="onSave">
+    <text>保存</text>
+  </view>
+</navigation-bar>
+
+<scroll-view class="scrollarea" scroll-y type="list">
+  <view class="edit-form">
+    <!-- Title -->
+    <view class="form-group">
+      <view class="form-label-row">
+        <text class="form-label">标题</text>
+        <view class="inline-ai-btn" bindtap="onAiTitle">AI提炼</view>
+      </view>
+      <input
+        class="form-input"
+        placeholder="输入卡片标题..."
+        placeholder-style="color: #C0C4CC;"
+        value="{{title}}"
+        bindinput="onTitleInput"
+      />
+    </view>
+
+    <!-- Content -->
+    <view class="form-group">
+      <text class="form-label">灵感内容</text>
+      <textarea
+        class="form-textarea"
+        placeholder="输入你的灵感内容..."
+        placeholder-style="color: #C0C4CC;"
+        value="{{content}}"
+        bindinput="onContentInput"
+        maxlength="-1"
+        auto-height
+      />
+    </view>
+
+    <!-- Keywords -->
+    <view class="form-group">
+      <view class="form-label-row">
+        <text class="form-label">关键字</text>
+        <view class="inline-ai-btn" bindtap="onAiKeywords">AI提取</view>
+      </view>
+      <view class="keyword-input-row">
+        <input
+          class="keyword-input"
+          placeholder="输入关键字后添加..."
+          placeholder-style="color: #C0C4CC;"
+          value="{{keywordInput}}"
+          bindinput="onKeywordInput"
+          confirm-type="done"
+          bindconfirm="onAddKeyword"
+        />
+        <view class="keyword-add-btn" bindtap="onAddKeyword">
+          <text>+</text>
+        </view>
+      </view>
+      <view class="keyword-list" wx:if="{{keywords.length > 0}}">
+        <view
+          wx:for="{{keywords}}"
+          wx:key="*this"
+          class="keyword-pill keyword-active"
+          style="background: {{selectedColor}}; color: #fff;"
+        >
+          <text>{{item}}</text>
+          <text class="keyword-remove" bindtap="onRemoveKeyword" data-kw="{{item}}">x</text>
+        </view>
+      </view>
+      <!-- Suggested keywords -->
+      <view class="keyword-suggest" wx:if="{{suggestedKeywords.length > 0}}">
+        <text class="keyword-suggest-label">热门关键字：</text>
+        <view class="keyword-list">
+          <view
+            wx:for="{{suggestedKeywords}}"
+            wx:key="*this"
+            class="keyword-pill"
+            bindtap="onSuggestKeyword"
+            data-kw="{{item}}"
+          >
+            <text>{{item}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- Card Color -->
+    <view class="form-group">
+      <text class="form-label">卡片配色</text>
+      <view class="color-list">
+        <view
+          wx:for="{{colors}}"
+          wx:key="*this"
+          class="color-option {{selectedColor === item ? 'color-option-active' : ''}}"
+          style="background: {{item}};"
+          bindtap="onColorSelect"
+          data-color="{{item}}"
+        >
+          <view class="color-check" wx:if="{{selectedColor === item}}"></view>
+        </view>
+      </view>
+    </view>
+
+    <!-- Preview -->
+    <view class="form-group">
+      <text class="form-label">卡片预览</text>
+      <view class="preview-card" style="border-left: 8rpx solid {{selectedColor}};">
+        <view class="preview-keywords" wx:if="{{keywords.length > 0}}">
+          <view
+            wx:for="{{keywords}}"
+            wx:key="*this"
+            class="preview-kw"
+            style="background: {{selectedColor}};"
+          >
+            <text>{{item}}</text>
+          </view>
+        </view>
+        <text class="preview-title" wx:if="{{title}}">{{title}}</text>
+        <text class="preview-content">{{content || '灵感内容将在这里预览...'}}</text>
+      </view>
+    </view>
+
+    <!-- AI Actions -->
+    <view class="ai-actions">
+      <view class="ai-action-btn" bindtap="onAiGenerate">
+        <view class="ai-action-icon">G</view>
+        <text class="ai-action-text">AI生成</text>
+      </view>
+      <view class="ai-action-btn" bindtap="onAiPolish">
+        <view class="ai-action-icon">P</view>
+        <text class="ai-action-text">AI润色</text>
+      </view>
+      <view class="ai-action-btn" bindtap="onAiSupplement">
+        <view class="ai-action-icon">S</view>
+        <text class="ai-action-text">AI补充</text>
+      </view>
+    </view>
+  </view>
+</scroll-view>

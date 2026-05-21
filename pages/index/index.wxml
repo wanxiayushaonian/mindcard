@@ -1,0 +1,263 @@
+<!--pages/index/index.wxml-->
+<navigation-bar title="{{workspaceName}}" back="{{true}}" background="#F9FAFC">
+  <view slot="right" class="nav-right">
+    <view class="nav-icon-btn" bindtap="onSearch">
+      <text class="nav-icon-text">⌕</text>
+    </view>
+    <view class="nav-icon-btn" bindtap="onWalk">
+      <text class="nav-icon-text">◎</text>
+    </view>
+    <view class="nav-icon-btn" bindtap="onNetwork">
+      <text class="nav-icon-text">⊛</text>
+    </view>
+    <view class="nav-icon-btn" bindtap="onProfile">
+      <text class="nav-icon-text">☻</text>
+    </view>
+  </view>
+</navigation-bar>
+
+<scroll-view
+  class="scrollarea"
+  scroll-y
+  type="list"
+  refresher-enabled="{{true}}"
+  refresher-triggered="{{refreshing}}"
+  bindrefresherrefresh="onRefresh"
+>
+  <!-- Keyword filter bar -->
+  <scroll-view class="tag-bar" scroll-x enhanced show-scrollbar="{{false}}" enable-flex="{{true}}">
+    <view
+      class="tag-item {{selectedTag === '全部' ? 'tag-active' : ''}}"
+      bindtap="onTagSelect"
+      data-tag="全部"
+    >
+      <text>全部</text>
+    </view>
+    <view
+      wx:for="{{allKeywords}}"
+      wx:key="*this"
+      class="tag-item {{selectedTag === item ? 'tag-active' : ''}}"
+      bindtap="onTagSelect"
+      data-tag="{{item}}"
+    >
+      <text>{{item}}</text>
+    </view>
+    <view
+      class="tag-item {{selectedTag === '临时灵感箱' ? 'tag-active' : ''}}"
+      bindtap="onTagSelect"
+      data-tag="临时灵感箱"
+    >
+      <text>临时灵感箱</text>
+    </view>
+  </scroll-view>
+
+  <!-- Stats bar -->
+  <view class="stats-bar">
+    <text class="stats-text">{{filteredCards.length}} 张灵感卡片</text>
+    <view class="stats-right">
+      <view class="stats-fav" bindtap="onTagSelect" data-tag="收藏">
+        <text class="heart-small">♡</text>
+        <text class="stats-fav-text">{{favCount}}</text>
+      </view>
+      <view class="stats-category" bindtap="onCategory">
+        <text class="stats-category-text">分类管理</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Empty state -->
+  <view class="empty-state" wx:if="{{filteredCards.length === 0}}">
+    <view class="empty-icon">💡</view>
+    <text class="empty-text">还没有灵感卡片</text>
+    <text class="empty-hint">点击右下角按钮开始记录</text>
+  </view>
+
+  <!-- Waterfall card layout -->
+  <view class="waterfall" wx:if="{{filteredCards.length > 0}}">
+    <view class="waterfall-col">
+      <view
+        wx:for="{{leftCards}}"
+        wx:key="id"
+        class="card"
+        style="border-left: 6rpx solid {{item.color}};"
+        bindtap="onCardTap"
+        bindlongpress="onCardLongPress"
+        data-id="{{item.id}}"
+      >
+        <view class="card-keywords" wx:if="{{item.keywords.length > 0}}">
+          <view
+            wx:for="{{item.keywords}}"
+            wx:for-item="kw"
+            wx:key="*this"
+            class="card-kw"
+            style="background: {{item.color}};"
+          >
+            <text>{{kw}}</text>
+          </view>
+        </view>
+        <text class="card-title" wx:if="{{item.title}}">{{item.title}}</text>
+        <text class="card-content-text">{{item.content}}</text>
+        <view class="card-footer">
+          <text class="card-time">{{item.createdAt}}</text>
+          <view class="card-badges">
+            <text wx:if="{{item.hasAiChat}}" class="card-ai-badge">AI</text>
+            <text wx:if="{{item.isFavorite}}" class="card-fav-text">❤</text>
+          </view>
+        </view>
+      </view>
+    </view>
+    <view class="waterfall-col">
+      <view
+        wx:for="{{rightCards}}"
+        wx:key="id"
+        class="card"
+        style="border-left: 6rpx solid {{item.color}};"
+        bindtap="onCardTap"
+        bindlongpress="onCardLongPress"
+        data-id="{{item.id}}"
+      >
+        <view class="card-keywords" wx:if="{{item.keywords.length > 0}}">
+          <view
+            wx:for="{{item.keywords}}"
+            wx:for-item="kw"
+            wx:key="*this"
+            class="card-kw"
+            style="background: {{item.color}};"
+          >
+            <text>{{kw}}</text>
+          </view>
+        </view>
+        <text class="card-title" wx:if="{{item.title}}">{{item.title}}</text>
+        <text class="card-content-text">{{item.content}}</text>
+        <view class="card-footer">
+          <text class="card-time">{{item.createdAt}}</text>
+          <view class="card-badges">
+            <text wx:if="{{item.hasAiChat}}" class="card-ai-badge">AI</text>
+            <text wx:if="{{item.isFavorite}}" class="card-fav-text">❤</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Bottom spacer for FAB -->
+  <view class="bottom-spacer"></view>
+</scroll-view>
+
+<!-- Floating Action Button -->
+<view class="fab" bindtap="onFabTap" hover-class="fab-hover">
+  <text class="fab-plus">+</text>
+  <text class="fab-label">闪记</text>
+</view>
+
+<!-- Flash Note Modal -->
+<view class="modal-mask" wx:if="{{showFlashModal}}" bindtap="onModalClose">
+  <view class="flash-modal" catchtap="onStopPropagation">
+    <view class="flash-modal-header">
+      <text class="flash-modal-title">极速闪记</text>
+      <view class="flash-close" bindtap="onModalClose">
+        <text class="close-text">✕</text>
+      </view>
+    </view>
+    <textarea
+      class="flash-input"
+      placeholder="输入你的灵感..."
+      placeholder-style="color: #C0C4CC;"
+      value="{{flashContent}}"
+      bindinput="onFlashInput"
+      maxlength="-1"
+      auto-height
+      adjust-position="{{true}}"
+    />
+    <!-- Keywords in flash modal -->
+    <view class="flash-keywords">
+      <view class="flash-keyword-row">
+        <input
+          class="flash-keyword-input"
+          placeholder="添加关键字..."
+          placeholder-style="color: #C0C4CC;"
+          value="{{flashKeywordInput}}"
+          bindinput="onFlashKeywordInput"
+          bindconfirm="onFlashAddKeyword"
+        />
+        <view class="flash-keyword-add" bindtap="onFlashAddKeyword">
+          <text>+</text>
+        </view>
+      </view>
+      <view class="flash-keyword-list" wx:if="{{flashKeywords.length > 0}}">
+        <view
+          wx:for="{{flashKeywords}}"
+          wx:key="*this"
+          class="flash-kw-pill"
+        >
+          <text>{{item}}</text>
+          <text class="flash-kw-remove" bindtap="onFlashRemoveKeyword" data-kw="{{item}}">x</text>
+        </view>
+      </view>
+      <view class="flash-suggest" wx:if="{{flashSuggestedKeywords.length > 0}}">
+        <view
+          wx:for="{{flashSuggestedKeywords}}"
+          wx:key="*this"
+          class="flash-suggest-pill"
+          bindtap="onFlashSuggestKeyword"
+          data-kw="{{item}}"
+        >
+          <text>{{item}}</text>
+        </view>
+      </view>
+    </view>
+    <view class="flash-actions">
+      <view class="flash-actions-right">
+        <view class="flash-ai-btn" bindtap="onAiPolish">
+          <text>AI润色</text>
+        </view>
+        <view class="flash-ai-btn" bindtap="onAiSupplement">
+          <text>AI补充</text>
+        </view>
+        <view class="flash-save-btn" bindtap="onFlashSave">
+          <text>保存</text>
+        </view>
+      </view>
+    </view>
+    <text class="flash-hint">1秒闪记，AI自动提取关键字</text>
+  </view>
+</view>
+
+<!-- Inspiration Walk Modal -->
+<view class="modal-mask" wx:if="{{showWalkModal}}" bindtap="onWalkClose">
+  <view class="walk-modal" catchtap="onStopPropagation">
+    <view class="walk-modal-header">
+      <text class="walk-modal-title">灵感漫游</text>
+      <view class="walk-close" bindtap="onWalkClose">
+        <text class="close-text">✕</text>
+      </view>
+    </view>
+    <view class="walk-card" wx:if="{{walkCard}}" style="border-left: 6rpx solid {{walkCard.color}};">
+      <view class="card-keywords" wx:if="{{walkCard.keywords.length > 0}}">
+        <view
+          wx:for="{{walkCard.keywords}}"
+          wx:for-item="kw"
+          wx:key="*this"
+          class="card-kw"
+          style="background: {{walkCard.color}};"
+        >
+          <text>{{kw}}</text>
+        </view>
+      </view>
+      <text class="walk-card-title" wx:if="{{walkCard.title}}">{{walkCard.title}}</text>
+      <text class="walk-card-content">{{walkCard.content}}</text>
+      <view class="walk-card-footer">
+        <text class="walk-card-time">{{walkCard.createdAt}}</text>
+        <text wx:if="{{walkCard.hasAiChat}}" class="walk-card-ai">AI对话</text>
+      </view>
+    </view>
+    <view class="walk-actions">
+      <view class="walk-btn walk-btn-secondary" bindtap="onWalkRefresh">
+        <text>再换一张</text>
+      </view>
+      <view class="walk-btn walk-btn-primary" bindtap="onWalkDetail">
+        <text>查看详情</text>
+      </view>
+    </view>
+  </view>
+</view>

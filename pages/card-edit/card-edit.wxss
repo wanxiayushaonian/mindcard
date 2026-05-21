@@ -1,0 +1,243 @@
+/* pages/card-edit/card-edit.wxss */
+page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+.nav-save {
+  padding: 8rpx 28rpx;
+  background: var(--color-primary);
+  border-radius: 16rpx;
+  color: #fff;
+  font-size: 26rpx;
+}
+
+.edit-form {
+  padding: 24rpx;
+}
+
+.form-group {
+  margin-bottom: 32rpx;
+}
+
+.form-label {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 16rpx;
+}
+
+.form-label-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.form-label-row .form-label {
+  margin-bottom: 0;
+}
+
+.inline-ai-btn {
+  padding: 6rpx 20rpx;
+  border-radius: 16rpx;
+  font-size: 22rpx;
+  background: rgba(148, 180, 200, 0.12);
+  color: var(--color-primary-dark);
+}
+
+.form-input {
+  width: 100%;
+  padding: 20rpx 24rpx;
+  background: var(--color-white);
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  color: var(--color-text);
+  box-sizing: border-box;
+  height: 88rpx;
+  line-height: 48rpx;
+}
+
+.form-textarea {
+  width: 100%;
+  min-height: 240rpx;
+  padding: 24rpx;
+  background: var(--color-white);
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+/* Keyword input */
+.keyword-input-row {
+  display: flex;
+  flex-direction: row;
+  gap: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.keyword-input {
+  flex: 1;
+  padding: 20rpx 24rpx;
+  background: var(--color-white);
+  border-radius: 16rpx;
+  font-size: 26rpx;
+  color: var(--color-text);
+}
+
+.keyword-add-btn {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 16rpx;
+  background: var(--color-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36rpx;
+  font-weight: 600;
+}
+
+.keyword-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.keyword-pill {
+  padding: 8rpx 20rpx;
+  border-radius: 20rpx;
+  font-size: 22rpx;
+  background: #F0F2F5;
+  color: var(--color-text-secondary);
+}
+
+.keyword-active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.keyword-remove {
+  margin-left: 8rpx;
+  font-size: 20rpx;
+  opacity: 0.7;
+}
+
+.keyword-suggest {
+  margin-top: 16rpx;
+}
+
+.keyword-suggest-label {
+  font-size: 22rpx;
+  color: #C0C4CC;
+  margin-bottom: 8rpx;
+}
+
+/* Color selection */
+.color-list {
+  display: flex;
+  flex-direction: row;
+  gap: 20rpx;
+}
+
+.color-option {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.color-option-active {
+  box-shadow: 0 0 0 4rpx var(--color-bg), 0 0 0 8rpx currentColor;
+}
+
+.color-check {
+  width: 20rpx;
+  height: 10rpx;
+  border-left: 4rpx solid #fff;
+  border-bottom: 4rpx solid #fff;
+  transform: rotate(-45deg);
+  margin-top: -4rpx;
+}
+
+/* Preview */
+.preview-card {
+  background: var(--color-white);
+  border-radius: 20rpx;
+  padding: 28rpx;
+  box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.04);
+}
+
+.preview-keywords {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin-bottom: 16rpx;
+}
+
+.preview-kw {
+  padding: 4rpx 14rpx;
+  border-radius: 8rpx;
+  font-size: 20rpx;
+  color: #fff;
+}
+
+.preview-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 12rpx;
+}
+
+.preview-content {
+  display: block;
+  font-size: 26rpx;
+  line-height: 1.6;
+  color: #666;
+}
+
+/* AI Actions */
+.ai-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  padding: 32rpx 0;
+  margin-top: 16rpx;
+  border-top: 1rpx solid var(--color-border);
+}
+
+.ai-action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.ai-action-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: rgba(148, 180, 200, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--color-primary-dark);
+}
+
+.ai-action-text {
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+}
