@@ -42,8 +42,23 @@ def upgrade() -> None:
         sa.Column("nickname", sa.String(64), server_default=""),
         sa.Column("avatar_url", sa.Text, server_default=""),
         sa.Column("created_at", TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
+        sa.Column("updated_at", TIMESTAMP(timezone=True), nullable=True),
     )
     op.create_index("idx_users_openid", "users", ["wechat_openid"])
+
+    # User settings
+    op.create_table(
+        "user_settings",
+        sa.Column("user_id", UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+        sa.Column("ai_provider", sa.String(32), server_default="deepseek"),
+        sa.Column("ai_model", sa.String(64), server_default=""),
+        sa.Column("ai_tone", sa.String(16), server_default="创意"),
+        sa.Column("ai_direction", sa.String(16), server_default="发散"),
+        sa.Column("agent_sensitivity", sa.String(8), server_default="中"),
+        sa.Column("walk_sensitivity", sa.String(8), server_default="高"),
+        sa.Column("created_at", TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
+        sa.Column("updated_at", TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
+    )
 
     # Workspaces
     op.create_table(
@@ -55,6 +70,7 @@ def upgrade() -> None:
         sa.Column("icon", sa.String(8), server_default="💡"),
         sa.Column("color", sa.String(16), server_default="#94B4C8"),
         sa.Column("invite_code", sa.String(8), unique=True, nullable=True),
+        sa.Column("invite_code_expires_at", TIMESTAMP(timezone=True), nullable=True),
         sa.Column("created_at", TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
     )
     op.create_index("idx_workspaces_local_id", "workspaces", ["local_id"])
@@ -91,10 +107,21 @@ def upgrade() -> None:
     op.create_index("idx_cards_keywords", "cards", ["keywords"], postgresql_using="gin")
 
     # Add pgvector embedding column and FTS vector
-    op.execute("ALTER TABLE cards ADD COLUMN embedding vector(1024)")
-    op.execute("ALTER TABLE cards ADD COLUMN fts_vector tsvector GENERATED ALWAYS AS (to_tsvector('chinese', coalesce(title, '') || ' ' || content)) STORED")
+    op.execute("ALTER TABLE cards ADD COLUMN embedding vector(768)")
+    op.execute("ALTER TABLE cards ADD COLUMN fts_vector tsvector")
     op.execute("CREATE INDEX idx_cards_embedding ON cards USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)")
     op.execute("CREATE INDEX idx_cards_fts ON cards USING gin (fts_vector)")
+
+    # Trigger to auto-update fts_vector on insert/update
+    op.execute("""
+        CREATE OR REPLACE FUNCTION cards_fts_trigger() RETURNS trigger AS $$
+        BEGIN
+            NEW.fts_vector := to_tsvector('chinese', coalesce(NEW.title, '') || ' ' || NEW.content || ' ' || coalesce(array_to_string(NEW.keywords, ' '), ''));
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+    """)
+    op.execute("CREATE TRIGGER trg_cards_fts BEFORE INSERT OR UPDATE ON cards FOR EACH ROW EXECUTE FUNCTION cards_fts_trigger()")
 
     # Card relations
     op.create_table(
@@ -127,7 +154,6 @@ def upgrade() -> None:
         sa.Column("content", sa.Text, nullable=False),
         sa.Column("created_at", TIMESTAMP(timezone=True), server_default=sa.text("NOW()")),
     )
-    op.execute("ALTER TABLE chat_messages ADD COLUMN embedding vector(1024)")
     op.create_index("idx_chat_messages_chat", "chat_messages", ["chat_id"])
 
     # Comments
@@ -147,8 +173,11 @@ def downgrade() -> None:
     op.drop_table("chat_messages")
     op.drop_table("ai_chats")
     op.drop_table("card_relations")
+    op.execute("DROP TRIGGER IF EXISTS trg_cards_fts ON cards")
+    op.execute("DROP FUNCTION IF EXISTS cards_fts_trigger()")
     op.drop_table("cards")
     op.drop_table("workspace_members")
     op.drop_table("workspaces")
+    op.drop_table("user_settings")
     op.drop_table("users")
     op.execute("DROP EXTENSION IF EXISTS vector")

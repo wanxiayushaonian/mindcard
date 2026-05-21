@@ -24,7 +24,12 @@ class SearchService:
         self, db: AsyncSession, query: str, workspace_id: str, limit: int = 20
     ) -> list[ScoredCard]:
         """Semantic search using pgvector cosine distance."""
-        query_embedding = await embedding_service.embed(query)
+        try:
+            query_embedding = await embedding_service.embed(query)
+        except Exception as e:
+            logger.warning("Embedding failed, skipping vector search: %s", e)
+            return []
+
         ws_uuid = uuid.UUID(workspace_id)
 
         # pgvector cosine distance: 0 = identical, 2 = opposite

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     search_top_k: int = 20
     rag_top_k: int = 5
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

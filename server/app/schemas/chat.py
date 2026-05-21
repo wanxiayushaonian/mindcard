@@ -5,13 +5,15 @@ from pydantic import BaseModel
 
 
 class ChatCreate(BaseModel):
-    local_id: str
-    card_id: str
+    local_id: str = ""
+    mode: str = "rag"  # 'rag' | 'chat'
+    workspace_id: str | None = None
+    card_id: str | None = None
     title: str = ""
 
 
 class ChatMessageCreate(BaseModel):
-    role: str
+    role: str  # 'user' | 'assistant'
     content: str
 
 
@@ -25,10 +27,22 @@ class ChatMessageResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChatListResponse(BaseModel):
+    id: uuid.UUID
+    mode: str
+    workspace_id: uuid.UUID | None
+    card_id: uuid.UUID | None
+    title: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class ChatResponse(BaseModel):
     id: uuid.UUID
-    local_id: str
-    card_id: uuid.UUID
+    mode: str
+    workspace_id: uuid.UUID | None
+    card_id: uuid.UUID | None
     title: str
     created_at: datetime
     messages: list[ChatMessageResponse] = []

@@ -1,8 +1,13 @@
 import logging
+import os
 
 import numpy as np
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Load .env so HF_ENDPOINT and other non-pydantic vars reach the real environment
+load_dotenv(override=False)
 
 
 class EmbeddingService:
@@ -12,17 +17,24 @@ class EmbeddingService:
         self._model = None
 
     def _load_model(self):
-        if self._model is None:
+        if self._model is not None:
+            return
+        try:
             from sentence_transformers import SentenceTransformer
             from app.config import settings
 
             logger.info("Loading embedding model: %s", settings.embedding_model)
             self._model = SentenceTransformer(settings.embedding_model)
             logger.info("Embedding model loaded (dim=%d)", settings.embedding_dim)
+        except Exception as e:
+            logger.error("Failed to load embedding model: %s", e)
+            self._model = None
 
     async def embed(self, text: str) -> list[float]:
-        """Generate embedding for a single text."""
+        """Generate embedding for a single text. Raises RuntimeError if model unavailable."""
         self._load_model()
+        if self._model is None:
+            raise RuntimeError("Embedding model failed to load")
         embedding = self._model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
 

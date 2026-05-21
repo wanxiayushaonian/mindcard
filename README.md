@@ -8,7 +8,7 @@
 mindcard-workspace/
 ├── miniapp/          # 微信小程序（Skyline 渲染器）
 ├── server/           # Python FastAPI 后端（PostgreSQL + pgvector）
-└── web/              # Next.js Web 前端（待创建）
+└── web/              # Next.js Web 前端（Tailwind CSS）
 ```
 
 ## 快速开始
@@ -27,7 +27,12 @@ uv run uvicorn app.main:app --reload
 ```
 
 ### Web 端
-待创建。
+```bash
+cd web
+npm install
+npm run dev
+```
+访问 http://localhost:3000
 
 ## 技术栈
 
@@ -37,4 +42,4 @@ uv run uvicorn app.main:app --reload
 | 后端 | FastAPI + SQLAlchemy + PostgreSQL + pgvector |
 | 搜索 | BGE-M3 向量搜索 + PostgreSQL 全文搜索 + RRF 融合 |
 | RAG | DeepSeek API + LlamaIndex |
-| Web | Next.js 14 + Tailwind CSS (计划中) |
+| Web | Next.js 14 + Tailwind CSS + SWR + Zustand |

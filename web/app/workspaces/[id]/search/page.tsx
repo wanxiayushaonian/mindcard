@@ -1,0 +1,107 @@
+"use client";
+
+import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
+import { searchApi, type SearchResult } from "@/lib/api";
+
+type SearchMode = "semantic" | "fulltext" | "hybrid";
+
+export default function SearchPage() {
+  const params = useParams();
+  const router = useRouter();
+  const workspaceId = params.id as string;
+
+  const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<SearchMode>("hybrid");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    setLoading(true);
+    try {
+      const searchFn = { semantic: searchApi.semantic, fulltext: searchApi.fulltext, hybrid: searchApi.hybrid }[mode];
+      const res = await searchFn(query, workspaceId);
+      setResults(res.results);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-3xl px-4 py-6">
+      <div className="mb-6">
+        <div className="flex gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            placeholder="搜索灵感卡片..."
+            className="flex-1 rounded-xl border border-gray-200 bg-surface px-4 py-3 text-sm outline-none focus:border-primary"
+          />
+          <button
+            onClick={handleSearch}
+            disabled={loading || !query.trim()}
+            className="rounded-xl bg-primary px-6 py-3 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {loading ? "搜索中..." : "搜索"}
+          </button>
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          {(["hybrid", "semantic", "fulltext"] as SearchMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`rounded-lg px-3 py-1 text-xs ${
+                mode === m
+                  ? "bg-primary text-white"
+                  : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+              }`}
+            >
+              {{ hybrid: "混合搜索", semantic: "语义搜索", fulltext: "全文搜索" }[m]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {results.length > 0 && (
+        <div className="flex flex-col gap-3">
+          {results.map(({ card, score }) => (
+            <div
+              key={card.id}
+              onClick={() => router.push(`/workspaces/${workspaceId}/card/${card.id}`)}
+              className="cursor-pointer rounded-card bg-surface p-4 shadow-sm transition hover:shadow-md"
+              style={{ borderLeft: `4px solid ${card.color}` }}
+            >
+              <div className="mb-1 flex items-start justify-between">
+                <div className="flex flex-wrap gap-1">
+                  {card.keywords.slice(0, 3).map((kw) => (
+                    <span
+                      key={kw}
+                      className="rounded px-1.5 py-0.5 text-xs text-white"
+                      style={{ background: card.color }}
+                    >
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+                <span className="text-xs text-text-secondary">
+                  {(score * 100).toFixed(0)}%
+                </span>
+              </div>
+              {card.title && <h3 className="mb-1 font-semibold text-text">{card.title}</h3>}
+              <p className="line-clamp-3 text-sm text-text">{card.content}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {results.length === 0 && query && !loading && (
+        <p className="py-12 text-center text-sm text-text-secondary">未找到相关卡片</p>
+      )}
+    </div>
+  );
+}

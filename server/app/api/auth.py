@@ -43,3 +43,19 @@ async def web_login(req: WebLoginRequest, db: AsyncSession = Depends(get_db)):
     """Web端扫码登录 via WeChat OAuth."""
     # TODO: implement WeChat公众号 OAuth flow
     raise HTTPException(status_code=501, detail="Web login not yet implemented")
+
+
+class DevLoginRequest(BaseModel):
+    nickname: str = "Web用户"
+
+
+@router.post("/dev-login", response_model=TokenResponse)
+async def dev_login(req: DevLoginRequest, db: AsyncSession = Depends(get_db)):
+    """Development login: create or reuse a dev user, no WeChat required."""
+    import hashlib
+
+    dev_openid = "dev_" + hashlib.md5(req.nickname.encode()).hexdigest()[:12]
+    user = await get_or_create_user(db, dev_openid, nickname=req.nickname)
+    await db.commit()
+    token = create_access_token(str(user.id))
+    return TokenResponse(access_token=token)

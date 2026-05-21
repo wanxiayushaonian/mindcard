@@ -32,3 +32,12 @@ class InsightResponse(BaseModel):
     trends: str
     unexplored: list[str]
     suggestions: list[str]
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[dict[str, str]] = []  # [{"role": "user"/"assistant", "content": "..."}]
+
+
+class ChatResponse(BaseModel):
+    reply: str

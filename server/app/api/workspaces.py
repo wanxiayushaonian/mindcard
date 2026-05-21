@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.schemas.workspace import (
     WorkspaceCreate,
@@ -12,22 +13,38 @@ from app.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
+from app.utils.auth import get_current_user
 
 router = APIRouter()
 
 
 @router.get("/", response_model=list[WorkspaceResponse])
-async def list_workspaces(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
+async def list_workspaces(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(WorkspaceMember.user_id == user.id)
+        .order_by(Workspace.created_at.desc())
+    )
     return result.scalars().all()
 
 
 @router.post("/", response_model=WorkspaceResponse)
-async def create_workspace(req: WorkspaceCreate, db: AsyncSession = Depends(get_db)):
-    ws = Workspace(**req.model_dump())
+async def create_workspace(
+    req: WorkspaceCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ws = Workspace(**req.model_dump(), owner_id=user.id)
     db.add(ws)
     await db.flush()
+    member = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner")
+    db.add(member)
     await db.commit()
+    await db.refresh(ws)
     return ws
 
 

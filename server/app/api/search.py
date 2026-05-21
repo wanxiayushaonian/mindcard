@@ -2,27 +2,39 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.search import SearchRequest, SearchResponse
+from app.schemas.card import CardResponse
+from app.schemas.search import SearchRequest, SearchResponse, SearchResult
+from app.services.search import search_service
 
 router = APIRouter()
+
+
+def _to_search_result(scored) -> SearchResult:
+    return SearchResult(
+        card=CardResponse.model_validate(scored.card),
+        score=round(scored.score, 4),
+    )
 
 
 @router.post("/semantic", response_model=SearchResponse)
 async def semantic_search(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     """Vector semantic search using pgvector cosine similarity."""
-    # TODO: implement with EmbeddingService + pgvector query
-    return SearchResponse(results=[], total=0)
+    scored = await search_service.vector_search(db, req.query, req.workspace_id, limit=req.limit)
+    results = [_to_search_result(s) for s in scored]
+    return SearchResponse(results=results, total=len(results))
 
 
 @router.post("/fulltext", response_model=SearchResponse)
 async def fulltext_search(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     """Full-text search using PostgreSQL tsvector."""
-    # TODO: implement with to_tsvector + ts_rank
-    return SearchResponse(results=[], total=0)
+    scored = await search_service.fulltext_search(db, req.query, req.workspace_id, limit=req.limit)
+    results = [_to_search_result(s) for s in scored]
+    return SearchResponse(results=results, total=len(results))
 
 
 @router.post("/hybrid", response_model=SearchResponse)
 async def hybrid_search(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     """Hybrid search: vector + fulltext with RRF fusion."""
-    # TODO: implement with Reciprocal Rank Fusion
-    return SearchResponse(results=[], total=0)
+    scored = await search_service.hybrid_search(db, req.query, req.workspace_id, limit=req.limit)
+    results = [_to_search_result(s) for s in scored]
+    return SearchResponse(results=results, total=len(results))

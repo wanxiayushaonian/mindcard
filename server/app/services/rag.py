@@ -1,5 +1,7 @@
+import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator
 
 import httpx
 from sqlalchemy import select
@@ -128,8 +130,19 @@ Respond in JSON format:
         self, db: AsyncSession, card_id: str, limit: int = 5
     ) -> list[Card]:
         card = await db.get(Card, uuid.UUID(card_id))
-        if not card or card.embedding is None:
+        if not card:
             return []
+
+        if card.embedding is None:
+            # Fallback: return recent cards from the same workspace
+            result = await db.execute(
+                select(Card)
+                .where(Card.workspace_id == card.workspace_id)
+                .where(Card.id != card.id)
+                .order_by(Card.created_at.desc())
+                .limit(limit)
+            )
+            return result.scalars().all()
 
         result = await db.execute(
             select(Card)
@@ -139,6 +152,117 @@ Respond in JSON format:
             .limit(limit)
         )
         return result.scalars().all()
+
+    async def chat(
+        self, message: str, history: list[dict[str, str]] | None = None
+    ) -> str:
+        """General chat without RAG, supports conversation history."""
+        if not settings.deepseek_api_key:
+            return "LLM API key not configured. Please set DEEPSEEK_API_KEY."
+
+        messages = [{"role": "system", "content": "你是一个 helpful AI 助手，可以回答各种问题。"}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": message})
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{settings.deepseek_base_url}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                json={
+                    "model": "deepseek-chat",
+                    "messages": messages,
+                    "max_tokens": 2048,
+                    "temperature": 0.7,
+                },
+            )
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+
+    async def chat_stream(
+        self, message: str, history: list[dict[str, str]] | None = None
+    ) -> AsyncGenerator[str, None]:
+        """Streaming general chat without RAG."""
+        if not settings.deepseek_api_key:
+            yield "LLM API key not configured."
+            return
+
+        messages = [{"role": "system", "content": "你是一个 helpful AI 助手，可以回答各种问题。"}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": message})
+
+        async for chunk in self._call_llm_stream(messages):
+            yield chunk
+
+    async def ask_stream(
+        self,
+        db: AsyncSession,
+        question: str,
+        workspace_id: str,
+        card_id: str | None = None,
+        top_k: int = 5,
+    ) -> AsyncGenerator[str, None]:
+        """Streaming RAG answer: retrieve cards, then stream LLM response."""
+        # 1. Retrieve relevant cards
+        if card_id:
+            context_cards = await self._find_similar_cards(db, card_id, limit=top_k)
+        else:
+            scored = await search_service.hybrid_search(db, question, workspace_id, limit=top_k)
+            context_cards = [sc.card for sc in scored]
+
+        if not context_cards:
+            yield "没有找到相关的灵感卡片。"
+            return
+
+        # 2. Build context
+        context = "\n\n".join(
+            f"【{c.title or 'Untitled'}】{c.content}" for c in context_cards
+        )
+        prompt = f"""Based on the following inspiration cards, answer the user's question.
+If the card content is insufficient to answer, say so.
+
+Relevant inspiration cards:
+{context}
+
+User question: {question}"""
+
+        # 3. Stream LLM response
+        messages = [{"role": "user", "content": prompt}]
+        async for chunk in self._call_llm_stream(messages):
+            yield chunk
+
+    async def _call_llm_stream(
+        self, messages: list[dict[str, str]]
+    ) -> AsyncGenerator[str, None]:
+        """Stream response from DeepSeek API."""
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
+            async with client.stream(
+                "POST",
+                f"{settings.deepseek_base_url}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                json={
+                    "model": "deepseek-chat",
+                    "messages": messages,
+                    "max_tokens": 2048,
+                    "temperature": 0.7,
+                    "stream": True,
+                },
+            ) as resp:
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        return
+                    try:
+                        data = json.loads(data_str)
+                        delta = data["choices"][0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
 
     async def _call_llm(self, prompt: str) -> str:
         """Call DeepSeek API for LLM completion."""

@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, Float, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -26,8 +27,8 @@ class Card(Base):
     emotion_tag: Mapped[str] = mapped_column(String(32), default="")
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     is_temp: Mapped[bool] = mapped_column(Boolean, default=True)
-    # pgvector embedding column - type set via raw SQL in migration
-    # embedding: vector(1024)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
+    fts_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
