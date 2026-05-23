@@ -1,0 +1,59 @@
+<!--pages/login/login.wxml-->
+<view class="login-page">
+  <view class="logo-section">
+    <text class="app-name">MindCard</text>
+    <text class="app-desc">灵感卡片管理平台</text>
+  </view>
+
+  <!-- Mode tabs -->
+  <view class="mode-tabs">
+    <view class="mode-tab {{mode === 'login' ? 'mode-active' : ''}}" bindtap="onSwitchMode" data-mode="login">
+      <text>登录</text>
+    </view>
+    <view class="mode-tab {{mode === 'register' ? 'mode-active' : ''}}" bindtap="onSwitchMode" data-mode="register">
+      <text>注册</text>
+    </view>
+  </view>
+
+  <view class="form-section">
+    <!-- Error message -->
+    <view class="error-msg" wx:if="{{error}}">
+      <text>{{error}}</text>
+    </view>
+
+    <!-- Username -->
+    <view class="input-group">
+      <text class="input-label">用户名</text>
+      <input class="input-field" placeholder="3-32位字母、数字或下划线" value="{{username}}" bindinput="onUsernameInput" />
+    </view>
+
+    <!-- Password -->
+    <view class="input-group">
+      <text class="input-label">密码</text>
+      <input class="input-field" type="number" password placeholder="至少6位" value="{{password}}" bindinput="onPasswordInput" />
+    </view>
+
+    <!-- Nickname (register only) -->
+    <view class="input-group" wx:if="{{mode === 'register'}}">
+      <text class="input-label">昵称</text>
+      <input class="input-field" placeholder="选填，默认使用用户名" value="{{nickname}}" bindinput="onNicknameInput" />
+    </view>
+
+    <!-- Submit button -->
+    <button class="submit-btn" bindtap="onSubmit" loading="{{loading}}">
+      {{loading ? '处理中...' : (mode === 'register' ? '注册' : '登录')}}
+    </button>
+
+    <!-- Divider -->
+    <view class="divider">
+      <view class="divider-line"></view>
+      <text class="divider-text">或</text>
+      <view class="divider-line"></view>
+    </view>
+
+    <!-- WeChat login -->
+    <button class="wechat-btn" bindtap="onWeChatLogin" loading="{{wxLoading}}">
+      微信登录
+    </button>
+  </view>
+</view>

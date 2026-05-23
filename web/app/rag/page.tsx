@@ -3,9 +3,11 @@
 import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { ragApi, chatApi, type RAGResponse, type ChatSession, type ChatDetail } from "@/lib/api";
+import useSWR from "swr";
+import { ragApi, chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type ChatSession, type Workspace } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { MarkdownContent } from "@/components/MarkdownContent";
+import { ConfirmModal } from "@/components/ConfirmModal";
 
 type ChatMode = "rag" | "chat";
 
@@ -40,6 +42,43 @@ function RAGContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
   const streamContentRef = useRef("");
+  const [precipitating, setPrecipitating] = useState<number | null>(null);
+  const [precipitated, setPrecipitated] = useState<Set<number>>(new Set());
+
+  const { data: workspace } = useSWR(
+    workspaceId ? `workspace-${workspaceId}` : null,
+    () => workspaceApi.get(workspaceId)
+  );
+  const canPrecipitate = workspace?.member_role === "owner";
+
+  const ragDisabled = mode === "rag" && !workspaceId;
+
+  const handlePrecipitate = async (content: string, index: number) => {
+    if (!workspaceId) {
+      toast("请从空间页面进入以使用沉淀功能", "error");
+      return;
+    }
+    setPrecipitating(index);
+    try {
+      const [titleRes, kwRes] = await Promise.all([
+        aiApi.generateTitle(content),
+        aiApi.extractKeywords(content),
+      ]);
+      await cardApi.create({
+        local_id: "card_" + Date.now(),
+        workspace_id: workspaceId,
+        title: titleRes.title,
+        content,
+        keywords: kwRes.keywords,
+      });
+      setPrecipitated((prev) => new Set(prev).add(index));
+      toast("已沉淀为卡片", "success");
+    } catch (e: any) {
+      toast("沉淀失败: " + e.message, "error");
+    } finally {
+      setPrecipitating(null);
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -126,6 +165,20 @@ function RAGContent() {
     }
 
     const onChunk = (text: string) => {
+      // Check if this is a sources JSON payload
+      if (text.startsWith('{"type":"sources"') || text.startsWith('{"type": "sources"')) {
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed.type === "sources" && parsed.cards) {
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = { ...updated[updated.length - 1], sources: parsed.cards };
+              return updated;
+            });
+            return;
+          }
+        } catch {}
+      }
       streamContentRef.current += text;
       const content = streamContentRef.current;
       setMessages((prev) => {
@@ -204,7 +257,7 @@ function RAGContent() {
   return (
     <div className="flex h-screen flex-col bg-bg">
       {/* Header */}
-      <nav className="flex items-center gap-3 border-b border-gray-100 bg-surface/80 px-4 py-3 backdrop-blur-sm">
+      <nav className="flex items-center gap-3 border-b border-border bg-surface/80 px-4 py-3 backdrop-blur-sm">
         <button onClick={() => router.back()} className="text-text-secondary hover:text-text">
           &larr;
         </button>
@@ -246,7 +299,7 @@ function RAGContent() {
       <div className="flex flex-1 overflow-hidden">
         {/* History sidebar */}
         {showHistory && (
-          <div className="w-64 flex-shrink-0 overflow-y-auto border-r border-gray-100 bg-surface p-3">
+          <div className="w-64 flex-shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
             <h3 className="mb-2 text-xs font-semibold text-text-secondary">对话历史</h3>
             {history.length === 0 && (
               <p className="text-xs text-text-secondary">暂无历史记录</p>
@@ -310,16 +363,12 @@ function RAGContent() {
                   }`}
                 >
                   {msg.role === "assistant" ? (
-                    <div className="prose prose-sm max-w-none prose-headings:mb-2 prose-headings:mt-3 prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-hr:my-3 prose-pre:bg-gray-100 prose-pre:text-text prose-code:text-primary-dark prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-blockquote:border-l-primary prose-blockquote:pl-3 prose-blockquote:italic">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.content || " "}
-                      </ReactMarkdown>
-                    </div>
+                    <MarkdownContent content={msg.content || " "} />
                   ) : (
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                   )}
                   {msg.sources && msg.sources.length > 0 && (
-                    <div className="mt-3 border-t border-gray-100 pt-2">
+                    <div className="mt-3 border-t border-border pt-2">
                       <p className="mb-1 text-xs text-text-secondary">引用来源：</p>
                       {msg.sources.map((s) => (
                         <div key={s.id} className="mb-1 rounded bg-gray-50 px-2 py-1 text-xs text-text-secondary">
@@ -327,6 +376,23 @@ function RAGContent() {
                           <span className="line-clamp-1">{s.content}</span>
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {msg.content && !isStreaming && canPrecipitate && (
+                    <div className="mt-2 flex justify-end">
+                      {precipitated.has(i) ? (
+                        <span className="rounded-lg px-2 py-1 text-[10px] text-green-600">
+                          已沉淀 ✓
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handlePrecipitate(msg.content, i)}
+                          disabled={precipitating === i}
+                          className="rounded-lg px-2 py-1 text-[10px] text-text-secondary hover:bg-gray-100 hover:text-primary-dark disabled:opacity-50"
+                        >
+                          {precipitating === i ? "沉淀中..." : "沉淀为卡片"}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -337,7 +403,12 @@ function RAGContent() {
           </div>
 
           {/* Input */}
-          <div className="border-t border-gray-100 bg-surface px-4 py-3">
+          <div className="border-t border-border bg-surface px-4 py-3">
+            {ragDisabled && (
+              <div className="mb-2 rounded-lg bg-yellow-50 px-3 py-2 text-xs text-yellow-700">
+                请从空间页面进入以使用知识问答功能
+              </div>
+            )}
             <div className="flex gap-2">
               <input
                 value={input}
@@ -345,7 +416,7 @@ function RAGContent() {
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
                 placeholder={mode === "rag" ? "问一个关于你灵感的问题..." : "输入你想问的问题..."}
                 className="flex-1 rounded-2xl bg-gray-100 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-                disabled={isStreaming}
+                disabled={isStreaming || ragDisabled}
               />
               {isStreaming ? (
                 <button
@@ -370,28 +441,14 @@ function RAGContent() {
 
       {/* Delete confirmation modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
-            <h2 className="mb-2 text-lg font-bold text-text">删除对话</h2>
-            <p className="mb-6 text-sm text-text-secondary">
-              确定删除「{deleteTarget.title || "新对话"}」？删除后无法恢复。
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                className="rounded-xl px-4 py-2 text-sm text-text-secondary hover:bg-gray-100"
-              >
-                取消
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="rounded-xl bg-danger px-6 py-2 text-sm font-medium text-white"
-              >
-                删除
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="删除对话"
+          message={`确定删除「${deleteTarget.title || "新对话"}」？删除后无法恢复。`}
+          confirmText="删除"
+          danger
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );

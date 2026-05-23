@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/workspace/workspace",
+    "pages/login/login",
     "pages/index/index",
     "pages/card-detail/card-detail",
     "pages/card-edit/card-edit",
@@ -10,20 +11,19 @@
     "pages/profile/profile",
     "pages/search/search",
     "pages/ai-records/ai-records",
-    "pages/network/network"
+    "pages/network/network",
+    "pages/insights/insights"
   ],
   "window": {
     "navigationBarTextStyle": "black",
     "navigationStyle": "custom"
   },
-  "cloud": true,
   "style": "v2",
   "renderer": "skyline",
   "rendererOptions": {
     "skyline": {
       "defaultDisplayBlock": true,
       "defaultContentBox": true,
-      "tagNameStyleIsolation": "legacy",
       "disableABTest": true,
       "sdkVersionBegin": "3.0.0",
       "sdkVersionEnd": "15.255.255"

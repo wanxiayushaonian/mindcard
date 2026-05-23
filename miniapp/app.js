@@ -1,6 +1,6 @@
 // app.js
 const { mockCards, mockChats } = require('./utils/mock-data');
-const CloudStorage = require('./utils/cloud-storage');
+const api = require('./utils/api');
 
 App({
   globalData: {
@@ -9,105 +9,136 @@ App({
     settings: {},
     workspaces: [],
     currentWorkspaceId: '',
-    cloudReady: false,
     currentUser: { openId: '', nickName: '' },
     comments: [],
-    sharedWorkspaces: [],
   },
 
   onLaunch() {
-    this._cloudStorage = new CloudStorage();
-    this._cloudStorage.init();
+    this._dataReady = false;
+    this._dataReadyCallbacks = [];
     this._loadAllData();
   },
 
+  _onDataReady(fn) {
+    if (this._dataReady) {
+      fn();
+    } else {
+      this._dataReadyCallbacks.push(fn);
+    }
+  },
+
   async _loadAllData() {
-    this._initUser();
+    var authOk = await this._initUser();
+    if (!authOk) return;
+
+    this._loadSettings();
+
     try {
-      const result = await this._cloudStorage.loadAll();
-      if (result.isCloud) {
-        this.globalData.workspaces = result.workspaces;
-        this.globalData.cards = result.cards;
-        this.globalData.aiChats = result.aiChats;
-        this.globalData.settings = result.settings || {};
-        this.globalData.cloudReady = true;
+      await this._loadWorkspacesFromApi();
+      await this._loadCardsFromApi();
+      this._loadUserFromToken();
+    } catch (e) {
+      console.error('[API] Failed to load from API:', e);
+    }
 
-        const cur = wx.getStorageSync('current_workspace');
-        this.globalData.currentWorkspaceId = cur || (result.workspaces[0] && result.workspaces[0].id) || '';
+    this._dataReady = true;
+    this._dataReadyCallbacks.forEach(function (fn) { fn(); });
+    this._dataReadyCallbacks = [];
+  },
 
-        // First launch: no data anywhere
-        if (result.workspaces.length === 0 && !wx.getStorageSync('workspaces')) {
-          this._seedFirstLaunch();
-        } else {
-          // Sync merged data to cloud if needed
-          this._migrateToCloud();
-        }
-      } else {
-        // Offline: load from local
-        this._loadWorkspaces();
-        this._loadData();
-        this._loadSettings();
+  // ── User Identity ──
+
+  async _initUser() {
+    // Try cached identity first
+    const cached = wx.getStorageSync('user_identity');
+    if (cached && cached.openId) {
+      this.globalData.currentUser = cached;
+    }
+
+    // If we have a token, validate it
+    if (api.getToken()) {
+      try {
+        await api.get('/api/auth/me');
+        return true;
+      } catch (e) {
+        // Token invalid or expired — clear it
+        console.warn('[Auth] Token invalid, clearing');
+        api.clearToken();
       }
-    } catch (e) {
-      console.error('[CloudStorage] loadAll failed, using local:', e);
-      this._loadWorkspaces();
-      this._loadData();
-      this._loadSettings();
     }
-    this._migrateEmotionTags();
-  },
 
-  _seedFirstLaunch() {
-    const defaultWs = {
-      id: 'ws_default',
-      name: '默认空间',
-      icon: '💡',
-      color: '#94B4C8',
-      createdAt: this._formatTime(new Date()),
-    };
-    this.globalData.workspaces = [defaultWs];
-    this.globalData.currentWorkspaceId = 'ws_default';
-    this.globalData.cards = mockCards.map(c => ({ ...c, workspaceId: c.workspaceId || 'ws_default' }));
-    this.globalData.aiChats = mockChats;
-    this.globalData.settings = {};
-
-    wx.setStorageSync('workspaces', this.globalData.workspaces);
-    wx.setStorageSync('current_workspace', 'ws_default');
-    wx.setStorageSync('inspiration_cards', this.globalData.cards);
-    wx.setStorageSync('ai_chats', this.globalData.aiChats);
-
-    // Write to cloud (fire-and-forget)
-    this._cloudStorage.saveWorkspace(defaultWs);
-    this.globalData.cards.forEach(c => this._cloudStorage.saveCard(c));
-    this.globalData.aiChats.forEach(c => this._cloudStorage.saveChat(c));
-  },
-
-  async _migrateToCloud() {
-    if (wx.getStorageSync('cloud_migrated')) return;
-    if (!this.globalData.cloudReady) return;
-
-    try {
-      const result = await this._cloudStorage.migrateLocalToCloud({
-        workspaces: this.globalData.workspaces,
-        cards: this.globalData.cards,
-        aiChats: this.globalData.aiChats,
-        settings: this.globalData.settings,
-      });
-      console.log('[Migration] Cloud migration complete:', result);
-      wx.setStorageSync('cloud_migrated', true);
-    } catch (e) {
-      console.error('[Migration] Failed, will retry next launch:', e);
-    }
+    // No valid token — redirect to login page
+    wx.navigateTo({ url: '/pages/login/login' });
+    return false;
   },
 
   // ── Workspace Management ──
+
+  async _loadWorkspacesFromApi() {
+    try {
+      const workspaces = await api.get('/api/workspaces/');
+      this.globalData.workspaces = workspaces.map(function (ws) {
+        return {
+          id: ws.id,
+          name: ws.name,
+          icon: ws.icon || '💡',
+          color: ws.color || '#94B4C8',
+          createdAt: ws.created_at,
+          owner: ws.owner_id,
+          inviteCode: ws.invite_code || '',
+          memberRole: ws.member_role || 'editor',
+        };
+      });
+      // Select current workspace
+      const cur = wx.getStorageSync('current_workspace');
+      const validCur = this.globalData.workspaces.find(function (w) { return w.id === cur; });
+      this.globalData.currentWorkspaceId = validCur ? cur : (this.globalData.workspaces[0] ? this.globalData.workspaces[0].id : '');
+      if (!this.globalData.currentWorkspaceId && this.globalData.workspaces.length === 0) {
+        // No workspaces yet — create default
+        await this._createDefaultWorkspace();
+      }
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  async _createDefaultWorkspace() {
+    try {
+      const ws = await api.post('/api/workspaces/', {
+        name: '默认空间',
+        icon: '💡',
+        color: '#94B4C8',
+      });
+      this.globalData.workspaces = [{
+        id: ws.id,
+        name: ws.name,
+        icon: ws.icon || '💡',
+        color: ws.color || '#94B4C8',
+        createdAt: ws.created_at,
+        owner: ws.owner_id,
+      }];
+      this.globalData.currentWorkspaceId = ws.id;
+      wx.setStorageSync('current_workspace', ws.id);
+    } catch (e) {
+      console.error('[API] Failed to create default workspace:', e);
+      // Fallback: local default
+      var defaultWs = {
+        id: 'ws_default',
+        name: '默认空间',
+        icon: '💡',
+        color: '#94B4C8',
+        createdAt: this._formatTime(new Date()),
+      };
+      this.globalData.workspaces = [defaultWs];
+      this.globalData.currentWorkspaceId = 'ws_default';
+    }
+  },
 
   _loadWorkspaces() {
     const stored = wx.getStorageSync('workspaces');
     if (stored && stored.length > 0) {
       this.globalData.workspaces = stored;
     } else {
-      // First launch: create default workspace
       const defaultWs = {
         id: 'ws_default',
         name: '默认空间',
@@ -118,7 +149,6 @@ App({
       this.globalData.workspaces = [defaultWs];
       wx.setStorageSync('workspaces', [defaultWs]);
     }
-
     const cur = wx.getStorageSync('current_workspace');
     this.globalData.currentWorkspaceId = cur || this.globalData.workspaces[0].id;
   },
@@ -135,155 +165,121 @@ App({
   switchWorkspace(id) {
     this.globalData.currentWorkspaceId = id;
     wx.setStorageSync('current_workspace', id);
-  },
-
-  createWorkspace({ name, icon, color }) {
-    const user = this.globalData.currentUser;
-    const ws = {
-      id: 'ws_' + Date.now(),
-      name,
-      icon: icon || '💡',
-      color: color || '#94B4C8',
-      createdAt: this._formatTime(new Date()),
-      owner: user.openId,
-      members: [{
-        openId: user.openId,
-        nickName: user.nickName || '创建者',
-        role: 'owner',
-        joinedAt: this._formatTime(new Date()),
-      }],
-      inviteCode: '',
-    };
-    this.globalData.workspaces = [...this.globalData.workspaces, ws];
-    wx.setStorageSync('workspaces', this.globalData.workspaces);
-    this._cloudStorage.saveWorkspace(ws);
-    return ws;
-  },
-
-  updateWorkspace(id, updates) {
-    const idx = this.globalData.workspaces.findIndex(w => w.id === id);
-    if (idx !== -1) {
-      this.globalData.workspaces[idx] = { ...this.globalData.workspaces[idx], ...updates };
-      wx.setStorageSync('workspaces', this.globalData.workspaces);
-      this._cloudStorage.saveWorkspace(this.globalData.workspaces[idx]);
+    // Reload cards for the new workspace (only if API-backed)
+    if (id && id.indexOf('ws_') !== 0) {
+      this._loadCardsFromApi().catch(function () {});
     }
   },
 
-  deleteWorkspace(id) {
-    // Capture IDs for cloud cascade before filtering
-    const deletedCardIds = this.globalData.cards.filter(c => c.workspaceId === id).map(c => c.id);
-    const deletedChatIds = this.globalData.aiChats.filter(c => deletedCardIds.includes(c.cardId)).map(c => c.id);
+  async createWorkspace({ name, icon, color }) {
+    var localId = 'ws_' + Date.now();
+    try {
+      const ws = await api.post('/api/workspaces/', {
+        local_id: localId,
+        name: name,
+        icon: icon || '💡',
+        color: color || '#94B4C8',
+      });
+      var localWs = {
+        id: ws.id,
+        name: ws.name,
+        icon: ws.icon || '💡',
+        color: ws.color || '#94B4C8',
+        createdAt: ws.created_at,
+        owner: ws.owner_id,
+      };
+      this.globalData.workspaces = this.globalData.workspaces.concat([localWs]);
+      return localWs;
+    } catch (e) {
+      console.error('[API] createWorkspace failed:', e);
+      // Fallback: local
+      var user = this.globalData.currentUser;
+      var local = {
+        id: 'ws_' + Date.now(),
+        name: name,
+        icon: icon || '💡',
+        color: color || '#94B4C8',
+        createdAt: this._formatTime(new Date()),
+        owner: user.openId,
+      };
+      this.globalData.workspaces = this.globalData.workspaces.concat([local]);
+      wx.setStorageSync('workspaces', this.globalData.workspaces);
+      return local;
+    }
+  },
 
-    // Remove all cards and chats belonging to this workspace
-    this.globalData.cards = this.globalData.cards.filter(c => c.workspaceId !== id);
-    const remainingCardIds = new Set(this.globalData.cards.map(c => c.id));
-    this.globalData.aiChats = this.globalData.aiChats.filter(c => remainingCardIds.has(c.cardId));
-    // Clean up relatedIds/agentRecommendIds pointing to deleted cards
-    this.globalData.cards = this.globalData.cards.map(card => ({
-      ...card,
-      relatedIds: card.relatedIds.filter(rid => remainingCardIds.has(rid)),
-      agentRecommendIds: card.agentRecommendIds.filter(rid => remainingCardIds.has(rid)),
-    }));
+  async updateWorkspace(id, updates) {
+    try {
+      await api.put('/api/workspaces/' + id, updates);
+    } catch (e) {
+      console.error('[API] updateWorkspace failed:', e);
+    }
+    // Update local cache regardless
+    var idx = this.globalData.workspaces.findIndex(function (w) { return w.id === id; });
+    if (idx !== -1) {
+      this.globalData.workspaces[idx] = Object.assign({}, this.globalData.workspaces[idx], updates);
+    }
+  },
 
-    this.globalData.workspaces = this.globalData.workspaces.filter(w => w.id !== id);
+  async deleteWorkspace(id) {
+    try {
+      await api.del('/api/workspaces/' + id);
+    } catch (e) {
+      console.error('[API] deleteWorkspace failed:', e);
+    }
+    // Remove local
+    this.globalData.cards = this.globalData.cards.filter(function (c) { return c.workspaceId !== id; });
+    var remainingCardIds = new Set(this.globalData.cards.map(function (c) { return c.id; }));
+    this.globalData.aiChats = this.globalData.aiChats.filter(function (c) { return remainingCardIds.has(c.cardId); });
+    this.globalData.workspaces = this.globalData.workspaces.filter(function (w) { return w.id !== id; });
     wx.setStorageSync('workspaces', this.globalData.workspaces);
     wx.setStorageSync('inspiration_cards', this.globalData.cards);
     wx.setStorageSync('ai_chats', this.globalData.aiChats);
-
-    // Cloud cascade delete
-    this._cloudStorage.deleteWorkspaces([id]);
-    this._cloudStorage.deleteCards(deletedCardIds);
-    this._cloudStorage.deleteChats(deletedChatIds);
-
-    // Switch to first workspace if current was deleted
     if (this.globalData.currentWorkspaceId === id && this.globalData.workspaces.length > 0) {
       this.switchWorkspace(this.globalData.workspaces[0].id);
     }
   },
 
-  // ── Data Loading ──
+  // ── Card Loading ──
 
-  // ── Keyword Migration ──
-
-  _migrateEmotionTags() {
-    let migrated = false;
-    this.globalData.cards = this.globalData.cards.map(c => {
-      if (c.emotionTag && (!c.keywords || c.keywords.length === 0)) {
-        migrated = true;
-        return { ...c, keywords: [c.emotionTag], emotionTag: '' };
-      }
-      return c;
-    });
-    if (migrated) {
+  async _loadCardsFromApi() {
+    var wsId = this.globalData.currentWorkspaceId;
+    if (!wsId || wsId.indexOf('ws_') === 0) return; // skip local-only IDs
+    try {
+      var cards = await api.get('/api/cards/?workspace_id=' + wsId);
+      this.globalData.cards = cards.map(function (c) {
+        return {
+          id: c.id,
+          workspaceId: c.workspace_id,
+          title: c.title || '',
+          content: c.content || '',
+          keywords: c.keywords || [],
+          color: c.color || '#B8D4E3',
+          createdAt: c.created_at,
+          updatedAt: c.updated_at,
+          isFavorite: c.is_favorite || false,
+          relatedIds: (c.relations || []).map(function (r) { return r.related_card_id; }),
+          agentRecommendIds: [],
+          agentScores: {},
+          hasAiChat: false,
+        };
+      });
       wx.setStorageSync('inspiration_cards', this.globalData.cards);
+    } catch (e) {
+      console.error('[API] loadCards failed:', e);
+      this._loadData();
     }
   },
-
-  getKeywordRegistry() {
-    const cards = this.getWorkspaceCards();
-    const registry = {};
-    cards.forEach(c => {
-      (c.keywords || []).forEach(kw => {
-        registry[kw] = (registry[kw] || 0) + 1;
-      });
-    });
-    // Sort by frequency descending
-    const sorted = Object.entries(registry).sort((a, b) => b[1] - a[1]);
-    const result = {};
-    sorted.forEach(([kw, count]) => { result[kw] = count; });
-    return result;
-  },
-
-  getTopKeywords(limit) {
-    const registry = this.getKeywordRegistry();
-    return Object.keys(registry).slice(0, limit || 15);
-  },
-
-  _autoExtractKeywords(cardId, content) {
-    const { extractKeywords } = require('./utils/deepseek');
-    extractKeywords(content).then(keywords => {
-      if (keywords.length > 0) {
-        this.updateCard(cardId, { keywords });
-      }
-    }).catch(function () {});
-  },
-
-  _autoGenerateTitle(cardId, content) {
-    const { generateTitle } = require('./utils/deepseek');
-    generateTitle(content).then(title => {
-      if (title && title.trim()) {
-        this.updateCard(cardId, { title: title.trim() });
-      }
-    }).catch(function () {});
-  },
-
-  // ── Data Loading ──
 
   _loadData() {
     const stored = wx.getStorageSync('inspiration_cards');
     if (stored && stored.length > 0) {
       this.globalData.cards = stored;
     } else {
-      // Seed with mock data, assign to default workspace
       const wsId = this.globalData.currentWorkspaceId || 'ws_default';
       this.globalData.cards = mockCards.map(c => ({ ...c, workspaceId: c.workspaceId || wsId }));
       wx.setStorageSync('inspiration_cards', this.globalData.cards);
     }
-
-    // Migration: assign cards without workspaceId to current workspace
-    const wsId = this.globalData.currentWorkspaceId;
-    let migrated = false;
-    this.globalData.cards = this.globalData.cards.map(c => {
-      if (!c.workspaceId) {
-        migrated = true;
-        return { ...c, workspaceId: wsId };
-      }
-      return c;
-    });
-    if (migrated) {
-      wx.setStorageSync('inspiration_cards', this.globalData.cards);
-    }
-
     const storedChats = wx.getStorageSync('ai_chats');
     if (storedChats && storedChats.length > 0) {
       this.globalData.aiChats = storedChats;
@@ -292,6 +288,205 @@ App({
       wx.setStorageSync('ai_chats', mockChats);
     }
   },
+
+  // ── Card CRUD ──
+
+  getCardById(id) {
+    return this.globalData.cards.find(c => c.id === id);
+  },
+
+  async updateCard(id, updates) {
+    // Update local cache immediately
+    var idx = this.globalData.cards.findIndex(function (c) { return c.id === id; });
+    if (idx !== -1) {
+      var updated = Object.assign({}, this.globalData.cards[idx], updates, {
+        updatedAt: this._formatTime(new Date()),
+      });
+      this.globalData.cards[idx] = updated;
+      wx.setStorageSync('inspiration_cards', this.globalData.cards);
+    }
+    // Sync to API (only if we have a server UUID)
+    if (id.indexOf('card_') === 0) return;
+    var apiPayload = {};
+    if (updates.title !== undefined) apiPayload.title = updates.title;
+    if (updates.content !== undefined) apiPayload.content = updates.content;
+    if (updates.keywords !== undefined) apiPayload.keywords = updates.keywords;
+    if (updates.color !== undefined) apiPayload.color = updates.color;
+    if (updates.isFavorite !== undefined) apiPayload.is_favorite = updates.isFavorite;
+    if (updates.isTemp !== undefined) apiPayload.is_temp = updates.isTemp;
+    if (Object.keys(apiPayload).length > 0) {
+      try {
+        await api.put('/api/cards/' + id, apiPayload);
+      } catch (e) {
+        console.error('[API] updateCard failed:', e);
+      }
+    }
+  },
+
+  async addCard(card) {
+    var wsId = this.globalData.currentWorkspaceId;
+    var newCard = Object.assign({}, card, {
+      id: 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+      workspaceId: wsId,
+      keywords: card.keywords || [],
+      createdAt: this._formatTime(new Date()),
+      updatedAt: null,
+      isFavorite: false,
+      relatedIds: [],
+      agentRecommendIds: [],
+      agentScores: {},
+      hasAiChat: false,
+    });
+
+    // Add to local cache immediately
+    this.globalData.cards.unshift(newCard);
+    wx.setStorageSync('inspiration_cards', this.globalData.cards);
+
+    // Sync to API
+    try {
+      var created = await api.post('/api/cards/', {
+        local_id: newCard.id,
+        workspace_id: wsId,
+        title: newCard.title || '',
+        content: newCard.content || '',
+        keywords: newCard.keywords,
+        color: newCard.color || '#B8D4E3',
+      });
+      // Update local with server-assigned ID
+      if (created && created.id) {
+        newCard.id = created.id;
+        this.globalData.cards[0] = newCard;
+        wx.setStorageSync('inspiration_cards', this.globalData.cards);
+      }
+    } catch (e) {
+      console.error('[API] addCard failed, saved locally:', e);
+    }
+
+    // Background AI: auto-extract keywords + auto-generate title
+    if ((newCard.content || '').trim()) {
+      if (newCard.keywords.length === 0) {
+        api.post('/api/ai/extract-keywords', { content: newCard.content })
+          .then(function (res) {
+            if (res.keywords && res.keywords.length > 0) this.updateCard(newCard.id, { keywords: res.keywords });
+          }.bind(this)).catch(function () {});
+      }
+      if (!newCard.title) {
+        api.post('/api/ai/generate-title', { content: newCard.content })
+          .then(function (res) {
+            if (res.title && res.title.trim()) this.updateCard(newCard.id, { title: res.title.trim() });
+          }.bind(this)).catch(function () {});
+      }
+    }
+    return newCard;
+  },
+
+  deleteCard(id) {
+    this.deleteCards([id]);
+  },
+
+  async deleteCards(ids) {
+    var idSet = new Set(ids);
+    // Remove from local cache
+    this.globalData.cards = this.globalData.cards
+      .filter(function (c) { return !idSet.has(c.id); })
+      .map(function (card) {
+        return Object.assign({}, card, {
+          relatedIds: card.relatedIds.filter(function (rid) { return !idSet.has(rid); }),
+          agentRecommendIds: card.agentRecommendIds.filter(function (rid) { return !idSet.has(rid); }),
+        });
+      });
+    this.globalData.aiChats = this.globalData.aiChats.filter(function (c) { return !idSet.has(c.cardId); });
+    wx.setStorageSync('inspiration_cards', this.globalData.cards);
+    wx.setStorageSync('ai_chats', this.globalData.aiChats);
+
+    // Sync deletion to API (skip local IDs)
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i].indexOf('card_') === 0) continue;
+      try {
+        await api.del('/api/cards/' + ids[i]);
+      } catch (e) {
+        console.error('[API] deleteCard failed for ' + ids[i] + ':', e);
+      }
+    }
+  },
+
+  // ── Chat Persistence ──
+
+  getChatByCardId(cardId) {
+    return this.globalData.aiChats.find(c => c.cardId === cardId) || null;
+  },
+
+  async saveChat(chat) {
+    // Update local cache
+    var idx = this.globalData.aiChats.findIndex(function (c) { return c.id === chat.id; });
+    if (idx !== -1) {
+      this.globalData.aiChats[idx] = chat;
+    } else {
+      this.globalData.aiChats.push(chat);
+    }
+    wx.setStorageSync('ai_chats', this.globalData.aiChats);
+
+    // Sync to API (create chat if needed, then save messages)
+    try {
+      // Check if this is a server-side chat (UUID format) or local chat
+      var isServerChat = /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(chat.id);
+      if (!isServerChat) {
+        // Create on server
+        var created = await api.post('/api/chats/', {
+          local_id: chat.id,
+          title: chat.title || '',
+          card_id: chat.cardId || undefined,
+          workspace_id: this.globalData.currentWorkspaceId || undefined,
+          mode: 'chat',
+        });
+        if (created && created.id) {
+          // Save last user message to server
+          var lastMsg = chat.messages && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
+          if (lastMsg) {
+            await api.post('/api/chats/' + created.id + '/messages', {
+              role: lastMsg.role === 'ai' ? 'assistant' : lastMsg.role,
+              content: lastMsg.content,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[API] saveChat failed:', e);
+    }
+  },
+
+  async deleteChat(chatId) {
+    this.globalData.aiChats = this.globalData.aiChats.filter(function (c) { return c.id !== chatId; });
+    wx.setStorageSync('ai_chats', this.globalData.aiChats);
+    try {
+      await api.del('/api/chats/' + chatId);
+    } catch (e) {
+      console.error('[API] deleteChat failed:', e);
+    }
+  },
+
+  // ── User from Token ──
+
+  _loadUserFromToken() {
+    var token = api.getToken();
+    if (!token) return;
+    try {
+      // Decode JWT payload (base64url)
+      var parts = token.split('.');
+      if (parts.length < 2) return;
+      var payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+      var userId = payload.sub;
+      if (userId) {
+        this.globalData.currentUser = Object.assign({}, this.globalData.currentUser, {
+          openId: userId,
+          id: userId,
+        });
+        wx.setStorageSync('user_identity', this.globalData.currentUser);
+      }
+    } catch (_e) {}
+  },
+
+  // ── Settings ──
 
   _loadSettings() {
     const stored = wx.getStorageSync('app_settings');
@@ -304,146 +499,127 @@ App({
     }
   },
 
-  _saveSettings() {
-    wx.setStorageSync('app_settings', this.globalData.settings);
-    this._cloudStorage.saveSettings(this.globalData.settings);
-  },
-
   getSetting(key, defaultValue) {
     const val = this.globalData.settings[key];
     return val !== undefined ? val : defaultValue;
   },
 
   saveSetting(key, value) {
-    this.globalData.settings = { ...this.globalData.settings, [key]: value };
-    this._saveSettings();
+    this.globalData.settings = Object.assign({}, this.globalData.settings, { [key]: value });
+    wx.setStorageSync('app_settings', this.globalData.settings);
   },
 
-  // ── Card CRUD ──
+  // ── Comments ──
 
-  getCardById(id) {
-    return this.globalData.cards.find(c => c.id === id);
-  },
-
-  updateCard(id, updates) {
-    const idx = this.globalData.cards.findIndex(c => c.id === id);
-    if (idx !== -1) {
-      const updated = {
-        ...this.globalData.cards[idx],
-        ...updates,
-        updatedAt: this._formatTime(new Date()),
-      };
-      this.globalData.cards[idx] = updated;
-      wx.setStorageSync('inspiration_cards', this.globalData.cards);
-      this._cloudStorage.saveCard(updated);
+  async loadComments(cardId) {
+    if (cardId.indexOf('card_') === 0) return [];
+    try {
+      var comments = await api.get('/api/cards/' + cardId + '/comments');
+      this.globalData.comments = comments;
+      return comments;
+    } catch (e) {
+      console.error('[API] loadComments failed:', e);
+      return [];
     }
   },
 
-  addCard(card) {
-    const { findRecommendations } = require('./utils/agent');
-    const wsId = this.globalData.currentWorkspaceId;
-    const wsCards = this.getWorkspaceCards();
-    const newCard = {
-      ...card,
-      id: 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
-      workspaceId: wsId,
-      keywords: card.keywords || [],
-      emotionTag: '',
-      createdAt: this._formatTime(new Date()),
-      updatedAt: null,
-      isFavorite: false,
-      isTemp: true,
-      relatedIds: [],
-      agentRecommendIds: [],
-      agentScores: {},
-      hasAiChat: false,
-    };
-    var recs = findRecommendations(newCard, wsCards);
-    newCard.agentRecommendIds = recs.map(function (r) { return r.id; });
-    recs.forEach(function (r) { newCard.agentScores[r.id] = r.score; });
-    this.globalData.cards.unshift(newCard);
-    wx.setStorageSync('inspiration_cards', this.globalData.cards);
-    this._cloudStorage.saveCard(newCard);
-    // Background AI: auto-extract keywords + auto-generate title
-    if ((newCard.content || '').trim()) {
-      if (newCard.keywords.length === 0) {
-        this._autoExtractKeywords(newCard.id, newCard.content);
+  async addComment(cardId, content) {
+    if (cardId.indexOf('card_') === 0) return false;
+    try {
+      await api.post('/api/cards/' + cardId + '/comments', {
+        content: content,
+      });
+      await this.loadComments(cardId);
+      return true;
+    } catch (e) {
+      console.error('[API] addComment failed:', e);
+      return false;
+    }
+  },
+
+  async deleteComment(commentId, cardId) {
+    if (cardId.indexOf('card_') === 0) return false;
+    try {
+      await api.del('/api/cards/' + cardId + '/comments/' + commentId);
+      this.globalData.comments = this.globalData.comments.filter(function (c) { return c.id !== commentId; });
+      return true;
+    } catch (e) {
+      console.error('[API] deleteComment failed:', e);
+      return false;
+    }
+  },
+
+  // ── Invite & Members ──
+
+  async generateInviteCode(wsId) {
+    try {
+      var res = await api.post('/api/workspaces/' + wsId + '/invite-code');
+      var code = res.invite_code;
+      // Update local workspace
+      var idx = this.globalData.workspaces.findIndex(function (w) { return w.id === wsId; });
+      if (idx !== -1) {
+        this.globalData.workspaces[idx].inviteCode = code;
       }
-      if (!newCard.title) {
-        this._autoGenerateTitle(newCard.id, newCard.content);
-      }
-    }
-    return newCard;
-  },
-
-  deleteCard(id) {
-    this.deleteCards([id]);
-  },
-
-  deleteCards(ids) {
-    var idSet = new Set(ids);
-    // Capture chat IDs for cloud cascade before filtering
-    var deletedChatIds = this.globalData.aiChats.filter(c => idSet.has(c.cardId)).map(c => c.id);
-
-    this.globalData.cards = this.globalData.cards
-      .filter(c => !idSet.has(c.id))
-      .map(card => ({
-        ...card,
-        relatedIds: card.relatedIds.filter(rid => !idSet.has(rid)),
-        agentRecommendIds: card.agentRecommendIds.filter(rid => !idSet.has(rid)),
-      }));
-    this.globalData.aiChats = this.globalData.aiChats.filter(c => !idSet.has(c.cardId));
-    wx.setStorageSync('inspiration_cards', this.globalData.cards);
-    wx.setStorageSync('ai_chats', this.globalData.aiChats);
-
-    // Cloud cascade delete
-    this._cloudStorage.deleteCards(ids);
-    this._cloudStorage.deleteChats(deletedChatIds);
-  },
-
-  // ── Chat Persistence ──
-
-  getChatByCardId(cardId) {
-    return this.globalData.aiChats.find(c => c.cardId === cardId) || null;
-  },
-
-  saveChat(chat) {
-    const idx = this.globalData.aiChats.findIndex(c => c.id === chat.id);
-    if (idx !== -1) {
-      this.globalData.aiChats[idx] = chat;
-    } else {
-      this.globalData.aiChats.push(chat);
-    }
-    wx.setStorageSync('ai_chats', this.globalData.aiChats);
-    this._cloudStorage.saveChat(chat);
-  },
-
-  deleteChat(chatId) {
-    this.globalData.aiChats = this.globalData.aiChats.filter(c => c.id !== chatId);
-    wx.setStorageSync('ai_chats', this.globalData.aiChats);
-    this._cloudStorage.deleteChats([chatId]);
-  },
-
-  // ── User Identity ──
-
-  _initUser() {
-    // Get openid from cloud, cache locally
-    wx.cloud.callFunction({ name: 'getSharedData', data: { action: 'getOpenId' } })
-      .then(res => {
-        // Fallback: use wx.cloud.callFunction to get openid
-        // WeChat Cloud auto-provides OPENID in cloud function context
-      })
-      .catch(() => {});
-
-    // Use cached openid if available
-    const cached = wx.getStorageSync('user_identity');
-    if (cached && cached.openId) {
-      this.globalData.currentUser = cached;
+      return code;
+    } catch (e) {
+      console.error('[API] generateInviteCode failed:', e);
+      return null;
     }
   },
+
+  async joinWorkspace(inviteCode) {
+    try {
+      var res = await api.post('/api/workspaces/join', { invite_code: inviteCode });
+      // Reload workspaces
+      await this._loadWorkspacesFromApi();
+      return res;
+    } catch (e) {
+      console.error('[API] joinWorkspace failed:', e);
+      return null;
+    }
+  },
+
+  async removeMember(wsId, userId) {
+    try {
+      await api.del('/api/workspaces/' + wsId + '/members/' + userId);
+      return true;
+    } catch (e) {
+      console.error('[API] removeMember failed:', e);
+      return false;
+    }
+  },
+
+  isWorkspaceOwner(wsId) {
+    var ws = this.globalData.workspaces.find(function (w) { return w.id === wsId; });
+    if (!ws) return false;
+    return ws.owner === this.globalData.currentUser.openId;
+  },
+
+  // ── Keyword utilities ──
+
+  getKeywordRegistry() {
+    var cards = this.getWorkspaceCards();
+    var registry = {};
+    cards.forEach(function (c) {
+      (c.keywords || []).forEach(function (kw) {
+        registry[kw] = (registry[kw] || 0) + 1;
+      });
+    });
+    var sorted = Object.entries(registry).sort(function (a, b) { return b[1] - a[1]; });
+    var result = {};
+    sorted.forEach(function (entry) { result[entry[0]] = entry[1]; });
+    return result;
+  },
+
+  getTopKeywords(limit) {
+    var registry = this.getKeywordRegistry();
+    return Object.keys(registry).slice(0, limit || 15);
+  },
+
+  // ── Utility ──
 
   setCurrentUser(user) {
-    this.globalData.currentUser = { ...this.globalData.currentUser, ...user };
+    this.globalData.currentUser = Object.assign({}, this.globalData.currentUser, user);
     wx.setStorageSync('user_identity', this.globalData.currentUser);
   },
 
@@ -451,171 +627,12 @@ App({
     return this.globalData.currentUser;
   },
 
-  // ── Shared Workspaces ──
-
-  async generateInviteCode(wsId) {
-    try {
-      const res = await wx.cloud.callFunction({
-        name: 'joinWorkspace',
-        data: { action: 'generateInviteCode', workspaceId: wsId },
-      });
-      if (res.result.code === 0) {
-        // Update local workspace with invite code
-        const idx = this.globalData.workspaces.findIndex(w => w.id === wsId);
-        if (idx !== -1) {
-          this.globalData.workspaces[idx].inviteCode = res.result.data.inviteCode;
-          wx.setStorageSync('workspaces', this.globalData.workspaces);
-        }
-        return res.result.data.inviteCode;
-      }
-      return null;
-    } catch (e) {
-      console.error('[generateInviteCode] failed:', e);
-      return null;
-    }
-  },
-
-  async joinWorkspace(inviteCode) {
-    const user = this.globalData.currentUser;
-    try {
-      const res = await wx.cloud.callFunction({
-        name: 'joinWorkspace',
-        data: {
-          action: 'joinWorkspace',
-          inviteCode,
-          nickName: user.nickName || '成员',
-        },
-      });
-      if (res.result.code === 0) {
-        // Reload shared workspaces
-        await this.loadSharedWorkspaces();
-        return res.result.data;
-      }
-      return null;
-    } catch (e) {
-      console.error('[joinWorkspace] failed:', e);
-      return null;
-    }
-  },
-
-  async removeMember(wsId, openId) {
-    try {
-      const res = await wx.cloud.callFunction({
-        name: 'joinWorkspace',
-        data: { action: 'removeMember', workspaceId: wsId, openId },
-      });
-      return res.result.code === 0;
-    } catch (e) {
-      console.error('[removeMember] failed:', e);
-      return false;
-    }
-  },
-
-  async loadSharedWorkspaces() {
-    try {
-      const res = await wx.cloud.callFunction({
-        name: 'getSharedData',
-        data: { action: 'getSharedWorkspaces' },
-      });
-      if (res.result.code === 0) {
-        this.globalData.sharedWorkspaces = res.result.data;
-        return res.result.data;
-      }
-      return [];
-    } catch (e) {
-      console.error('[loadSharedWorkspaces] failed:', e);
-      return [];
-    }
-  },
-
-  isWorkspaceOwner(wsId) {
-    const ws = this.globalData.workspaces.find(w => w.id === wsId);
-    if (!ws) return false;
-    return ws.owner === this.globalData.currentUser.openId;
-  },
-
-  isWorkspaceMember(wsId) {
-    const ws = this.globalData.workspaces.find(w => w.id === wsId);
-    if (!ws) return false;
-    if (!ws.owner) return true; // old workspace without owner field
-    if (ws.owner === this.globalData.currentUser.openId) return true;
-    return (ws.members || []).some(m => m.openId === this.globalData.currentUser.openId);
-  },
-
-  // ── Comments ──
-
-  async loadComments(cardId) {
-    try {
-      const res = await wx.cloud.callFunction({
-        name: 'commentOp',
-        data: { action: 'getComments', cardId },
-      });
-      if (res.result.code === 0) {
-        this.globalData.comments = res.result.data;
-        return res.result.data;
-      }
-      return [];
-    } catch (e) {
-      console.error('[loadComments] failed:', e);
-      return [];
-    }
-  },
-
-  async addComment(cardId, content) {
-    const user = this.globalData.currentUser;
-    // Find workspace for this card
-    const card = this.getCardById(cardId);
-    const workspaceId = card ? card.workspaceId : '';
-
-    try {
-      const res = await wx.cloud.callFunction({
-        name: 'commentOp',
-        data: {
-          action: 'addComment',
-          cardId,
-          workspaceId,
-          content,
-          nickName: user.nickName || '匿名',
-        },
-      });
-      if (res.result.code === 0) {
-        // Reload comments
-        await this.loadComments(cardId);
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error('[addComment] failed:', e);
-      return false;
-    }
-  },
-
-  async deleteComment(commentId, cardId) {
-    const card = this.getCardById(cardId);
-    const workspaceId = card ? card.workspaceId : '';
-
-    try {
-      const res = await wx.cloud.callFunction({
-        name: 'commentOp',
-        data: { action: 'deleteComment', commentId, workspaceId },
-      });
-      if (res.result.code === 0) {
-        this.globalData.comments = this.globalData.comments.filter(c => c.id !== commentId);
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error('[deleteComment] failed:', e);
-      return false;
-    }
-  },
-
   _formatTime(date) {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    const h = String(date.getHours()).padStart(2, '0');
-    const min = String(date.getMinutes()).padStart(2, '0');
-    return `${y}-${m}-${d} ${h}:${min}`;
+    var y = date.getFullYear();
+    var m = String(date.getMonth() + 1).padStart(2, '0');
+    var d = String(date.getDate()).padStart(2, '0');
+    var h = String(date.getHours()).padStart(2, '0');
+    var min = String(date.getMinutes()).padStart(2, '0');
+    return y + '-' + m + '-' + d + ' ' + h + ':' + min;
   },
 });

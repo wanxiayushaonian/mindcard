@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, cards, chat, comments, rag, search, workspaces
+from app.api import ai, auth, cards, chat, comments, rag, search, workspaces
 
 
 @asynccontextmanager
@@ -35,6 +35,7 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(rag.router, prefix="/api/rag", tags=["rag"])
 app.include_router(chat.router, prefix="/api/chats", tags=["chats"])
 app.include_router(comments.router, prefix="/api/cards", tags=["comments"])
+app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 
 
 @app.get("/health")

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, Float, ForeignKey, Index, String, Text
@@ -29,7 +29,7 @@ class Card(Base):
     is_temp: Mapped[bool] = mapped_column(Boolean, default=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
     fts_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
 
@@ -46,4 +46,4 @@ class CardRelation(Base):
         String(16), primary_key=True
     )  # 'manual' | 'agent'
     score: Mapped[float] = mapped_column(Float, default=0.0)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

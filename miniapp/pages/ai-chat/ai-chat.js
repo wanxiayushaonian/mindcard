@@ -1,6 +1,6 @@
 // pages/ai-chat/ai-chat.js
-const { chatStream, generateTitle, extractKeywords } = require('../../utils/deepseek');
-const { CARD_COLORS } = require('../../utils/mock-data');
+var api = require('../../utils/api');
+var { CARD_COLORS } = require('../../utils/mock-data');
 
 Page({
   data: {
@@ -13,6 +13,12 @@ Page({
     showCardPicker: false,
     chatId: '',
     precipitating: false,
+    canPrecipitate: false,
+    mode: 'rag',
+    modes: [
+      { key: 'rag', label: '知识问答' },
+      { key: 'chat', label: '自由对话' },
+    ],
   },
 
   _streamTimer: null,
@@ -20,17 +26,18 @@ Page({
   _streamMsgId: '',
   _streamTime: '',
 
-  onLoad(options) {
-    const cardId = options.cardId || '';
-    this.setData({ cardId });
+  onLoad: function (options) {
+    var cardId = options.cardId || '';
+    var app = getApp();
+    var ws = app.getCurrentWorkspace();
+    this.setData({ cardId: cardId, canPrecipitate: ws && ws.memberRole === 'owner' });
 
     if (cardId) {
-      const app = getApp();
-      const card = app.getCardById(cardId);
+      var app = getApp();
+      var card = app.getCardById(cardId);
       if (card) this.setData({ contextCard: card });
 
-      // #2: Load from globalData
-      const chat = app.getChatByCardId(cardId);
+      var chat = app.getChatByCardId(cardId);
       if (chat) {
         this.setData({ messages: chat.messages, chatId: chat.id });
       }
@@ -38,51 +45,57 @@ Page({
     }
   },
 
-  // #4.1: Persist messages on unload
-  onUnload() {
+  onUnload: function () {
     this._persistChat();
   },
 
-  _persistChat() {
-    const { cardId, messages, chatId } = this.data;
+  _persistChat: function () {
+    var cardId = this.data.cardId;
+    var messages = this.data.messages;
+    var chatId = this.data.chatId;
     if (!cardId || messages.length === 0) return;
 
-    const app = getApp();
-    const now = app._formatTime ? app._formatTime(new Date()) : new Date().toLocaleString();
+    var app = getApp();
+    var now = app._formatTime ? app._formatTime(new Date()) : new Date().toLocaleString();
 
     if (chatId) {
-      const chat = app.globalData.aiChats.find(c => c.id === chatId);
+      var chat = app.globalData.aiChats.find(function (c) { return c.id === chatId; });
       if (chat) {
-        app.saveChat({ ...chat, messages });
+        app.saveChat(Object.assign({}, chat, { messages: messages }));
       }
     } else {
-      const newChat = {
+      var newChat = {
         id: 'chat_' + Date.now(),
-        cardId,
+        cardId: cardId,
         title: (this.data.contextCard || {}).title || '灵感对话',
         createdAt: now,
-        messages,
+        messages: messages,
       };
       app.saveChat(newChat);
       this.setData({ chatId: newChat.id });
-      // Mark card as having AI chat
       app.updateCard(cardId, { hasAiChat: true });
     }
   },
 
-  onInput(e) {
+  onInput: function (e) {
     this.setData({ inputText: e.detail.value });
   },
 
-  onSend() {
-    const { inputText, messages, contextCard } = this.data;
+  onModeTap: function (e) {
+    this.setData({ mode: e.currentTarget.dataset.mode });
+  },
+
+  onSend: function () {
+    var inputText = this.data.inputText;
+    var messages = this.data.messages;
+    var contextCard = this.data.contextCard;
     if (!inputText.trim()) return;
 
-    const now = new Date();
-    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const userMsg = { id: 'msg_' + Date.now(), role: 'user', content: inputText.trim(), time };
+    var now = new Date();
+    var time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    var userMsg = { id: 'msg_' + Date.now(), role: 'user', content: inputText.trim(), time: time };
 
-    this.setData({ messages: [...messages, userMsg], inputText: '', isLoading: true });
+    this.setData({ messages: messages.concat([userMsg]), inputText: '', isLoading: true });
     this.scrollToBottom();
 
     var self = this;
@@ -93,11 +106,27 @@ Page({
     self._streamContent = '';
     self._streamTimer = null;
 
-    chatStream({
-      cardContext: contextCard ? contextCard.content : '',
-      historyMessages: messages,
-      userMessage: inputText.trim(),
-      onChunk: function (text) {
+    var app = getApp();
+    var workspaceId = app.globalData.currentWorkspaceId;
+    var aiTone = app.getSetting('aiTone', '创意');
+    var aiDirection = app.getSetting('aiDirection', '发散');
+
+    if (self.data.mode === 'rag') {
+      // RAG knowledge Q&A via FastAPI
+      if (!workspaceId) {
+        wx.showToast({ title: '请先选择空间', icon: 'none' });
+        self.setData({ isLoading: false });
+        return;
+      }
+      api.streamRequest('/api/rag/ask/stream', {
+        question: inputText.trim(),
+        workspace_id: workspaceId,
+        card_id: self.data.cardId || undefined,
+        top_k: 5,
+        ai_tone: aiTone,
+        ai_direction: aiDirection,
+      }, function (text) {
+        // onChunk
         self._streamContent = text;
         if (!self._streamTimer) {
           self._streamTimer = setTimeout(function () {
@@ -105,27 +134,67 @@ Page({
             self._streamTimer = null;
           }, 100);
         }
-      },
-      onComplete: function (text) {
+      }, function (fullContent, extra) {
+        // onDone
         if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
+        self._streamContent = fullContent;
+        self._flushStream();
+        // Attach sources if available
+        if (extra && extra.sources && extra.sources.length > 0) {
+          var msgs = self.data.messages.slice();
+          var idx = msgs.findIndex(function (m) { return m.id === aiMsgId; });
+          if (idx !== -1) {
+            msgs[idx] = Object.assign({}, msgs[idx], { sources: extra.sources });
+            self.setData({ messages: msgs });
+          }
+        }
+        self.setData({ isLoading: false });
+        self.scrollToBottom();
+        self._persistChat();
+      }, function (err) {
+        // onError
+        if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
+        var errMsg = { id: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime };
+        self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
+        self.scrollToBottom();
+      });
+    } else {
+      // Free chat via FastAPI
+      var history = messages.slice(-10).map(function (m) {
+        return { role: m.role === 'ai' ? 'assistant' : 'user', content: m.content };
+      });
+      api.streamRequest('/api/rag/chat/stream', {
+        message: inputText.trim(),
+        history: history,
+        ai_tone: aiTone,
+        ai_direction: aiDirection,
+      }, function (text) {
         self._streamContent = text;
+        if (!self._streamTimer) {
+          self._streamTimer = setTimeout(function () {
+            self._flushStream();
+            self._streamTimer = null;
+          }, 100);
+        }
+      }, function (fullContent) {
+        if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
+        self._streamContent = fullContent;
         self._flushStream();
         self.setData({ isLoading: false });
         self.scrollToBottom();
         self._persistChat();
-      },
-      onError: function (err) {
+      }, function (err) {
         if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
         var errMsg = { id: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime };
-        self.setData({ messages: [...self.data.messages, errMsg], isLoading: false });
+        self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
         self.scrollToBottom();
-      },
-    });
+      });
+    }
   },
 
-  _flushStream() {
-    var msgs = [...this.data.messages];
-    var idx = msgs.findIndex(m => m.id === this._streamMsgId);
+  _flushStream: function () {
+    var msgs = this.data.messages.slice();
+    var idx = msgs.findIndex(function (m) { return m.id === this._streamMsgId; }.bind(this));
     var aiMsg = { id: this._streamMsgId, role: 'ai', content: this._streamContent, time: this._streamTime };
     if (idx !== -1) {
       msgs[idx] = aiMsg;
@@ -135,101 +204,113 @@ Page({
     this.setData({ messages: msgs });
   },
 
-  onQuickPrompt(e) {
+  onQuickPrompt: function (e) {
     this.setData({ inputText: e.currentTarget.dataset.prompt });
   },
 
-  // #6: Actually apply AI content to card
-  onApplyToCard(e) {
-    const msgId = e.currentTarget.dataset.msgId;
-    const msg = this.data.messages.find(m => m.id === msgId);
+  onApplyToCard: function (e) {
+    var msgId = e.currentTarget.dataset.msgId;
+    var msg = this.data.messages.find(function (m) { return m.id === msgId; });
     if (!msg || !this.data.cardId) return;
 
-    const app = getApp();
-    const card = app.getCardById(this.data.cardId);
+    var app = getApp();
+    var card = app.getCardById(this.data.cardId);
     if (card) {
-      const newContent = card.content + '\n\n--- AI建议 ---\n' + msg.content;
+      var newContent = card.content + '\n\n--- AI建议 ---\n' + msg.content;
       app.updateCard(this.data.cardId, { content: newContent });
     }
     wx.showToast({ title: '已应用到卡片', icon: 'success' });
   },
 
-  onPrecipitate(e) {
-    if (this.data.precipitating) return;
-    const msgId = e.currentTarget.dataset.msgId;
-    const msg = this.data.messages.find(m => m.id === msgId);
+  onPrecipitate: function (e) {
+    if (this.data.precipitating || !this.data.canPrecipitate) return;
+    var msgId = e.currentTarget.dataset.msgId;
+    var msg = this.data.messages.find(function (m) { return m.id === msgId; });
     if (!msg) return;
 
     this.setData({ precipitating: true });
-    const app = getApp();
-    const content = msg.content;
-    const color = CARD_COLORS[Math.floor(Math.random() * CARD_COLORS.length)];
+    var app = getApp();
+    var content = msg.content;
+    var color = CARD_COLORS[Math.floor(Math.random() * CARD_COLORS.length)];
+    var self = this;
 
+    // Use backend AI endpoints for title/keywords
     Promise.all([
-      generateTitle(content).catch(function () { return 'AI灵感'; }),
-      extractKeywords(content).catch(function () { return []; }),
+      api.post('/api/ai/generate-title', { content: content })
+        .then(function (r) { return r.title; })
+        .catch(function () { return 'AI灵感'; }),
+      api.post('/api/ai/extract-keywords', { content: content })
+        .then(function (r) { return r.keywords || []; })
+        .catch(function () { return []; }),
     ]).then(function (results) {
       var title = results[0] || 'AI灵感';
       var keywords = results[1] || [];
-      var newCard = app.addCard({ title: title, content: content, keywords: keywords, color: color });
+      return app.addCard({ title: title, content: content, keywords: keywords, color: color });
+    }).then(function (newCard) {
       wx.showToast({ title: '已沉淀为新卡片', icon: 'success' });
       setTimeout(function () {
         wx.navigateTo({ url: '/pages/card-detail/card-detail?id=' + newCard.id });
       }, 800);
-    }).finally(() => {
-      this.setData({ precipitating: false });
+    }).finally(function () {
+      self.setData({ precipitating: false });
     });
   },
 
-  // #8: Change context via card picker
-  onChangeContext() {
+  onChangeContext: function () {
     this.setData({ showCardPicker: true });
   },
 
-  onContextPickerSelect(e) {
-    const app = getApp();
-    const card = app.getCardById(e.detail.id);
+  onContextPickerSelect: function (e) {
+    var app = getApp();
+    var card = app.getCardById(e.detail.id);
     if (card) {
       this.setData({ contextCard: card, cardId: card.id, messages: [], chatId: '' });
-      const chat = app.getChatByCardId(card.id);
+      var chat = app.getChatByCardId(card.id);
       if (chat) this.setData({ messages: chat.messages, chatId: chat.id });
     }
     this.setData({ showCardPicker: false });
   },
 
-  onContextPickerClose() {
+  onContextPickerClose: function () {
     this.setData({ showCardPicker: false });
   },
 
-  // #12: Navigate to AI settings
-  onSettings() {
+  onSettings: function () {
     wx.navigateTo({ url: '/pages/profile/profile' });
   },
 
-  // #20: Long press message for delete/copy
-  onMsgLongPress(e) {
-    const msgId = e.currentTarget.dataset.msgId;
+  onMsgLongPress: function (e) {
+    var msgId = e.currentTarget.dataset.msgId;
+    var self = this;
     wx.showActionSheet({
       itemList: ['复制内容', '删除消息'],
-      success: (res) => {
+      success: function (res) {
         if (res.tapIndex === 0) {
-          const msg = this.data.messages.find(m => m.id === msgId);
+          var msg = self.data.messages.find(function (m) { return m.id === msgId; });
           if (msg) {
             wx.setClipboardData({ data: msg.content });
           }
         } else if (res.tapIndex === 1) {
-          const newMessages = this.data.messages.filter(m => m.id !== msgId);
-          this.setData({ messages: newMessages });
-          this._persistChat();
+          var newMessages = self.data.messages.filter(function (m) { return m.id !== msgId; });
+          self.setData({ messages: newMessages });
+          self._persistChat();
           wx.showToast({ title: '已删除', icon: 'success' });
         }
       },
     });
   },
 
-  scrollToBottom() {
-    setTimeout(() => {
-      this.setData({ scrollTarget: 'scroll-bottom' });
+  onSourceTap: function (e) {
+    var cardId = e.currentTarget.dataset.id;
+    if (cardId) {
+      wx.navigateTo({ url: '/pages/card-detail/card-detail?id=' + cardId });
+    }
+  },
+
+  scrollToBottom: function () {
+    var self = this;
+    setTimeout(function () {
+      self.setData({ scrollTarget: 'scroll-bottom' });
     }, 150);
   },
 });

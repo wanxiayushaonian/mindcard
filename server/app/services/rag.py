@@ -210,8 +210,8 @@ Respond in JSON format:
         workspace_id: str,
         card_id: str | None = None,
         top_k: int = 5,
-    ) -> AsyncGenerator[str, None]:
-        """Streaming RAG answer: retrieve cards, then stream LLM response."""
+    ) -> AsyncGenerator[str | dict, None]:
+        """Streaming RAG answer: retrieve cards, stream LLM, yield sources dict at end."""
         # 1. Retrieve relevant cards
         if card_id:
             context_cards = await self._find_similar_cards(db, card_id, limit=top_k)
@@ -239,6 +239,18 @@ User question: {question}"""
         messages = [{"role": "user", "content": prompt}]
         async for chunk in self._call_llm_stream(messages):
             yield chunk
+
+        # 4. Yield sources as a dict (the endpoint layer will serialize it)
+        source_cards = [
+            CardSummary(
+                id=str(c.id),
+                title=c.title,
+                content=c.content[:200],
+                keywords=c.keywords,
+            )
+            for c in context_cards
+        ]
+        yield {"source_cards": source_cards}
 
     async def _call_llm_stream(
         self, messages: list[dict[str, str]]

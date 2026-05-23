@@ -177,17 +177,17 @@
   <view class="confirm-dialog" catchtap="onStopPropagation">
     <text class="confirm-title">「{{membersWsName}}」成员</text>
     <view class="members-list">
-      <view wx:for="{{membersList}}" wx:key="openId" class="member-item">
+      <view wx:for="{{membersList}}" wx:key="user_id" class="member-item">
         <view class="member-info">
-          <text class="member-name">{{item.nickName}}</text>
+          <text class="member-name">{{item.nickname}}</text>
           <text class="member-role">{{item.role === 'owner' ? '管理员' : '成员'}}</text>
         </view>
         <view
           wx:if="{{item.role !== 'owner'}}"
           class="member-remove"
           catchtap="onRemoveMember"
-          data-openid="{{item.openId}}"
-          data-name="{{item.nickName}}"
+          data-userid="{{item.user_id}}"
+          data-name="{{item.nickname}}"
         >
           <text>移除</text>
         </view>

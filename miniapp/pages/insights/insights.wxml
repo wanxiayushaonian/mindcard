@@ -1,0 +1,61 @@
+<!--pages/insights/insights.wxml-->
+<navigation-bar title="灵感洞察" back="{{true}}" background="#F9FAFC">
+</navigation-bar>
+
+<scroll-view class="scrollarea" scroll-y type="list">
+  <view class="loading-state" wx:if="{{loading}}">
+    <text>正在分析灵感模式...</text>
+  </view>
+
+  <view class="insights-content" wx:if="{{loaded && !loading}}">
+    <!-- Themes -->
+    <view class="section" wx:if="{{themes.length > 0}}">
+      <text class="section-title">思维主题</text>
+      <view class="theme-list">
+        <view wx:for="{{themes}}" wx:key="*this" class="theme-tag">
+          <text>{{item}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- Trends -->
+    <view class="section" wx:if="{{trends}}">
+      <text class="section-title">思维趋势</text>
+      <view class="trends-card">
+        <text class="trends-text">{{trends}}</text>
+      </view>
+    </view>
+
+    <!-- Unexplored -->
+    <view class="section" wx:if="{{unexplored.length > 0}}">
+      <text class="section-title">未探索方向</text>
+      <view class="insight-list">
+        <view wx:for="{{unexplored}}" wx:key="*this" class="insight-item">
+          <text class="insight-icon">💡</text>
+          <text class="insight-text">{{item}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- Suggestions -->
+    <view class="section" wx:if="{{suggestions.length > 0}}">
+      <text class="section-title">发展建议</text>
+      <view class="insight-list">
+        <view wx:for="{{suggestions}}" wx:key="*this" class="insight-item">
+          <text class="insight-icon">✓</text>
+          <text class="insight-text">{{item}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- Empty state -->
+    <view class="empty-state" wx:if="{{themes.length === 0 && !trends && unexplored.length === 0 && suggestions.length === 0}}">
+      <text class="empty-text">暂无洞察数据，请先添加更多灵感卡片</text>
+    </view>
+
+    <!-- Refresh button -->
+    <view class="refresh-btn" bindtap="onRefresh">
+      <text>重新分析</text>
+    </view>
+  </view>
+</scroll-view>

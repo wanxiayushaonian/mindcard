@@ -1,21 +1,43 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit & { timeout?: number }): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const { timeout = 15000, ...fetchOptions } = options || {};
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...((options?.headers as Record<string, string>) || {}),
+    ...((fetchOptions.headers as Record<string, string>) || {}),
   };
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      if (res.status === 401 && typeof window !== "undefined") {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+        throw new Error("登录已过期，请重新登录");
+      }
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+
+    return res.json();
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error("请求超时，请检查网络连接");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return res.json();
 }
 
 /** Stream SSE from a POST endpoint. Calls onChunk for each text chunk. Returns an abort function. */
@@ -40,6 +62,11 @@ export function streamRequest(
   })
     .then(async (res) => {
       if (!res.ok) {
+        if (res.status === 401 && typeof window !== "undefined") {
+          localStorage.removeItem("token");
+          window.location.href = "/login";
+          throw new Error("登录已过期，请重新登录");
+        }
         const err = await res.json().catch(() => ({ detail: res.statusText }));
         throw new Error(err.detail || `HTTP ${res.status}`);
       }
@@ -51,6 +78,7 @@ export function streamRequest(
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, "\n");
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) {
@@ -76,12 +104,44 @@ export function streamRequest(
 }
 
 // --- Auth ---
+export interface UserMe {
+  id: string;
+  username: string | null;
+  nickname: string;
+  avatar_url: string;
+  has_miniapp_wechat: boolean;
+  has_web_wechat: boolean;
+}
+
 export const authApi = {
+  register: (username: string, password: string, nickname?: string) =>
+    request<{ access_token: string }>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username, password, nickname }),
+    }),
+  login: (username: string, password: string) =>
+    request<{ access_token: string }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
   wechatLogin: (code: string) =>
     request<{ access_token: string }>("/api/auth/wechat-login", {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
+  webOAuthLogin: (code: string) =>
+    request<{ access_token: string }>("/api/auth/web-login", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  wechatQrUrl: (redirectUri: string) =>
+    request<{ authorize_url: string }>(`/api/auth/wechat-qr-url?redirect_uri=${encodeURIComponent(redirectUri)}`),
+  bindWechat: (code: string) =>
+    request<{ ok: boolean; message: string }>("/api/auth/bind-wechat", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  me: () => request<UserMe>("/api/auth/me"),
   devLogin: (nickname: string = "Web用户") =>
     request<{ access_token: string }>("/api/auth/dev-login", {
       method: "POST",
@@ -98,6 +158,7 @@ export interface Workspace {
   color: string;
   invite_code: string | null;
   created_at: string;
+  member_role: string | null;
 }
 
 export const workspaceApi = {
@@ -119,6 +180,17 @@ export const workspaceApi = {
     request<{ user_id: string; nickname: string; role: string; joined_at: string }[]>(
       `/api/workspaces/${id}/members`
     ),
+  generateInviteCode: (id: string) =>
+    request<{ invite_code: string }>(`/api/workspaces/${id}/invite-code`, { method: "POST" }),
+  joinByCode: (invite_code: string) =>
+    request<{ ok: boolean; workspace_id: string; workspace_name?: string; message?: string }>(
+      "/api/workspaces/join",
+      { method: "POST", body: JSON.stringify({ invite_code }) }
+    ),
+  removeMember: (workspaceId: string, userId: string) =>
+    request<{ ok: boolean }>(`/api/workspaces/${workspaceId}/members/${userId}`, { method: "DELETE" }),
+  leave: (workspaceId: string) =>
+    request<{ ok: boolean }>(`/api/workspaces/${workspaceId}/leave`, { method: "POST" }),
 };
 
 // --- Cards ---
@@ -126,20 +198,35 @@ export interface Card {
   id: string;
   local_id: string;
   workspace_id: string;
+  creator_id: string;
   title: string;
   content: string;
   keywords: string[];
   color: string;
-  emotion_tag: string;
   is_favorite: boolean;
   is_temp: boolean;
   created_at: string;
   updated_at: string | null;
 }
 
+export interface CardFilters {
+  sort_by?: "created_at" | "updated_at" | "title";
+  order?: "asc" | "desc";
+  is_favorite?: boolean;
+  is_temp?: boolean;
+  keyword?: string;
+}
+
 export const cardApi = {
-  list: (workspaceId: string, skip = 0, limit = 50) =>
-    request<Card[]>(`/api/cards/?workspace_id=${workspaceId}&skip=${skip}&limit=${limit}`),
+  list: (workspaceId: string, skip = 0, limit = 50, filters?: CardFilters) => {
+    const params = new URLSearchParams({ workspace_id: workspaceId, skip: String(skip), limit: String(limit) });
+    if (filters) {
+      Object.entries(filters).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+      });
+    }
+    return request<Card[]>(`/api/cards/?${params}`);
+  },
   get: (id: string) => request<Card>(`/api/cards/${id}`),
   create: (data: {
     local_id: string;
@@ -148,7 +235,6 @@ export const cardApi = {
     content: string;
     keywords?: string[];
     color?: string;
-    emotion_tag?: string;
   }) =>
     request<Card>("/api/cards/", {
       method: "POST",
@@ -167,6 +253,8 @@ export const cardApi = {
       method: "POST",
       body: JSON.stringify({ related_card_id: relatedCardId, relation_type: relationType }),
     }),
+  removeRelation: (cardId: string, relatedCardId: string) =>
+    request<{ ok: boolean }>(`/api/cards/${cardId}/relations/${relatedCardId}`, { method: "DELETE" }),
 };
 
 // --- Comments ---
@@ -174,6 +262,7 @@ export interface Comment {
   id: string;
   card_id: string;
   author_id: string | null;
+  author_nickname: string;
   content: string;
   created_at: string;
 }
@@ -317,4 +406,28 @@ export const chatApi = {
     }),
   delete: (chatId: string) =>
     request<{ ok: boolean }>(`/api/chats/${chatId}`, { method: "DELETE" }),
+};
+
+// --- AI Text Tools ---
+export const aiApi = {
+  polish: (content: string) =>
+    request<{ text: string }>("/api/ai/polish", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+  supplement: (content: string) =>
+    request<{ text: string }>("/api/ai/supplement", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+  generateTitle: (content: string) =>
+    request<{ title: string }>("/api/ai/generate-title", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+  extractKeywords: (content: string) =>
+    request<{ keywords: string[] }>("/api/ai/extract-keywords", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
 };

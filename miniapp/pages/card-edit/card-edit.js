@@ -1,6 +1,6 @@
 // pages/card-edit/card-edit.js
 const { CARD_COLORS } = require('../../utils/mock-data');
-const { polishText, supplementText, generateFromPrompt, generateTitle, extractKeywords } = require('../../utils/deepseek');
+var api = require('../../utils/api');
 
 Page({
   data: {
@@ -113,12 +113,14 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: '提炼标题中...', icon: 'loading', duration: 3000 });
-    generateTitle(text).then(title => {
-      this.setData({ title: title.trim() });
-      wx.showToast({ title: '已生成', icon: 'success' });
-    }).catch(err => {
-      wx.showToast({ title: err.message || '生成失败', icon: 'none' });
-    });
+    api.post('/api/ai/generate-title', { content: text })
+      .then(function (res) {
+        this.setData({ title: res.title });
+        wx.showToast({ title: '已生成', icon: 'success' });
+      }.bind(this))
+      .catch(function (err) {
+        wx.showToast({ title: err.message || '生成失败', icon: 'none' });
+      });
   },
 
   onAiKeywords() {
@@ -127,60 +129,65 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: '提取关键字中...', icon: 'loading', duration: 3000 });
-    extractKeywords(text).then(kws => {
-      if (kws.length === 0) {
-        wx.showToast({ title: '未提取到关键字', icon: 'none' });
-        return;
-      }
-      this.setData({ keywords: kws });
-      this._updateSuggestions(kws);
-      wx.showToast({ title: '已提取 ' + kws.length + ' 个关键字', icon: 'success' });
-    }).catch(err => {
-      wx.showToast({ title: err.message || '提取失败', icon: 'none' });
-    });
+    api.post('/api/ai/extract-keywords', { content: text })
+      .then(function (res) {
+        var kws = res.keywords || [];
+        if (kws.length === 0) {
+          wx.showToast({ title: '未提取到关键字', icon: 'none' });
+          return;
+        }
+        this.setData({ keywords: kws });
+        this._updateSuggestions(kws);
+        wx.showToast({ title: '已提取 ' + kws.length + ' 个关键字', icon: 'success' });
+      }.bind(this))
+      .catch(function (err) {
+        wx.showToast({ title: err.message || '提取失败', icon: 'none' });
+      });
   },
 
-  onSave() {
+  async onSave() {
     const { title, content, keywords, selectedColor, isEdit, cardId } = this.data;
     if (!content.trim()) {
       wx.showToast({ title: '请输入灵感内容', icon: 'none' });
       return;
     }
 
-    const app = getApp();
-    if (isEdit) {
-      app.updateCard(cardId, {
-        title: title.trim(),
-        content: content.trim(),
-        keywords: keywords,
-        color: selectedColor,
-      });
-    } else {
-      app.addCard({
-        title: title.trim(),
-        content: content.trim(),
-        keywords: keywords,
-        color: selectedColor,
-      });
-    }
+    try {
+      const app = getApp();
+      if (isEdit) {
+        await app.updateCard(cardId, {
+          title: title.trim(),
+          content: content.trim(),
+          keywords: keywords,
+          color: selectedColor,
+        });
+      } else {
+        await app.addCard({
+          title: title.trim(),
+          content: content.trim(),
+          keywords: keywords,
+          color: selectedColor,
+        });
+      }
 
-    wx.showToast({ title: '保存成功', icon: 'success' });
-    setTimeout(() => wx.navigateBack(), 800);
+      wx.showToast({ title: '保存成功', icon: 'success' });
+      setTimeout(() => wx.navigateBack(), 800);
+    } catch (e) {
+      wx.showToast({ title: e.message || '保存失败', icon: 'none' });
+    }
   },
 
   onAiGenerate() {
-    const prompt = this.data.title || this.data.content || '帮我生成一段关于产品创新的灵感思路';
+    var prompt = this.data.title || this.data.content || '帮我生成一段关于产品创新的灵感思路';
     wx.showToast({ title: 'AI生成中...', icon: 'loading', duration: 2000 });
-    generateFromPrompt({
-      prompt,
-      onComplete: (result) => {
-        this.setData({ content: result });
+    api.post('/api/rag/chat/stream', { message: prompt })
+      .then(function (res) {
+        this.setData({ content: res.reply || '' });
         wx.showToast({ title: '生成完成', icon: 'success' });
-      },
-      onError: (err) => {
+      }.bind(this))
+      .catch(function (err) {
         wx.showToast({ title: err.message || '生成失败', icon: 'none' });
-      },
-    });
+      });
   },
 
   onAiPolish() {
@@ -188,16 +195,14 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: 'AI润色中...', icon: 'loading', duration: 2000 });
-    polishText({
-      text: this.data.content,
-      onComplete: (result) => {
-        this.setData({ content: result });
+    api.post('/api/ai/polish', { content: this.data.content })
+      .then(function (res) {
+        this.setData({ content: res.text });
         wx.showToast({ title: '润色完成', icon: 'success' });
-      },
-      onError: (err) => {
+      }.bind(this))
+      .catch(function (err) {
         wx.showToast({ title: err.message || '润色失败', icon: 'none' });
-      },
-    });
+      });
   },
 
   onAiSupplement() {
@@ -205,15 +210,13 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: 'AI补充中...', icon: 'loading', duration: 2000 });
-    supplementText({
-      text: this.data.content,
-      onComplete: (result) => {
-        this.setData({ content: this.data.content + '\n\n' + result });
+    api.post('/api/ai/supplement', { content: this.data.content })
+      .then(function (res) {
+        this.setData({ content: this.data.content + '\n\n' + res.text });
         wx.showToast({ title: '补充完成', icon: 'success' });
-      },
-      onError: (err) => {
+      }.bind(this))
+      .catch(function (err) {
         wx.showToast({ title: err.message || '补充失败', icon: 'none' });
-      },
-    });
+      });
   },
 });

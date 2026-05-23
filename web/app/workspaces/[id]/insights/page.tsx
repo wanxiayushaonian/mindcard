@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ragApi } from "@/lib/api";
 
 interface Insights {
@@ -19,6 +19,10 @@ export default function InsightsPage() {
   const [insights, setInsights] = useState<Insights | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    handleGenerate();
+  }, []);
 
   const handleGenerate = async () => {
     setLoading(true);

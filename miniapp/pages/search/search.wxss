@@ -2,6 +2,12 @@ page { height: 100vh; display: flex; flex-direction: column; background: #F9FAFC
 .search-bar { display: flex; flex-direction: row; align-items: center; padding: 16rpx 24rpx; gap: 16rpx; background: #fff; }
 .search-input { flex: 1; padding: 16rpx 24rpx; background: #F5F7FA; border-radius: 24rpx; font-size: 28rpx; }
 .search-cancel { font-size: 26rpx; color: #7A9BB0; }
+.mode-tabs { display: flex; flex-direction: row; gap: 12rpx; padding: 12rpx 24rpx; background: #fff; border-bottom: 1rpx solid #f0f0f0; }
+.mode-tab { padding: 8rpx 24rpx; border-radius: 24rpx; font-size: 24rpx; color: #8E9AAF; background: #F5F7FA; }
+.mode-active { background: var(--primary, #7A9BB0); color: #fff; }
+.card-header { display: flex; flex-direction: row; align-items: center; justify-content: space-between; margin-bottom: 8rpx; }
+.result-score { font-size: 22rpx; color: var(--primary, #7A9BB0); font-weight: 600; }
+.loading-state { text-align: center; padding: 60rpx 0; font-size: 26rpx; color: #8E9AAF; }
 .results-section { padding: 16rpx 24rpx; }
 .results-count { display: block; font-size: 22rpx; color: #8E9AAF; margin-bottom: 16rpx; }
 .results-list { display: flex; flex-direction: column; gap: 16rpx; }

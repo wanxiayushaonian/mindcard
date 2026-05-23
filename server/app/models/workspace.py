@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP, UUID
@@ -18,7 +18,7 @@ class Workspace(Base):
     icon: Mapped[str] = mapped_column(String(8), default="💡")
     color: Mapped[str] = mapped_column(String(16), default="#94B4C8")
     invite_code: Mapped[str | None] = mapped_column(String(8), unique=True, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class WorkspaceMember(Base):
@@ -31,4 +31,4 @@ class WorkspaceMember(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     role: Mapped[str] = mapped_column(String(16), default="editor")  # 'owner' | 'editor'
-    joined_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    joined_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

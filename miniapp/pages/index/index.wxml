@@ -10,6 +10,9 @@
     <view class="nav-icon-btn" bindtap="onNetwork">
       <text class="nav-icon-text">⊛</text>
     </view>
+    <view class="nav-icon-btn" bindtap="onInsights">
+      <text class="nav-icon-text">◈</text>
+    </view>
     <view class="nav-icon-btn" bindtap="onProfile">
       <text class="nav-icon-text">☻</text>
     </view>

@@ -1,5 +1,5 @@
 // pages/category/category.js
-const { polishText } = require('../../utils/deepseek');
+var api = require('../../utils/api');
 
 Page({
   data: {
@@ -121,26 +121,24 @@ Page({
     checkedIds.forEach(id => {
       const card = app.getCardById(id);
       if (!card) { done++; return; }
-      polishText({
-        text: card.content,
-        onComplete: (result) => {
-          app.updateCard(id, { content: result });
+      api.post('/api/ai/polish', { content: card.content })
+        .then(function (res) {
+          app.updateCard(id, { content: res.text });
           done++;
           if (done >= total) {
             wx.showToast({ title: '优化完成', icon: 'success' });
             this.setData({ batchMode: false, checkedIds: [] });
             this.loadCards();
           }
-        },
-        onError: () => {
+        }.bind(this))
+        .catch(function () {
           done++;
           if (done >= total) {
             wx.showToast({ title: '部分优化失败', icon: 'none' });
             this.setData({ batchMode: false, checkedIds: [] });
             this.loadCards();
           }
-        },
-      });
+        }.bind(this));
     });
   },
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { searchApi, type SearchResult } from "@/lib/api";
 
 type SearchMode = "semantic" | "fulltext" | "hybrid";
@@ -15,20 +15,41 @@ export default function SearchPage() {
   const [mode, setMode] = useState<SearchMode>("hybrid");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [searched, setSearched] = useState(false);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
     setLoading(true);
+    setError("");
+    setSearched(true);
     try {
       const searchFn = { semantic: searchApi.semantic, fulltext: searchApi.fulltext, hybrid: searchApi.hybrid }[mode];
       const res = await searchFn(query, workspaceId);
       setResults(res.results);
-    } catch {
+    } catch (e: any) {
       setResults([]);
+      setError(e.message || "搜索失败，请重试");
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setResults([]);
+      setSearched(false);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      handleSearch();
+    }, 500);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, mode]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -67,13 +88,27 @@ export default function SearchPage() {
         </div>
       </div>
 
-      {results.length > 0 && (
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      {!searched && !loading && (
+        <div className="py-16 text-center text-text-secondary">
+          <div className="mb-3 text-4xl">&#128269;</div>
+          <p className="text-lg font-medium">搜索你的灵感卡片</p>
+          <p className="mt-2 text-sm">支持语义搜索、全文搜索或混合搜索</p>
+        </div>
+      )}
+
+      {searched && results.length > 0 && (
         <div className="flex flex-col gap-3">
           {results.map(({ card, score }) => (
             <div
               key={card.id}
               onClick={() => router.push(`/workspaces/${workspaceId}/card/${card.id}`)}
-              className="cursor-pointer rounded-card bg-surface p-4 shadow-sm transition hover:shadow-md"
+              className="cursor-pointer rounded-card border border-border bg-surface p-4 shadow-sm transition hover:shadow-md"
               style={{ borderLeft: `4px solid ${card.color}` }}
             >
               <div className="mb-1 flex items-start justify-between">
@@ -99,7 +134,7 @@ export default function SearchPage() {
         </div>
       )}
 
-      {results.length === 0 && query && !loading && (
+      {searched && results.length === 0 && !loading && !error && (
         <p className="py-12 text-center text-sm text-text-secondary">未找到相关卡片</p>
       )}
     </div>

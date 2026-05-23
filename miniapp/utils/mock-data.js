@@ -8,7 +8,7 @@ const mockCards = [
     content: '或许可以用声音交互来代替文字输入，让灵感记录更快速自然，像和朋友聊天一样记录想法',
     title: '语音灵感输入',
     keywords: ['语音交互', '灵感记录', '自然输入'],
-    emotionTag: '',
+
     color: '#B8D4E3',
     createdAt: '2026-04-25 22:30',
     updatedAt: null,
@@ -23,7 +23,7 @@ const mockCards = [
     content: '产品设计要遵循"少即是多"的原则，减少不必要的功能入口，让核心体验更突出',
     title: '设计原则',
     keywords: ['产品设计', '极简主义', '用户体验'],
-    emotionTag: '',
+
     color: '#C4D7B2',
     createdAt: '2026-04-25 18:15',
     updatedAt: '2026-04-25 20:00',
@@ -38,7 +38,7 @@ const mockCards = [
     content: '色彩心理学：莫兰迪色系传递宁静优雅，低饱和色彩有助于专注思考',
     title: '',
     keywords: ['色彩心理学', '莫兰迪色', '专注'],
-    emotionTag: '',
+
     color: '#D4B5D0',
     createdAt: '2026-04-24 23:45',
     updatedAt: null,
@@ -53,7 +53,7 @@ const mockCards = [
     content: '做一个灵感地图功能，用地图的形式展示灵感之间的关联，可视化思维脉络',
     title: '灵感地图',
     keywords: ['灵感地图', '可视化', '思维脉络'],
-    emotionTag: '',
+
     color: '#D4C5A9',
     createdAt: '2026-04-24 16:20',
     updatedAt: null,
@@ -68,7 +68,7 @@ const mockCards = [
     content: '凌晨三点的城市有种特别的宁静感，适合思考人生方向',
     title: '',
     keywords: ['深夜思考', '人生方向', '宁静'],
-    emotionTag: '',
+
     color: '#A0B8C8',
     createdAt: '2026-04-24 03:00',
     updatedAt: null,
@@ -83,7 +83,7 @@ const mockCards = [
     content: '把碎片化的想法串联起来，形成一个完整的故事线或产品方案',
     title: '',
     keywords: ['碎片整合', '故事线', '产品方案'],
-    emotionTag: '',
+
     color: '#E8C9A0',
     createdAt: '2026-04-23 21:10',
     updatedAt: null,
@@ -98,7 +98,7 @@ const mockCards = [
     content: '用户行为数据可以用来优化推荐算法，让灵感关联更精准',
     title: '',
     keywords: ['推荐算法', '用户行为', '数据驱动'],
-    emotionTag: '',
+
     color: '#C4D7B2',
     createdAt: '2026-04-23 14:30',
     updatedAt: null,
@@ -113,7 +113,7 @@ const mockCards = [
     content: '在卡片上添加情绪标记，帮助后续复盘时理解当时的心理状态，这对创意复盘很有价值',
     title: '情绪标记',
     keywords: ['情绪标记', '复盘', '心理状态'],
-    emotionTag: '',
+
     color: '#E8C9A0',
     createdAt: '2026-04-22 09:45',
     updatedAt: null,
@@ -128,7 +128,7 @@ const mockCards = [
     content: '每日灵感推送：根据历史记录推送相关灵感，帮助用户回顾和深化',
     title: '',
     keywords: ['每日推送', '灵感回顾', '历史关联'],
-    emotionTag: '',
+
     color: '#D4C5A9',
     createdAt: '2026-04-21 17:00',
     updatedAt: null,
@@ -143,7 +143,7 @@ const mockCards = [
     content: '灵感碰撞：随机抽取两张卡片，让AI分析潜在关联，激发新思路',
     title: '',
     keywords: ['灵感碰撞', '随机关联', 'AI分析'],
-    emotionTag: '',
+
     color: '#B8D4E3',
     createdAt: '2026-04-20 12:30',
     updatedAt: null,

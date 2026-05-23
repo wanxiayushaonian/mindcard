@@ -1,6 +1,7 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
@@ -10,12 +11,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 
 security = HTTPBearer(auto_error=False)
 
 
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """Verify a password against its hash."""
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+
+
 def create_access_token(user_id: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.jwt_expire_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     return jwt.encode(
         {"sub": user_id, "exp": expire},
         settings.jwt_secret,
@@ -42,7 +54,11 @@ async def get_current_user(
     user_id = decode_access_token(credentials.credentials)
     if user_id is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    user = await db.get(User, uuid.UUID(user_id))
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    user = await db.get(User, uid)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
@@ -56,3 +72,30 @@ async def get_or_create_user(db: AsyncSession, openid: str, nickname: str = "") 
         db.add(user)
         await db.flush()
     return user
+
+
+async def get_workspace_membership(
+    workspace_id: uuid.UUID,
+    user: User,
+    db: AsyncSession,
+) -> WorkspaceMember:
+    """Verify user is a member of the workspace. Returns membership or raises 403/404."""
+    ws = await db.get(Workspace, workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="空间不存在")
+    result = await db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.user_id == user.id,
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(status_code=403, detail="你不是该空间的成员")
+    return membership
+
+
+def require_owner(membership: WorkspaceMember) -> None:
+    """Check that the membership role is 'owner', else raise 403."""
+    if membership.role != "owner":
+        raise HTTPException(status_code=403, detail="仅空间管理员可执行此操作")

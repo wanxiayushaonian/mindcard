@@ -1,0 +1,154 @@
+/* pages/login/login.wxss */
+.login-page {
+  min-height: 100vh;
+  background: #F9FAFC;
+  padding: 0 48rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.logo-section {
+  margin-top: 160rpx;
+  margin-bottom: 80rpx;
+  text-align: center;
+}
+
+.app-name {
+  display: block;
+  font-size: 56rpx;
+  font-weight: 700;
+  color: #1A1A2E;
+}
+
+.app-desc {
+  display: block;
+  font-size: 28rpx;
+  color: #909399;
+  margin-top: 16rpx;
+}
+
+.mode-tabs {
+  display: flex;
+  width: 100%;
+  background: #F0F2F5;
+  border-radius: 16rpx;
+  padding: 6rpx;
+  margin-bottom: 48rpx;
+}
+
+.mode-tab {
+  flex: 1;
+  text-align: center;
+  padding: 18rpx 0;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  color: #909399;
+  transition: all 0.2s;
+}
+
+.mode-active {
+  background: #FFFFFF;
+  color: #1A1A2E;
+  font-weight: 600;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.06);
+}
+
+.form-section {
+  width: 100%;
+}
+
+.error-msg {
+  background: #FEF0F0;
+  border-radius: 12rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 24rpx;
+}
+
+.error-msg text {
+  font-size: 26rpx;
+  color: #F56C6C;
+}
+
+.input-group {
+  margin-bottom: 32rpx;
+}
+
+.input-label {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 500;
+  color: #303133;
+  margin-bottom: 12rpx;
+}
+
+.input-field {
+  width: 100%;
+  height: 88rpx;
+  background: #FFFFFF;
+  border: 2rpx solid #DCDFE6;
+  border-radius: 16rpx;
+  padding: 0 24rpx;
+  font-size: 28rpx;
+  color: #303133;
+  box-sizing: border-box;
+}
+
+.input-field:focus {
+  border-color: #5B7FFF;
+}
+
+.submit-btn {
+  width: 100% !important;
+  height: 88rpx;
+  background: #5B7FFF;
+  color: #FFFFFF;
+  font-size: 30rpx;
+  font-weight: 600;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16rpx;
+  border: none;
+}
+
+.submit-btn::after {
+  border: none;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 32rpx 0;
+}
+
+.divider-line {
+  flex: 1;
+  height: 2rpx;
+  background: #DCDFE6;
+}
+
+.divider-text {
+  padding: 0 24rpx;
+  font-size: 24rpx;
+  color: #C0C4CC;
+}
+
+.wechat-btn {
+  width: 100% !important;
+  height: 88rpx;
+  background: #FFFFFF;
+  color: #303133;
+  font-size: 28rpx;
+  font-weight: 500;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2rpx solid #DCDFE6;
+}
+
+.wechat-btn::after {
+  border: none;
+}

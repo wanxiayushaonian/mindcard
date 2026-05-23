@@ -1,40 +1,99 @@
 // pages/search/search.js
+var api = require('../../utils/api');
+
 Page({
-  data: { query: '', results: [], chatResults: [], searched: false },
+  data: {
+    query: '',
+    results: [],
+    searched: false,
+    loading: false,
+    mode: 'hybrid',
+    modes: [
+      { key: 'hybrid', label: '混合搜索' },
+      { key: 'semantic', label: '语义搜索' },
+      { key: 'fulltext', label: '全文搜索' },
+    ],
+  },
 
   onInput(e) {
     this.setData({ query: e.detail.value });
-    if (e.detail.value.trim()) {
-      this.doSearch(e.detail.value.trim());
-    } else {
-      this.setData({ results: [], chatResults: [], searched: false });
+  },
+
+  onModeTap(e) {
+    this.setData({ mode: e.currentTarget.dataset.mode });
+    if (this.data.query.trim()) {
+      this.doSearch();
     }
   },
 
-  doSearch(query) {
-    const app = getApp();
-    const q = query.toLowerCase();
-    const wsCards = app.getWorkspaceCards();
-    const wsCardIds = new Set(wsCards.map(c => c.id));
-    const results = wsCards.filter(c =>
-      (c.content || '').toLowerCase().includes(q) ||
-      (c.title || '').toLowerCase().includes(q) ||
-      (c.keywords || []).some(function (k) { return k.toLowerCase().includes(q); })
-    );
-    const chatResults = app.globalData.aiChats.filter(c =>
-      wsCardIds.has(c.cardId) && (
-        (c.title || '').toLowerCase().includes(q) ||
-        c.messages.some(m => (m.content || '').toLowerCase().includes(q))
-      )
-    );
-    this.setData({ results, chatResults, searched: true });
+  doSearch() {
+    var query = this.data.query.trim();
+    if (!query) return;
+
+    var app = getApp();
+    var workspaceId = app.globalData.currentWorkspaceId;
+    if (!workspaceId) {
+      wx.showToast({ title: '请先选择空间', icon: 'none' });
+      return;
+    }
+
+    this.setData({ loading: true });
+
+    api.post('/api/search/' + this.data.mode, {
+      query: query,
+      workspace_id: workspaceId,
+      limit: 20,
+    })
+      .then(function (res) {
+        var results = (res.results || []).map(function (r) {
+          return {
+            id: r.card.id,
+            title: r.card.title,
+            content: r.card.content,
+            keywords: r.card.keywords || [],
+            color: r.card.color || '#B8D4E3',
+            score: r.score,
+            scorePercent: Math.round((r.score || 0) * 100),
+            createdAt: r.card.created_at,
+          };
+        });
+        this.setData({ results: results, searched: true, loading: false });
+      }.bind(this))
+      .catch(function (err) {
+        // Fallback to local search
+        wx.showToast({ title: err.message || '搜索失败，已切换本地搜索', icon: 'none' });
+        this._localSearch(query);
+        this.setData({ loading: false });
+      }.bind(this));
+  },
+
+  _localSearch(query) {
+    var app = getApp();
+    var q = query.toLowerCase();
+    var wsCards = app.getWorkspaceCards();
+    var results = wsCards.filter(function (c) {
+      return (c.content || '').toLowerCase().indexOf(q) >= 0 ||
+        (c.title || '').toLowerCase().indexOf(q) >= 0 ||
+        (c.keywords || []).some(function (k) { return k.toLowerCase().indexOf(q) >= 0; });
+    }).map(function (c) {
+      return {
+        id: c.id,
+        title: c.title,
+        content: c.content,
+        keywords: c.keywords || [],
+        color: c.color || '#B8D4E3',
+        score: 0,
+        createdAt: c.createdAt,
+      };
+    });
+    this.setData({ results: results, searched: true });
   },
 
   onResultTap(e) {
     wx.navigateTo({ url: '/pages/card-detail/card-detail?id=' + e.currentTarget.dataset.id });
   },
-  onChatResultTap(e) {
-    wx.navigateTo({ url: '/pages/ai-chat/ai-chat?cardId=' + e.currentTarget.dataset.cardId });
+
+  onCancel() {
+    wx.navigateBack();
   },
-  onCancel() { wx.navigateBack(); },
 });

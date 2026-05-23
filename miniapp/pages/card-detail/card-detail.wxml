@@ -17,9 +17,6 @@
 <scroll-view class="scrollarea" scroll-y type="list">
   <!-- Card Display -->
   <view class="detail-card" style="border-left: 8rpx solid {{card.color}};">
-    <view class="detail-card-tag" style="background: {{card.color}};" wx:if="{{card.emotionTag}}">
-      <text>{{card.emotionTag}}</text>
-    </view>
     <view class="detail-card-keywords" wx:if="{{card.keywords.length > 0}}">
       <view
         wx:for="{{card.keywords}}"

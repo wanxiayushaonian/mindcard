@@ -2,27 +2,63 @@
 
 import { useParams, useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
-import { useState } from "react";
-import { cardApi, type Card } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { cardApi, type Card, type CardFilters } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { Modal } from "@/components/Modal";
+import { FormField } from "@/components/FormField";
+import { ColorPicker } from "@/components/ColorPicker";
+import { AiActionButtons } from "@/components/AiActionButtons";
+import { CardItem } from "@/components/CardItem";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 
-const COLORS = ["#B8D4E3", "#E8A87C", "#D4A5A5", "#7EC8B0", "#B8A9C9", "#F0C987", "#87CEEB", "#DDA0DD"];
+const PAGE_SIZE = 20;
 
 export default function WorkspacePage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
 
-  const { data: cards, isLoading } = useSWR(
-    workspaceId ? `cards-${workspaceId}` : null,
-    () => cardApi.list(workspaceId)
+  const [filters, setFilters] = useState<CardFilters>({ sort_by: "created_at", order: "desc" });
+  const filterKey = JSON.stringify(filters);
+
+  const { data: cards, isLoading, error, mutate: revalidate } = useSWR(
+    workspaceId ? `cards-${workspaceId}-${filterKey}` : null,
+    () => cardApi.list(workspaceId, 0, PAGE_SIZE + 1, filters)
   );
+
+  const [allCards, setAllCards] = useState<Card[] | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  // Sync SWR data to local state
+  useEffect(() => {
+    if (cards) {
+      setAllCards(cards.slice(0, PAGE_SIZE));
+      setHasMore(cards.length > PAGE_SIZE);
+    }
+  }, [cards]);
+
+  const handleLoadMore = async () => {
+    if (!allCards || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const more = await cardApi.list(workspaceId, allCards.length, PAGE_SIZE + 1, filters);
+      setAllCards((prev) => [...(prev || []), ...more.slice(0, PAGE_SIZE)]);
+      setHasMore(more.length > PAGE_SIZE);
+    } catch (e: any) {
+      toast("加载失败: " + e.message, "error");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [keywords, setKeywords] = useState("");
   const [color, setColor] = useState("#B8D4E3");
-  const [emotionTag, setEmotionTag] = useState("");
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
@@ -41,40 +77,96 @@ export default function WorkspacePage() {
         content: content.trim(),
         keywords: kw,
         color,
-        emotion_tag: emotionTag,
       });
       setTitle("");
       setContent("");
       setKeywords("");
       setColor("#B8D4E3");
-      setEmotionTag("");
       setShowCreate(false);
-      mutate(`cards-${workspaceId}`);
+      mutate(`cards-${workspaceId}-${filterKey}`);
     } catch (e: any) {
-      alert("创建失败: " + e.message);
+      toast("创建失败: " + e.message, "error");
     } finally {
       setCreating(false);
     }
   };
 
-  if (isLoading) {
-    return <div className="p-8 text-center text-text-secondary">加载中...</div>;
-  }
+  if (isLoading) return <LoadingState />;
+  if (error) return <ErrorState message={error.message} onRetry={revalidate} />;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      {/* Create button */}
-      <div className="mb-6 flex justify-end">
-        <button
-          onClick={() => setShowCreate(true)}
-          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary-dark"
-        >
-          + 新建卡片
-        </button>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: "全部", value: undefined },
+            { label: "收藏", value: "favorite" },
+            { label: "临时", value: "temp" },
+            { label: "永久", value: "permanent" },
+          ].map(({ label, value }) => {
+            const active =
+              (value === undefined && filters.is_favorite === undefined && filters.is_temp === undefined) ||
+              (value === "favorite" && filters.is_favorite === true) ||
+              (value === "temp" && filters.is_temp === true) ||
+              (value === "permanent" && filters.is_temp === false);
+            return (
+              <button
+                key={label}
+                onClick={() => {
+                  const next: CardFilters = { ...filters };
+                  delete next.is_favorite;
+                  delete next.is_temp;
+                  if (value === "favorite") next.is_favorite = true;
+                  else if (value === "temp") next.is_temp = true;
+                  else if (value === "permanent") next.is_temp = false;
+                  setFilters(next);
+                }}
+                className={`rounded-full px-3 py-1 text-xs transition ${
+                  active ? "bg-primary text-white" : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={`${filters.sort_by}-${filters.order}`}
+            onChange={(e) => {
+              const [sort_by, order] = e.target.value.split("-") as [string, string];
+              setFilters({ ...filters, sort_by: sort_by as CardFilters["sort_by"], order: order as CardFilters["order"] });
+            }}
+            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text outline-none"
+          >
+            <option value="created_at-desc">最新创建</option>
+            <option value="updated_at-desc">最近更新</option>
+            <option value="title-asc">标题 A-Z</option>
+            <option value="title-desc">标题 Z-A</option>
+          </select>
+          <input
+            type="text"
+            value={filters.keyword || ""}
+            onChange={(e) => {
+              const next = { ...filters };
+              if (e.target.value.trim()) next.keyword = e.target.value.trim();
+              else delete next.keyword;
+              setFilters(next);
+            }}
+            placeholder="关键词筛选"
+            className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs text-text outline-none placeholder:text-text-secondary"
+          />
+          <button
+            onClick={() => setShowCreate(true)}
+            className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary-dark"
+          >
+            + 新建卡片
+          </button>
+        </div>
       </div>
 
       <div className="columns-2 gap-4 sm:columns-3">
-        {cards?.map((card) => (
+        {allCards?.map((card) => (
           <CardItem
             key={card.id}
             card={card}
@@ -83,130 +175,76 @@ export default function WorkspacePage() {
         ))}
       </div>
 
-      {cards?.length === 0 && (
+      {allCards && allCards.length > 0 && hasMore && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="rounded-xl border border-border bg-surface px-6 py-2.5 text-sm text-text-secondary transition hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loadingMore ? "加载中..." : "加载更多"}
+          </button>
+        </div>
+      )}
+
+      {allCards?.length === 0 && (
         <div className="py-20 text-center text-text-secondary">
           <p className="text-lg">还没有灵感卡片</p>
           <p className="mt-2 text-sm">点击上方按钮创建第一张卡片</p>
         </div>
       )}
 
-      {/* Create card modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-2xl bg-surface p-6 shadow-xl">
-            <h2 className="mb-4 text-lg font-bold text-text">新建灵感卡片</h2>
-
-            <label className="mb-3 block">
-              <span className="mb-1 block text-sm text-text-secondary">标题（可选）</span>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="给灵感起个标题..."
-                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary"
-              />
-            </label>
-
-            <label className="mb-3 block">
-              <span className="mb-1 block text-sm text-text-secondary">内容 *</span>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="记录你的灵感..."
-                rows={5}
-                autoFocus
-                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary resize-none"
-              />
-            </label>
-
-            <label className="mb-3 block">
-              <span className="mb-1 block text-sm text-text-secondary">关键词（逗号分隔，最多5个）</span>
-              <input
-                value={keywords}
-                onChange={(e) => setKeywords(e.target.value)}
-                placeholder="关键词1, 关键词2, ..."
-                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary"
-              />
-            </label>
-
-            <div className="mb-3 flex gap-4">
-              <label className="flex-1">
-                <span className="mb-1 block text-sm text-text-secondary">情绪标签</span>
-                <input
-                  value={emotionTag}
-                  onChange={(e) => setEmotionTag(e.target.value)}
-                  placeholder="如: 兴奋、好奇"
-                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary"
-                />
-              </label>
-            </div>
-
-            <label className="mb-5 block">
-              <span className="mb-1 block text-sm text-text-secondary">配色</span>
-              <div className="flex flex-wrap gap-2">
-                {COLORS.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setColor(c)}
-                    className={`h-8 w-8 rounded-full ${
-                      color === c ? "ring-2 ring-primary ring-offset-2" : ""
-                    }`}
-                    style={{ background: c }}
-                  />
-                ))}
-              </div>
-            </label>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowCreate(false)}
-                className="rounded-xl px-4 py-2 text-sm text-text-secondary hover:bg-gray-100"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={!content.trim() || creating}
-                className="rounded-xl bg-primary px-6 py-2 text-sm font-medium text-white disabled:opacity-50"
-              >
-                {creating ? "创建中..." : "创建"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CardItem({ card, onClick }: { card: Card; onClick: () => void }) {
-  return (
-    <div
-      onClick={onClick}
-      className="mb-4 cursor-pointer break-inside-avoid rounded-card bg-surface p-4 shadow-sm transition hover:shadow-md"
-      style={{ borderLeft: `4px solid ${card.color}` }}
-    >
-      {card.emotion_tag && (
-        <span
-          className="mb-2 inline-block rounded-md px-2 py-0.5 text-xs text-white"
-          style={{ background: card.color }}
+        <Modal
+          title="新建灵感卡片"
+          onClose={() => setShowCreate(false)}
+          onConfirm={handleCreate}
+          confirmText="创建"
+          confirmDisabled={!content.trim()}
+          loading={creating}
+          size="lg"
         >
-          {card.emotion_tag}
-        </span>
-      )}
-      {card.title && <h3 className="mb-1 font-semibold text-text">{card.title}</h3>}
-      <p className="text-sm leading-relaxed text-text line-clamp-6">{card.content}</p>
-      {card.keywords.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {card.keywords.slice(0, 3).map((kw) => (
-            <span
-              key={kw}
-              className="rounded-md px-1.5 py-0.5 text-xs text-white"
-              style={{ background: card.color }}
-            >
-              {kw}
-            </span>
-          ))}
-        </div>
+          <FormField label="标题（可选）">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="给灵感起个标题..."
+              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary"
+            />
+          </FormField>
+
+          <FormField label="内容 *">
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="记录你的灵感..."
+              rows={5}
+              autoFocus
+              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary resize-none"
+            />
+          </FormField>
+
+          <AiActionButtons
+            content={content}
+            onPolish={(text) => setContent(text)}
+            onSupplement={(text) => setContent(content + "\n\n" + text)}
+            onTitle={(t) => setTitle(t)}
+            onKeywords={(kws) => setKeywords(kws.join(", "))}
+          />
+
+          <FormField label="关键词（逗号分隔，最多5个）">
+            <input
+              value={keywords}
+              onChange={(e) => setKeywords(e.target.value)}
+              placeholder="关键词1, 关键词2, ..."
+              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary"
+            />
+          </FormField>
+
+          <FormField label="配色">
+            <ColorPicker value={color} onChange={setColor} />
+          </FormField>
+        </Modal>
       )}
     </div>
   );

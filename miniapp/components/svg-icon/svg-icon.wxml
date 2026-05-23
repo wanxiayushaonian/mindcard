@@ -1,3 +1,0 @@
-<view class="svg-icon" style="width: {{size * 2}}rpx; height: {{size * 2}}rpx;">
-  <view class="svg-inner" style="mask-image: url('data:image/svg+xml,{{svgPath}}'); -webkit-mask-image: url('data:image/svg+xml,{{svgPath}}'); background-color: {{color}};"></view>
-</view>

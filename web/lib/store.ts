@@ -19,12 +19,3 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: typeof window !== "undefined" ? !!localStorage.getItem("token") : false,
 }));
 
-interface AppState {
-  currentWorkspaceId: string | null;
-  setCurrentWorkspace: (id: string | null) => void;
-}
-
-export const useAppStore = create<AppState>((set) => ({
-  currentWorkspaceId: null,
-  setCurrentWorkspace: (id) => set({ currentWorkspaceId: id }),
-}));

@@ -1,5 +1,5 @@
 // pages/mind-link/mind-link.js
-const { generateThoughtFlow, requireApiKey } = require('../../utils/deepseek');
+var api = require('../../utils/api');
 
 Page({
   data: {
@@ -106,7 +106,6 @@ Page({
 
   onGenerateFlow() {
     if (this.data.generatingFlow) return;
-    if (!requireApiKey()) return;
 
     var app = getApp();
     var cards = app.getWorkspaceCards();
@@ -115,10 +114,18 @@ Page({
       return;
     }
 
+    var cardSummaries = cards.map(function (c) {
+      var title = c.title || c.content.substring(0, 20) + '...';
+      var kw = (c.keywords || []).join(', ');
+      return '- ' + title + (kw ? '（关键字：' + kw + '）' : '');
+    }).join('\n');
+
     this.setData({ generatingFlow: true, thoughtFlow: '' });
     var self = this;
-    generateThoughtFlow(cards).then(function (text) {
-      self.setData({ thoughtFlow: text, generatingFlow: false });
+    api.post('/api/rag/chat/stream', {
+      message: '请分析以下灵感卡片，总结思维流向和演进路径。格式：\n1. 思维起点\n2. 关键转折\n3. 当前导向\n4. 下一步建议\n\n当前灵感卡片：\n' + cardSummaries,
+    }).then(function (res) {
+      self.setData({ thoughtFlow: res.reply || '', generatingFlow: false });
     }).catch(function (err) {
       self.setData({ generatingFlow: false });
       wx.showToast({ title: err.message || '生成失败', icon: 'none' });

@@ -1,4 +1,5 @@
 // pages/card-detail/card-detail.js
+var api = require('../../utils/api');
 Page({
   data: {
     card: {},
@@ -23,6 +24,10 @@ Page({
     if (this.data.cardId) this.loadCard(this.data.cardId);
   },
 
+  _isUuid(id) {
+    return id && id.indexOf('card_') !== 0;
+  },
+
   loadCard(id) {
     const app = getApp();
     const card = app.getCardById(id);
@@ -32,29 +37,69 @@ Page({
       setTimeout(function () { wx.navigateBack(); }, 1000);
       return;
     }
-    const relatedCards = (card.relatedIds || [])
-      .map(rid => app.getCardById(rid)).filter(Boolean);
-    const recommendCards = (card.agentRecommendIds || [])
-      .map((rid) => {
-        const c = app.getCardById(rid);
+
+    this.setData({ card: card, relatedCards: [], recommendCards: [] });
+
+    // Only fetch related cards from API if we have a server UUID
+    var self = this;
+    if (this._isUuid(id)) {
+      api.get('/api/cards/' + id + '/relations')
+        .then(function (related) {
+          var relatedCards = (related || []).map(function (c) {
+            return {
+              id: c.id,
+              title: c.title,
+              content: c.content,
+              keywords: c.keywords || [],
+              color: c.color || '#B8D4E3',
+            };
+          });
+          self.setData({ relatedCards: relatedCards });
+        })
+        .catch(function () {
+          // Fallback: use local relatedIds
+          var localRelated = (card.relatedIds || [])
+            .map(function (rid) { return app.getCardById(rid); })
+            .filter(Boolean);
+          self.setData({ relatedCards: localRelated });
+        });
+    } else {
+      // Local ID: use local relatedIds only
+      var localRelated = (card.relatedIds || [])
+        .map(function (rid) { return app.getCardById(rid); })
+        .filter(Boolean);
+      self.setData({ relatedCards: localRelated });
+    }
+
+    // Load recommendations from local cache
+    var recommendCards = (card.agentRecommendIds || [])
+      .map(function (rid) {
+        var c = app.getCardById(rid);
         if (!c) return null;
         var rawScore = (card.agentScores || {})[rid] || 0;
         var matchScore = Math.round(rawScore * 100);
         if (matchScore < 10) matchScore = 10 + Math.floor(Math.random() * 20);
-        return { ...c, matchScore };
+        return Object.assign({}, c, { matchScore: matchScore });
       })
-      .filter(Boolean)
-      .filter(rc => !(card.relatedIds || []).includes(rc.id));
-
-    this.setData({ card, relatedCards, recommendCards });
+      .filter(Boolean);
+    this.setData({ recommendCards: recommendCards });
     this.loadComments(id);
   },
 
   async loadComments(cardId) {
+    if (!this._isUuid(cardId)) {
+      this.setData({ comments: [], commentsLoading: false });
+      return;
+    }
     this.setData({ commentsLoading: true });
-    const app = getApp();
-    const comments = await app.loadComments(cardId);
-    this.setData({ comments: comments || [], commentsLoading: false });
+    try {
+      const app = getApp();
+      const comments = await app.loadComments(cardId);
+      this.setData({ comments: comments || [], commentsLoading: false });
+    } catch (e) {
+      this.setData({ comments: [], commentsLoading: false });
+      wx.showToast({ title: e.message || '加载评论失败', icon: 'none' });
+    }
   },
 
   onCommentInput(e) {
@@ -65,14 +110,18 @@ Page({
     const content = this.data.commentText.trim();
     if (!content) return;
 
-    const app = getApp();
-    const success = await app.addComment(this.data.cardId, content);
-    if (success) {
-      this.setData({ commentText: '' });
-      this.setData({ comments: app.globalData.comments });
-      wx.showToast({ title: '已评论', icon: 'success' });
-    } else {
-      wx.showToast({ title: '评论失败', icon: 'none' });
+    try {
+      const app = getApp();
+      const success = await app.addComment(this.data.cardId, content);
+      if (success) {
+        this.setData({ commentText: '' });
+        this.setData({ comments: app.globalData.comments });
+        wx.showToast({ title: '已评论', icon: 'success' });
+      } else {
+        wx.showToast({ title: '评论失败', icon: 'none' });
+      }
+    } catch (e) {
+      wx.showToast({ title: e.message || '评论失败', icon: 'none' });
     }
   },
 
@@ -83,11 +132,17 @@ Page({
       content: '确定删除这条评论？',
       success: async (res) => {
         if (res.confirm) {
-          const app = getApp();
-          const success = await app.deleteComment(commentId, this.data.cardId);
-          if (success) {
-            this.setData({ comments: app.globalData.comments });
-            wx.showToast({ title: '已删除', icon: 'success' });
+          try {
+            const app = getApp();
+            const success = await app.deleteComment(commentId, this.data.cardId);
+            if (success) {
+              this.setData({ comments: app.globalData.comments });
+              wx.showToast({ title: '已删除', icon: 'success' });
+            } else {
+              wx.showToast({ title: '删除失败', icon: 'none' });
+            }
+          } catch (e) {
+            wx.showToast({ title: e.message || '删除失败', icon: 'none' });
           }
         }
       },
@@ -163,18 +218,23 @@ Page({
     const { card } = this.data;
     if ((card.relatedIds || []).includes(relateId)) return;
 
-    app.updateCard(card.id, { relatedIds: [...(card.relatedIds || []), relateId] });
-    const target = app.getCardById(relateId);
-    if (target && !(target.relatedIds || []).includes(card.id)) {
-      app.updateCard(relateId, { relatedIds: [...(target.relatedIds || []), card.id] });
-    }
-    // Clean from recommendations
-    const newRecIds = (card.agentRecommendIds || []).filter(id => id !== relateId);
-    if (newRecIds.length !== card.agentRecommendIds.length) {
-      app.updateCard(card.id, { agentRecommendIds: newRecIds });
-    }
-    wx.showToast({ title: '关联成功', icon: 'success' });
+    // Update local cache first
+    app.updateCard(card.id, { relatedIds: [].concat(card.relatedIds || [], [relateId]) });
     this.loadCard(card.id);
+
+    // Sync to API only if we have a server UUID
+    if (!this._isUuid(card.id)) {
+      wx.showToast({ title: '关联成功', icon: 'success' });
+      return;
+    }
+    api.post('/api/cards/' + card.id + '/relations', {
+      related_card_id: relateId,
+      relation_type: 'manual',
+    }).then(function () {
+      wx.showToast({ title: '关联成功', icon: 'success' });
+    }.bind(this)).catch(function () {
+      wx.showToast({ title: '关联失败', icon: 'none' });
+    });
   },
 
   // #24: AI badge clickable

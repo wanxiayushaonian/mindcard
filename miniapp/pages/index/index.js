@@ -1,5 +1,5 @@
 // pages/index/index.js
-const { polishText, supplementText } = require('../../utils/deepseek');
+var api = require('../../utils/api');
 
 Page({
   data: {
@@ -119,6 +119,10 @@ Page({
     wx.navigateTo({ url: '/pages/search/search' });
   },
 
+  onInsights() {
+    wx.navigateTo({ url: '/pages/insights/insights' });
+  },
+
   onWalk() {
     const { cards } = this.data;
     if (cards.length === 0) {
@@ -213,16 +217,14 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: 'AI润色中...', icon: 'loading', duration: 2000 });
-    polishText({
-      text: this.data.flashContent,
-      onComplete: (result) => {
-        this.setData({ flashContent: result });
+    api.post('/api/ai/polish', { content: this.data.flashContent })
+      .then(function (res) {
+        this.setData({ flashContent: res.text });
         wx.showToast({ title: '润色完成', icon: 'success' });
-      },
-      onError: (err) => {
+      }.bind(this))
+      .catch(function (err) {
         wx.showToast({ title: err.message || '润色失败', icon: 'none' });
-      },
-    });
+      });
   },
 
   onAiSupplement() {
@@ -230,16 +232,14 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: 'AI补充中...', icon: 'loading', duration: 2000 });
-    supplementText({
-      text: this.data.flashContent,
-      onComplete: (result) => {
-        this.setData({ flashContent: this.data.flashContent + '\n\n' + result });
+    api.post('/api/ai/supplement', { content: this.data.flashContent })
+      .then(function (res) {
+        this.setData({ flashContent: this.data.flashContent + '\n\n' + res.text });
         wx.showToast({ title: '补充完成', icon: 'success' });
-      },
-      onError: (err) => {
+      }.bind(this))
+      .catch(function (err) {
         wx.showToast({ title: err.message || '补充失败', icon: 'none' });
-      },
-    });
+      });
   },
 
   onFlashSave() {

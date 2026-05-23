@@ -1,4 +1,5 @@
 // pages/workspace/workspace.js
+var api = require('../../utils/api');
 
 const WS_ICONS = ['💡', '📖', '🎨', '🎵', '✈️', '💼', '📝', '🏠', '🌱', '🎯', '🔥', '❤️'];
 const WS_COLORS = ['#94B4C8', '#B8D4E3', '#C4D7B2', '#E8C9A0', '#D4B5D0', '#D4C5A9', '#A0B8C8', '#B8A9D4'];
@@ -29,7 +30,10 @@ Page({
   },
 
   onShow() {
-    this.loadWorkspaces();
+    var self = this;
+    getApp()._onDataReady(function () {
+      self.loadWorkspaces();
+    });
   },
 
   loadWorkspaces() {
@@ -118,20 +122,25 @@ Page({
     if (!ws) return;
 
     wx.showLoading({ title: '生成邀请码...' });
-    let code = ws.inviteCode;
-    if (!code) {
-      code = await app.generateInviteCode(wsId);
-    }
-    wx.hideLoading();
+    try {
+      let code = ws.inviteCode;
+      if (!code) {
+        code = await app.generateInviteCode(wsId);
+      }
+      wx.hideLoading();
 
-    if (code) {
-      this.setData({
-        showInviteModal: true,
-        inviteCode: code,
-        inviteWsName: ws.name,
-      });
-    } else {
-      wx.showToast({ title: '生成失败', icon: 'none' });
+      if (code) {
+        this.setData({
+          showInviteModal: true,
+          inviteCode: code,
+          inviteWsName: ws.name,
+        });
+      } else {
+        wx.showToast({ title: '生成失败', icon: 'none' });
+      }
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: e.message || '生成邀请码失败', icon: 'none' });
     }
   },
 
@@ -166,21 +175,26 @@ Page({
     }
 
     wx.showLoading({ title: '加入中...' });
-    const result = await getApp().joinWorkspace(code);
-    wx.hideLoading();
+    try {
+      const result = await getApp().joinWorkspace(code);
+      wx.hideLoading();
 
-    if (result) {
-      this.setData({ showJoinModal: false });
-      wx.showToast({ title: '已加入 ' + (result.workspaceName || '空间'), icon: 'success' });
-      this.loadWorkspaces();
-    } else {
-      wx.showToast({ title: '邀请码无效', icon: 'none' });
+      if (result) {
+        this.setData({ showJoinModal: false });
+        wx.showToast({ title: '已加入 ' + (result.workspaceName || '空间'), icon: 'success' });
+        this.loadWorkspaces();
+      } else {
+        wx.showToast({ title: '邀请码无效', icon: 'none' });
+      }
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: e.message || '加入失败', icon: 'none' });
     }
   },
 
   // ── Members ──
 
-  onManageMembers(wsId) {
+  async onManageMembers(wsId) {
     const app = getApp();
     const ws = app.globalData.workspaces.find(w => w.id === wsId);
     if (!ws) return;
@@ -189,8 +203,16 @@ Page({
       showMembersModal: true,
       membersWsId: wsId,
       membersWsName: ws.name,
-      membersList: ws.members || [],
+      membersList: [],
     });
+
+    // Fetch members from API
+    try {
+      const members = await api.get('/api/workspaces/' + wsId + '/members');
+      this.setData({ membersList: members || [] });
+    } catch (e) {
+      wx.showToast({ title: e.message || '加载成员失败', icon: 'none' });
+    }
   },
 
   onCloseMembersModal() {
@@ -198,26 +220,25 @@ Page({
   },
 
   onRemoveMember(e) {
-    const { openid, name } = e.currentTarget.dataset;
+    const { userid, name } = e.currentTarget.dataset;
     wx.showModal({
       title: '移除成员',
       content: '确定移除 ' + (name || '该成员') + '？',
       success: async (res) => {
         if (res.confirm) {
-          const success = await getApp().removeMember(this.data.membersWsId, openid);
-          if (success) {
-            // Update local data
-            const app = getApp();
-            const ws = app.globalData.workspaces.find(w => w.id === this.data.membersWsId);
-            if (ws) {
-              ws.members = ws.members.filter(m => m.openId !== openid);
-              wx.setStorageSync('workspaces', app.globalData.workspaces);
+          try {
+            const success = await getApp().removeMember(this.data.membersWsId, userid);
+            if (success) {
+              this.setData({
+                membersList: this.data.membersList.filter(function (m) { return String(m.user_id) !== String(userid); }),
+              });
+              this.loadWorkspaces();
+              wx.showToast({ title: '已移除', icon: 'success' });
+            } else {
+              wx.showToast({ title: '移除失败', icon: 'none' });
             }
-            this.setData({
-              membersList: ws ? ws.members : [],
-            });
-            this.loadWorkspaces();
-            wx.showToast({ title: '已移除', icon: 'success' });
+          } catch (e) {
+            wx.showToast({ title: e.message || '移除失败', icon: 'none' });
           }
         }
       },
@@ -252,32 +273,36 @@ Page({
     this.setData({ wsColor: e.currentTarget.dataset.color });
   },
 
-  onConfirmCreate() {
+  async onConfirmCreate() {
     const { wsName, wsIcon, wsColor, editingWorkspaceId } = this.data;
     if (!wsName.trim()) {
       wx.showToast({ title: '请输入空间名称', icon: 'none' });
       return;
     }
 
-    const app = getApp();
-    if (editingWorkspaceId) {
-      app.updateWorkspace(editingWorkspaceId, {
-        name: wsName.trim(),
-        icon: wsIcon,
-        color: wsColor,
-      });
-      wx.showToast({ title: '已更新', icon: 'success' });
-    } else {
-      app.createWorkspace({
-        name: wsName.trim(),
-        icon: wsIcon,
-        color: wsColor,
-      });
-      wx.showToast({ title: '创建成功', icon: 'success' });
-    }
+    try {
+      const app = getApp();
+      if (editingWorkspaceId) {
+        await app.updateWorkspace(editingWorkspaceId, {
+          name: wsName.trim(),
+          icon: wsIcon,
+          color: wsColor,
+        });
+        wx.showToast({ title: '已更新', icon: 'success' });
+      } else {
+        await app.createWorkspace({
+          name: wsName.trim(),
+          icon: wsIcon,
+          color: wsColor,
+        });
+        wx.showToast({ title: '创建成功', icon: 'success' });
+      }
 
-    this.setData({ showCreateModal: false });
-    this.loadWorkspaces();
+      this.setData({ showCreateModal: false });
+      this.loadWorkspaces();
+    } catch (e) {
+      wx.showToast({ title: e.message || '操作失败', icon: 'none' });
+    }
   },
 
   // ── Delete ──
@@ -286,12 +311,16 @@ Page({
     this.setData({ showDeleteConfirm: false });
   },
 
-  onConfirmDelete() {
+  async onConfirmDelete() {
     const { deletingWorkspaceId } = this.data;
-    const app = getApp();
-    app.deleteWorkspace(deletingWorkspaceId);
-    this.setData({ showDeleteConfirm: false });
-    wx.showToast({ title: '已删除', icon: 'success' });
-    this.loadWorkspaces();
+    try {
+      const app = getApp();
+      await app.deleteWorkspace(deletingWorkspaceId);
+      this.setData({ showDeleteConfirm: false });
+      wx.showToast({ title: '已删除', icon: 'success' });
+      this.loadWorkspaces();
+    } catch (e) {
+      wx.showToast({ title: e.message || '删除失败', icon: 'none' });
+    }
   },
 });
