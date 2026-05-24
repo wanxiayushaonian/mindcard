@@ -272,14 +272,14 @@ export default function NetworkPage() {
       .attr("stroke", (d) => (d.id === highlightId ? d.color : getComputedStyle(document.documentElement).getPropertyValue("--color-surface").trim()))
       .attr("stroke-width", (d) => (d.id === highlightId ? 3 : 1.5));
 
-    // Favorite heart
+    // Favorite star
     node
       .filter((d) => d.isFavorite)
-      .append("text")
-      .attr("x", (d) => d.radius * 0.5)
-      .attr("y", (d) => -d.radius * 0.5)
-      .attr("font-size", "10px")
-      .text("❤");
+      .append("path")
+      .attr("d", "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z")
+      .attr("transform", (d) => `translate(${d.radius * 0.2}, ${-d.radius * 0.9}) scale(0.5)`)
+      .attr("fill", "#f59e0b")
+      .attr("stroke", "none");
 
     // Label
     node
