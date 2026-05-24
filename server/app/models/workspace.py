@@ -15,7 +15,7 @@ class Workspace(Base):
     local_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(64), nullable=False)
-    icon: Mapped[str] = mapped_column(String(8), default="💡")
+    icon: Mapped[str] = mapped_column(String(16), default="lightbulb")
     color: Mapped[str] = mapped_column(String(16), default="#94B4C8")
     invite_code: Mapped[str | None] = mapped_column(String(8), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

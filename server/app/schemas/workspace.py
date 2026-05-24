@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 class WorkspaceCreate(BaseModel):
     local_id: str = Field(..., max_length=64)
     name: str = Field(..., min_length=1, max_length=64)
-    icon: str = Field("💡", max_length=8)
+    icon: str = Field("lightbulb", max_length=16)
     color: str = Field("#94B4C8", max_length=16)
 
 
@@ -17,7 +17,7 @@ class JoinWorkspaceRequest(BaseModel):
 
 class WorkspaceUpdate(BaseModel):
     name: str | None = Field(None, max_length=64)
-    icon: str | None = Field(None, max_length=8)
+    icon: str | None = Field(None, max_length=16)
     color: str | None = Field(None, max_length=16)
 
 
