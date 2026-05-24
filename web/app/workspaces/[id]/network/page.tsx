@@ -43,7 +43,7 @@ export default function NetworkPage() {
     () => cardApi.list(workspaceId)
   );
 
-  const [selectedTag, setSelectedTag] = useState("全部");
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -150,10 +150,20 @@ export default function NetworkPage() {
     };
   }, [cards, relationsMap]);
 
+  // Toggle keyword selection
+  const toggleTag = (kw: string) => {
+    setSelectedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(kw)) next.delete(kw);
+      else next.add(kw);
+      return next;
+    });
+  };
+
   // Compute visible node IDs based on keyword filter
   const visibleIds = useMemo(() => {
-    if (selectedTag === "全部") return new Set(nodes.map((n) => n.id));
-    const matchingIds = new Set(nodes.filter((n) => n.keywords.includes(selectedTag)).map((n) => n.id));
+    if (selectedTags.size === 0) return new Set(nodes.map((n) => n.id));
+    const matchingIds = new Set(nodes.filter((n) => n.keywords.some((kw) => selectedTags.has(kw))).map((n) => n.id));
     // Expand to neighbors
     const neighborIds = new Set(matchingIds);
     edges.forEach((e) => {
@@ -163,7 +173,7 @@ export default function NetworkPage() {
       if (matchingIds.has(tgtId)) neighborIds.add(srcId);
     });
     return neighborIds;
-  }, [nodes, edges, selectedTag]);
+  }, [nodes, edges, selectedTags]);
 
   // Shared keywords for tooltip
   const getSharedKeywords = useCallback(
@@ -368,12 +378,22 @@ export default function NetworkPage() {
     <div className="relative h-[calc(100vh-56px)] overflow-hidden bg-bg">
       {/* Keyword filter bar */}
       <div className="absolute left-0 right-0 top-0 z-10 flex gap-2 overflow-x-auto border-b border-border bg-surface/80 px-4 py-2 backdrop-blur-sm">
-        {["全部", ...topKeywords].map((kw) => (
+        <button
+          onClick={() => setSelectedTags(new Set())}
+          className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
+            selectedTags.size === 0
+              ? "bg-primary text-white"
+              : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+          }`}
+        >
+          全部
+        </button>
+        {topKeywords.map((kw) => (
           <button
             key={kw}
-            onClick={() => setSelectedTag(kw)}
+            onClick={() => toggleTag(kw)}
             className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
-              selectedTag === kw
+              selectedTags.has(kw)
                 ? "bg-primary text-white"
                 : "bg-gray-100 text-text-secondary hover:bg-gray-200"
             }`}
