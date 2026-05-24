@@ -12,7 +12,7 @@ import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/Breadcrumb";
-import { Menu, X, Settings, Users, Search } from "lucide-react";
+import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network } from "lucide-react";
 import { SearchModal } from "@/components/SearchModal";
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
@@ -63,9 +63,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   }
 
   const navItems = [
-    { label: "AI 问答", href: `/rag?workspaceId=${workspaceId}`, highlight: true },
-    { label: "洞察", href: `/workspaces/${workspaceId}/insights`, highlight: false },
-    { label: "网络", href: `/workspaces/${workspaceId}/network`, highlight: false },
+    { label: "AI 问答", href: `/rag?workspaceId=${workspaceId}`, highlight: true, icon: <Sparkles size={14} /> },
+    { label: "洞察", href: `/workspaces/${workspaceId}/insights`, highlight: false, icon: <Lightbulb size={14} /> },
+    { label: "网络", href: `/workspaces/${workspaceId}/network`, highlight: false, icon: <Network size={14} /> },
   ];
 
   const navigate = (href: string) => {
@@ -113,12 +113,13 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               <button
                 key={item.label}
                 onClick={() => navigate(item.href)}
-                className={`rounded-lg px-3 py-1.5 text-sm ${
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${
                   item.highlight
                     ? "bg-primary/10 font-medium text-primary-dark"
                     : "text-text-secondary hover:bg-gray-100"
                 }`}
               >
+                {item.icon}
                 {item.label}
               </button>
             ))}
@@ -162,12 +163,13 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               <button
                 key={item.label}
                 onClick={() => navigate(item.href)}
-                className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
                   item.highlight
                     ? "bg-primary/10 font-medium text-primary-dark"
                     : "text-text-secondary hover:bg-gray-100"
                 }`}
               >
+                {item.icon}
                 {item.label}
               </button>
             ))}
