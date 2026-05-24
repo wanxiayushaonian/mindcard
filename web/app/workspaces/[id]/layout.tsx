@@ -2,7 +2,7 @@
 
 import { useParams, useRouter, usePathname } from "next/navigation";
 import useSWR, { mutate } from "swr";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { workspaceApi, authApi, type Workspace } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
@@ -12,7 +12,8 @@ import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/Breadcrumb";
-import { Menu, X, Settings, Users } from "lucide-react";
+import { Menu, X, Settings, Users, Search } from "lucide-react";
+import { SearchModal } from "@/components/SearchModal";
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -27,7 +28,20 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const [showEdit, setShowEdit] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Cmd+K / Ctrl+K to open search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   // Build breadcrumb items
   const breadcrumbs: BreadcrumbItem[] = [
@@ -38,9 +52,6 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   if (isCardDetail) {
     breadcrumbs.push({ label: wsName, href: `/workspaces/${workspaceId}` });
     breadcrumbs.push({ label: "卡片详情" });
-  } else if (pathname.endsWith("/search")) {
-    breadcrumbs.push({ label: wsName, href: `/workspaces/${workspaceId}` });
-    breadcrumbs.push({ label: "搜索" });
   } else if (pathname.endsWith("/insights")) {
     breadcrumbs.push({ label: wsName, href: `/workspaces/${workspaceId}` });
     breadcrumbs.push({ label: "洞察" });
@@ -52,7 +63,6 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   }
 
   const navItems = [
-    { label: "搜索", href: `/workspaces/${workspaceId}/search`, highlight: false },
     { label: "AI 问答", href: `/rag?workspaceId=${workspaceId}`, highlight: true },
     { label: "洞察", href: `/workspaces/${workspaceId}/insights`, highlight: false },
     { label: "网络", href: `/workspaces/${workspaceId}/network`, highlight: false },
@@ -78,6 +88,13 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
           {/* Right: desktop nav (hidden on mobile) */}
           <div className="hidden items-center gap-2 md:flex">
+            <button
+              onClick={() => setShowSearch(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-text-secondary transition hover:border-primary/30 hover:bg-gray-50"
+            >
+              <Search size={14} />
+              <span className="hidden lg:inline">⌘K</span>
+            </button>
             {workspace?.member_role === "owner" && (
               <button
                 onClick={() => setShowEdit(true)}
@@ -120,6 +137,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         {menuOpen && (
           <div className="border-t border-border bg-surface px-4 py-2 md:hidden">
             <div className="flex gap-2 py-2">
+              <button
+                onClick={() => { setShowSearch(true); setMenuOpen(false); }}
+                className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
+              >
+                <Search size={14} /> 搜索
+              </button>
               {workspace?.member_role === "owner" && (
                 <button
                   onClick={() => { setShowEdit(true); setMenuOpen(false); }}
@@ -174,6 +197,14 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           workspaceId={workspaceId}
           onClose={() => setShowMembers(false)}
           isOwner={workspace?.member_role === "owner"}
+        />
+      )}
+
+      {/* Search modal */}
+      {showSearch && (
+        <SearchModal
+          workspaceId={workspaceId}
+          onClose={() => setShowSearch(false)}
         />
       )}
     </div>
