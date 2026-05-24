@@ -41,6 +41,13 @@ export default function WorkspacePage() {
     }
   }, [cards]);
 
+  // Refresh card list when a card is precipitated from AI chat panel
+  useEffect(() => {
+    const handler = () => revalidate();
+    window.addEventListener("card-precipitated", handler);
+    return () => window.removeEventListener("card-precipitated", handler);
+  }, [revalidate]);
+
   const handleLoadMore = async () => {
     if (!allCards || loadingMore) return;
     setLoadingMore(true);

@@ -88,6 +88,14 @@ page {
   font-size: 20rpx;
 }
 
+.settings-icon-wrap {
+  width: 40rpx;
+  height: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .icon-backup {
   background: rgba(148, 180, 200, 0.12);
   color: var(--color-primary-dark);
@@ -230,9 +238,11 @@ page {
 
 .confirm-dialog {
   width: 80%;
+  max-height: 80vh;
   background: var(--color-white);
   border-radius: 24rpx;
   padding: 40rpx 36rpx;
+  overflow-y: auto;
 }
 
 .confirm-title {

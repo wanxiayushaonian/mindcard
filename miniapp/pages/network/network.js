@@ -12,7 +12,8 @@ const HIT_PADDING = 10;
 Page({
   data: {
     allKeywords: [],
-    selectedTag: '全部',
+    selectedTags: [],
+    selectedTagsMap: {},
     simulating: true,
     tooltipNode: null,
     tooltipX: 0,
@@ -562,15 +563,38 @@ Page({
 
   onFilterSelect(e) {
     var tag = e.currentTarget.dataset.tag;
-    this.setData({ selectedTag: tag });
+    var selectedTags = this.data.selectedTags.slice();
 
     if (tag === '全部') {
+      selectedTags = [];
+    } else {
+      var idx = selectedTags.indexOf(tag);
+      if (idx !== -1) {
+        selectedTags.splice(idx, 1);
+      } else {
+        selectedTags.push(tag);
+      }
+    }
+    var tagsMap = {};
+    selectedTags.forEach(function (t) { tagsMap[t] = true; });
+    this.setData({ selectedTags: selectedTags, selectedTagsMap: tagsMap });
+    this._applyFilter(selectedTags);
+  },
+
+  _applyFilter(selectedTags) {
+    if (selectedTags.length === 0) {
       this._visibleIds = new Set(this._nodes.map(function (n) { return n.id; }));
     } else {
       var self = this;
-      var tagIds = new Set(self._nodes.filter(function (n) {
-        return n.keywords.indexOf(tag) !== -1;
-      }).map(function (n) { return n.id; }));
+      var tagIds = new Set();
+      self._nodes.forEach(function (n) {
+        for (var i = 0; i < selectedTags.length; i++) {
+          if (n.keywords.indexOf(selectedTags[i]) !== -1) {
+            tagIds.add(n.id);
+            break;
+          }
+        }
+      });
       var connectedIds = new Set(tagIds);
       for (var i = 0; i < self._edges.length; i++) {
         var edge = self._edges[i];

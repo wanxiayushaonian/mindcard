@@ -28,15 +28,13 @@ page {
 
 /* Grid */
 .ws-grid {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   padding: 24rpx;
   gap: 20rpx;
 }
 
 .ws-card {
-  width: calc(50% - 10rpx);
   background: var(--color-white);
   border-radius: 20rpx;
   padding: 28rpx 24rpx;
@@ -47,9 +45,7 @@ page {
   box-sizing: border-box;
 }
 
-.ws-icon {
-  font-size: 48rpx;
-  line-height: 1;
+.ws-icon-wrap {
   margin-bottom: 8rpx;
 }
 
@@ -105,9 +101,11 @@ page {
 
 .create-modal {
   width: 85%;
+  max-height: 85vh;
   background: var(--color-white);
   border-radius: 28rpx;
   padding: 36rpx;
+  overflow-y: auto;
 }
 
 .modal-title {
@@ -205,9 +203,11 @@ page {
 /* Confirm dialog */
 .confirm-dialog {
   width: 80%;
+  max-height: 80vh;
   background: var(--color-white);
   border-radius: 24rpx;
   padding: 40rpx 36rpx;
+  overflow-y: auto;
 }
 
 .confirm-title {

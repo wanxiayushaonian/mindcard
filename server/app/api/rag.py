@@ -1,5 +1,3 @@
-import uuid
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -20,16 +18,9 @@ from app.schemas.rag import (
 )
 from app.services.rag import rag_service
 from app.utils.auth import get_current_user, get_workspace_membership
+from app.utils.helpers import parse_uuid
 
 router = APIRouter()
-
-
-def _parse_uuid(value: str) -> uuid.UUID:
-    """Parse a UUID string, raising 400 on invalid input."""
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid UUID: {value}")
 
 
 @router.post("/ask", response_model=RAGResponse)
@@ -112,7 +103,7 @@ async def find_similar(
     user: User = Depends(get_current_user),
 ):
     """Find similar cards using vector cosine distance, excluding already-related cards."""
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     await get_workspace_membership(card.workspace_id, user, db)
@@ -120,7 +111,7 @@ async def find_similar(
     from app.models.card import CardRelation
 
     result = await db.execute(
-        select(CardRelation.related_card_id).where(CardRelation.card_id == _parse_uuid(card_id))
+        select(CardRelation.related_card_id).where(CardRelation.card_id == parse_uuid(card_id))
     )
     related_ids = [str(row[0]) for row in result.all()]
 

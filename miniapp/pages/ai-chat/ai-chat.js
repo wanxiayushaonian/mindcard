@@ -25,23 +25,37 @@ Page({
   _streamContent: '',
   _streamMsgId: '',
   _streamTime: '',
+  _streamTask: null,
 
   onLoad: function (options) {
     var cardId = options.cardId || '';
+    var chatId = options.chatId || '';
     var app = getApp();
     var ws = app.getCurrentWorkspace();
     this.setData({ cardId: cardId, canPrecipitate: ws && ws.memberRole === 'owner' });
 
     if (cardId) {
-      var app = getApp();
       var card = app.getCardById(cardId);
       if (card) this.setData({ contextCard: card });
 
       var chat = app.getChatByCardId(cardId);
       if (chat) {
-        this.setData({ messages: chat.messages, chatId: chat.id });
+        var msgs = chat.messages.map(function (m) {
+          return m.uid ? m : Object.assign({}, m, { uid: m.id });
+        });
+        this.setData({ messages: msgs, chatId: chat.id });
       }
       this.scrollToBottom();
+    } else if (chatId) {
+      // Load specific chat by ID (from history list)
+      this.setData({ chatId: chatId });
+      var self = this;
+      app.loadChatMessages(chatId).then(function (messages) {
+        if (messages.length > 0) {
+          self.setData({ messages: messages });
+          self.scrollToBottom();
+        }
+      });
     }
   },
 
@@ -57,23 +71,40 @@ Page({
 
     var app = getApp();
     var now = app._formatTime ? app._formatTime(new Date()) : new Date().toLocaleString();
+    var self = this;
 
     if (chatId) {
       var chat = app.globalData.aiChats.find(function (c) { return c.id === chatId; });
       if (chat) {
-        app.saveChat(Object.assign({}, chat, { messages: messages }));
+        var updatedChat = Object.assign({}, chat, { messages: messages });
+        app.saveChat(updatedChat).then(function (serverId) {
+          if (serverId && serverId !== chatId) {
+            self.setData({ chatId: serverId });
+          }
+        });
       }
     } else {
-      var newChat = {
-        id: 'chat_' + Date.now(),
-        cardId: cardId,
-        title: (this.data.contextCard || {}).title || '灵感对话',
-        createdAt: now,
-        messages: messages,
-      };
-      app.saveChat(newChat);
-      this.setData({ chatId: newChat.id });
-      app.updateCard(cardId, { hasAiChat: true });
+      // Check if a chat already exists for this card (might have been loaded from server)
+      var existing = app.globalData.aiChats.find(function (c) { return c.cardId === cardId; });
+      if (existing) {
+        app.saveChat(Object.assign({}, existing, { messages: messages }));
+        self.setData({ chatId: existing.id });
+      } else {
+        var newChat = {
+          id: 'chat_' + Date.now(),
+          cardId: cardId,
+          title: (this.data.contextCard || {}).title || '灵感对话',
+          createdAt: now,
+          messages: messages,
+        };
+        app.saveChat(newChat).then(function (serverId) {
+          if (serverId && serverId !== newChat.id) {
+            self.setData({ chatId: serverId });
+          }
+        });
+        this.setData({ chatId: newChat.id });
+        app.updateCard(cardId, { hasAiChat: true });
+      }
     }
   },
 
@@ -93,7 +124,7 @@ Page({
 
     var now = new Date();
     var time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-    var userMsg = { id: 'msg_' + Date.now(), role: 'user', content: inputText.trim(), time: time };
+    var userMsg = { id: 'msg_' + Date.now(), uid: 'msg_' + Date.now(), role: 'user', content: inputText.trim(), time: time };
 
     this.setData({ messages: messages.concat([userMsg]), inputText: '', isLoading: true });
     this.scrollToBottom();
@@ -118,7 +149,7 @@ Page({
         self.setData({ isLoading: false });
         return;
       }
-      api.streamRequest('/api/rag/ask/stream', {
+      self._streamTask = api.streamRequest('/api/rag/ask/stream', {
         question: inputText.trim(),
         workspace_id: workspaceId,
         card_id: self.data.cardId || undefined,
@@ -136,6 +167,7 @@ Page({
         }
       }, function (fullContent, extra) {
         // onDone
+        self._streamTask = null;
         if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
         self._streamContent = fullContent;
         self._flushStream();
@@ -153,8 +185,9 @@ Page({
         self._persistChat();
       }, function (err) {
         // onError
+        self._streamTask = null;
         if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-        var errMsg = { id: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime };
+        var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime };
         self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
         self.scrollToBottom();
       });
@@ -163,7 +196,7 @@ Page({
       var history = messages.slice(-10).map(function (m) {
         return { role: m.role === 'ai' ? 'assistant' : 'user', content: m.content };
       });
-      api.streamRequest('/api/rag/chat/stream', {
+      self._streamTask = api.streamRequest('/api/rag/chat/stream', {
         message: inputText.trim(),
         history: history,
         ai_tone: aiTone,
@@ -177,6 +210,7 @@ Page({
           }, 100);
         }
       }, function (fullContent) {
+        self._streamTask = null;
         if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
         self._streamContent = fullContent;
         self._flushStream();
@@ -184,24 +218,48 @@ Page({
         self.scrollToBottom();
         self._persistChat();
       }, function (err) {
+        self._streamTask = null;
         if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-        var errMsg = { id: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime };
+        var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime };
         self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
         self.scrollToBottom();
       });
     }
   },
 
+  _streamVersion: 0,
+
   _flushStream: function () {
     var msgs = this.data.messages.slice();
-    var idx = msgs.findIndex(function (m) { return m.id === this._streamMsgId; }.bind(this));
-    var aiMsg = { id: this._streamMsgId, role: 'ai', content: this._streamContent, time: this._streamTime };
+    var idx = -1;
+    for (var i = 0; i < msgs.length; i++) {
+      if (msgs[i].id === this._streamMsgId) { idx = i; break; }
+    }
+    this._streamVersion++;
+    var aiMsg = { id: this._streamMsgId, uid: this._streamMsgId + '_v' + this._streamVersion, role: 'ai', content: this._streamContent, time: this._streamTime };
     if (idx !== -1) {
       msgs[idx] = aiMsg;
     } else {
       msgs.push(aiMsg);
     }
     this.setData({ messages: msgs });
+  },
+
+  onStopStream: function () {
+    if (this._streamTask && typeof this._streamTask.abort === 'function') {
+      this._streamTask.abort();
+    }
+    if (this._streamTimer) {
+      clearTimeout(this._streamTimer);
+      this._streamTimer = null;
+    }
+    // Keep whatever content was streamed so far
+    if (this._streamContent) {
+      this._flushStream();
+      this._persistChat();
+    }
+    this._streamTask = null;
+    this.setData({ isLoading: false });
   },
 
   onQuickPrompt: function (e) {
@@ -266,7 +324,12 @@ Page({
     if (card) {
       this.setData({ contextCard: card, cardId: card.id, messages: [], chatId: '' });
       var chat = app.getChatByCardId(card.id);
-      if (chat) this.setData({ messages: chat.messages, chatId: chat.id });
+      if (chat) {
+        var msgs = chat.messages.map(function (m) {
+          return m.uid ? m : Object.assign({}, m, { uid: m.id });
+        });
+        this.setData({ messages: msgs, chatId: chat.id });
+      }
     }
     this.setData({ showCardPicker: false });
   },
@@ -277,6 +340,10 @@ Page({
 
   onSettings: function () {
     wx.navigateTo({ url: '/pages/profile/profile' });
+  },
+
+  onHistory: function () {
+    wx.navigateTo({ url: '/pages/ai-records/ai-records' });
   },
 
   onMsgLongPress: function (e) {

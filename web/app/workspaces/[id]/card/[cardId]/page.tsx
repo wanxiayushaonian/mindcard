@@ -15,7 +15,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { TagChip } from "@/components/TagChip";
-import { Star, Pencil, Sparkles, Pin, PinOff, Trash2, X, MessageSquare } from "lucide-react";
+import { Star, Pencil, Pin, PinOff, Trash2, X, MessageSquare } from "lucide-react";
 
 export default function CardDetailPage() {
   const params = useParams();
@@ -217,7 +217,6 @@ export default function CardDetailPage() {
       <div className="mb-6 flex justify-around rounded-card border border-border bg-surface p-4 shadow-sm">
         <ActionButton icon={<Star size={20} fill={card.is_favorite ? "currentColor" : "none"} />} label={card.is_favorite ? "已收藏" : "收藏"} onClick={handleToggleFavorite} />
         <ActionButton icon={<Pencil size={20} />} label="编辑" onClick={startEdit} disabled={!canEdit} />
-        <ActionButton icon={<Sparkles size={20} />} label="AI问答" onClick={() => router.push(`/rag?workspaceId=${workspaceId}&cardId=${cardId}`)} />
         <ActionButton icon={card.is_temp ? <PinOff size={20} /> : <Pin size={20} />} label={card.is_temp ? "永久保存" : "移至临时"} onClick={handleToggleTemp} />
         <ActionButton icon={<Trash2 size={20} />} label="删除" onClick={handleDelete} disabled={!canEdit} />
       </div>

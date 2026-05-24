@@ -53,7 +53,7 @@
           bindconfirm="onAddKeyword"
         />
         <view class="keyword-add-btn" bindtap="onAddKeyword">
-          <text>+</text>
+          <icon name="plus" size="16" color="#fff" />
         </view>
       </view>
       <view class="keyword-list" wx:if="{{keywords.length > 0}}">
@@ -64,7 +64,7 @@
           style="background: {{selectedColor}}; color: #fff;"
         >
           <text>{{item}}</text>
-          <text class="keyword-remove" bindtap="onRemoveKeyword" data-kw="{{item}}">x</text>
+          <view class="keyword-remove" bindtap="onRemoveKeyword" data-kw="{{item}}"><icon name="x" size="12" color="#fff" /></view>
         </view>
       </view>
       <!-- Suggested keywords -->
@@ -123,15 +123,15 @@
     <!-- AI Actions -->
     <view class="ai-actions">
       <view class="ai-action-btn" bindtap="onAiGenerate">
-        <view class="ai-action-icon">G</view>
+        <icon name="sparkles" size="20" color="#555" />
         <text class="ai-action-text">AI生成</text>
       </view>
       <view class="ai-action-btn" bindtap="onAiPolish">
-        <view class="ai-action-icon">P</view>
+        <icon name="wand-2" size="20" color="#555" />
         <text class="ai-action-text">AI润色</text>
       </view>
       <view class="ai-action-btn" bindtap="onAiSupplement">
-        <view class="ai-action-icon">S</view>
+        <icon name="plus" size="20" color="#555" />
         <text class="ai-action-text">AI补充</text>
       </view>
     </view>

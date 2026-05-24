@@ -24,6 +24,20 @@ Page({
     if (this.data.cardId) this.loadCard(this.data.cardId);
   },
 
+  _loadLocalRecommendations(card, app) {
+    var recommendCards = (card.agentRecommendIds || [])
+      .map(function (rid) {
+        var c = app.getCardById(rid);
+        if (!c) return null;
+        var rawScore = (card.agentScores || {})[rid] || 0;
+        var matchScore = Math.round(rawScore * 100);
+        if (matchScore < 10) matchScore = 10 + Math.floor(Math.random() * 20);
+        return Object.assign({}, c, { matchScore: matchScore });
+      })
+      .filter(Boolean);
+    this.setData({ recommendCards: recommendCards });
+  },
+
   _isUuid(id) {
     return id && id.indexOf('card_') !== 0;
   },
@@ -71,18 +85,29 @@ Page({
       self.setData({ relatedCards: localRelated });
     }
 
-    // Load recommendations from local cache
-    var recommendCards = (card.agentRecommendIds || [])
-      .map(function (rid) {
-        var c = app.getCardById(rid);
-        if (!c) return null;
-        var rawScore = (card.agentScores || {})[rid] || 0;
-        var matchScore = Math.round(rawScore * 100);
-        if (matchScore < 10) matchScore = 10 + Math.floor(Math.random() * 20);
-        return Object.assign({}, c, { matchScore: matchScore });
-      })
-      .filter(Boolean);
-    this.setData({ recommendCards: recommendCards });
+    // Load AI recommendations
+    if (this._isUuid(id)) {
+      api.get('/api/rag/similar/' + id + '?limit=5')
+        .then(function (cards) {
+          var recommendCards = (cards || []).map(function (c) {
+            return {
+              id: c.id,
+              title: c.title,
+              content: c.content,
+              keywords: c.keywords || [],
+              color: c.color || '#B8D4E3',
+              matchScore: 0,
+            };
+          });
+          self.setData({ recommendCards: recommendCards });
+        })
+        .catch(function () {
+          // Fallback: local recommendations
+          self._loadLocalRecommendations(card, app);
+        });
+    } else {
+      this._loadLocalRecommendations(card, app);
+    }
     this.loadComments(id);
   },
 

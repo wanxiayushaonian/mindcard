@@ -34,6 +34,8 @@ class ChatListResponse(BaseModel):
     card_id: uuid.UUID | None
     title: str
     created_at: datetime
+    message_count: int = 0
+    last_message: str = ""
 
     model_config = {"from_attributes": True}
 

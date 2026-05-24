@@ -2,7 +2,7 @@
 <navigation-bar title="" back="{{true}}" background="#F9FAFC">
   <view slot="right" class="nav-right">
     <view class="nav-icon-btn" bindtap="onToggleFav">
-      <text class="heart-icon {{card.isFavorite ? 'heart-active' : ''}}">{{card.isFavorite ? '❤' : '♡'}}</text>
+      <icon name="star" size="20" color="{{card.isFavorite ? '#f0a500' : '#ccc'}}" />
     </view>
     <view class="nav-icon-btn" bindtap="onShowMore">
       <view class="icon-more">
@@ -28,7 +28,9 @@
       </view>
     </view>
     <text class="detail-card-title" wx:if="{{card.title}}">{{card.title}}</text>
-    <text class="detail-card-content">{{card.content}}</text>
+    <view class="detail-card-content">
+      <markdown-render content="{{card.content}}" />
+    </view>
     <view class="detail-card-meta">
       <text class="detail-meta-item">创建于 {{card.createdAt}}</text>
       <text class="detail-meta-item" wx:if="{{card.updatedAt}}">更新于 {{card.updatedAt}}</text>
@@ -44,23 +46,23 @@
   <!-- Action Buttons -->
   <view class="action-bar">
     <view class="action-item" bindtap="onEdit">
-      <view class="action-icon"><text class="icon-text">✎</text></view>
+      <view class="action-icon"><icon name="pencil" size="18" color="#555" /></view>
       <text class="action-label">编辑</text>
     </view>
     <view class="action-item" bindtap="onAiChat">
-      <view class="action-icon"><text class="icon-text">AI</text></view>
+      <view class="action-icon"><icon name="sparkles" size="18" color="#555" /></view>
       <text class="action-label">AI对话</text>
     </view>
     <view class="action-item" bindtap="onRelate">
-      <view class="action-icon"><text class="icon-text">⇄</text></view>
+      <view class="action-icon"><icon name="link" size="18" color="#555" /></view>
       <text class="action-label">关联卡片</text>
     </view>
     <view class="action-item" bindtap="onMindLink">
-      <view class="action-icon"><text class="icon-text">⊛</text></view>
+      <view class="action-icon"><icon name="message-square" size="18" color="#555" /></view>
       <text class="action-label">思维链路</text>
     </view>
     <view class="action-item" bindtap="onNetwork">
-      <view class="action-icon"><text class="icon-text">⊚</text></view>
+      <view class="action-icon"><icon name="network" size="18" color="#555" /></view>
       <text class="action-label">关联网络</text>
     </view>
   </view>

@@ -11,16 +11,9 @@ from app.models.card import Card
 from app.models.comment import Comment
 from app.models.user import User
 from app.utils.auth import get_current_user, get_workspace_membership
+from app.utils.helpers import parse_uuid
 
 router = APIRouter()
-
-
-def _parse_uuid(value: str) -> uuid.UUID:
-    """Parse a UUID string, raising 400 on invalid input."""
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid UUID: {value}")
 
 
 class CommentCreate(BaseModel):
@@ -44,14 +37,14 @@ async def list_comments(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     await get_workspace_membership(card.workspace_id, user, db)
     result = await db.execute(
         select(Comment, UserModel.nickname)
         .outerjoin(UserModel, Comment.author_id == UserModel.id)
-        .where(Comment.card_id == _parse_uuid(card_id))
+        .where(Comment.card_id == parse_uuid(card_id))
         .order_by(Comment.created_at.desc())
     )
     rows = result.all()
@@ -75,12 +68,12 @@ async def add_comment(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     await get_workspace_membership(card.workspace_id, user, db)
     comment = Comment(
-        card_id=_parse_uuid(card_id),
+        card_id=parse_uuid(card_id),
         author_id=user.id,
         content=req.content,
     )
@@ -104,11 +97,11 @@ async def delete_comment(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     membership = await get_workspace_membership(card.workspace_id, user, db)
-    comment = await db.get(Comment, _parse_uuid(comment_id))
+    comment = await db.get(Comment, parse_uuid(comment_id))
     if not comment:
         raise HTTPException(status_code=404, detail="评论不存在")
     if membership.role != "owner" and comment.author_id != user.id:

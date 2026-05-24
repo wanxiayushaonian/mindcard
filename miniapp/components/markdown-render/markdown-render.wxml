@@ -1,0 +1,71 @@
+<!--components/markdown-render/markdown-render.wxml-->
+<view class="md-body">
+  <block wx:for="{{blocks}}" wx:key="index">
+    <!-- Heading -->
+    <view wx:if="{{item.type === 'heading'}}" class="md-heading md-h{{item.level}}" data-index="{{index}}" bindtap="onBlockTap">
+      <text>{{item.content}}</text>
+    </view>
+
+    <!-- Paragraph -->
+    <view wx:elif="{{item.type === 'paragraph'}}" class="md-paragraph" data-index="{{index}}" bindtap="onBlockTap">
+      <text>{{item.content}}</text>
+    </view>
+
+    <!-- Code block -->
+    <view wx:elif="{{item.type === 'code'}}" class="md-code-block" data-index="{{index}}" bindtap="onBlockTap">
+      <view wx:if="{{item.lang}}" class="md-code-lang">
+        <text>{{item.lang}}</text>
+      </view>
+      <scroll-view scroll-x class="md-code-scroll">
+        <text class="md-code-text" selectable>{{item.content}}</text>
+      </scroll-view>
+    </view>
+
+    <!-- Unordered list -->
+    <view wx:elif="{{item.type === 'ul'}}" class="md-list" data-index="{{index}}" bindtap="onBlockTap">
+      <view wx:for="{{item.items}}" wx:for-item="li" wx:for-index="liIdx" wx:key="liIdx" class="md-list-item">
+        <text class="md-list-bullet">•</text>
+        <text class="md-list-text">{{li}}</text>
+      </view>
+    </view>
+
+    <!-- Ordered list -->
+    <view wx:elif="{{item.type === 'ol'}}" class="md-list md-list-ordered" data-index="{{index}}" bindtap="onBlockTap">
+      <view wx:for="{{item.items}}" wx:for-item="li" wx:for-index="liIdx" wx:key="liIdx" class="md-list-item">
+        <text class="md-list-number">{{liIdx + 1}}.</text>
+        <text class="md-list-text">{{li}}</text>
+      </view>
+    </view>
+
+    <!-- Table -->
+    <view wx:elif="{{item.type === 'table'}}" class="md-table-wrap" data-index="{{index}}" bindtap="onBlockTap">
+      <scroll-view scroll-x class="md-table-scroll">
+        <view class="md-table">
+          <!-- Header row -->
+          <view class="md-tr md-tr-header">
+            <view wx:for="{{item.headers}}" wx:key="*this" class="md-th">
+              <text>{{item}}</text>
+            </view>
+          </view>
+          <!-- Data rows -->
+          <view wx:for="{{item.rows}}" wx:for-item="row" wx:key="index" class="md-tr">
+            <view wx:for="{{row}}" wx:for-item="cell" wx:key="*this" class="md-td">
+              <text>{{cell}}</text>
+            </view>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- Blockquote -->
+    <view wx:elif="{{item.type === 'blockquote'}}" class="md-blockquote" data-index="{{index}}" bindtap="onBlockTap">
+      <view class="md-blockquote-bar"></view>
+      <view class="md-blockquote-content">
+        <text>{{item.content}}</text>
+      </view>
+    </view>
+
+    <!-- Horizontal rule -->
+    <view wx:elif="{{item.type === 'hr'}}" class="md-hr"></view>
+  </block>
+</view>

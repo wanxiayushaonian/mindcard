@@ -346,13 +346,11 @@ page {
 /* Confirm Dialog */
 .confirm-dialog {
   width: 80%;
+  max-height: 80vh;
   background: var(--color-white);
   border-radius: 24rpx;
   padding: 40rpx 36rpx;
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  overflow-y: auto;
 }
 
 .confirm-title {

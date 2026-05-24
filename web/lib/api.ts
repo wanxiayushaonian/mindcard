@@ -430,4 +430,9 @@ export const aiApi = {
       method: "POST",
       body: JSON.stringify({ content }),
     }),
+  segmentContent: (content: string) =>
+    request<{ segments: { title: string; content: string }[] }>("/api/ai/segment-content", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
 };

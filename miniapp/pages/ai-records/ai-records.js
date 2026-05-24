@@ -1,20 +1,34 @@
 // pages/ai-records/ai-records.js
 Page({
-  data: { chats: [] },
+  data: { chats: [], loading: false },
 
   onShow() {
     this.loadChats();
   },
 
-  loadChats() {
-    const app = getApp();
-    const wsCardIds = new Set(app.getWorkspaceCards().map(c => c.id));
-    const chats = app.globalData.aiChats.filter(c => wsCardIds.has(c.cardId));
-    this.setData({ chats });
+  async loadChats() {
+    var app = getApp();
+    var ws = app.getCurrentWorkspace();
+    if (ws && ws.id) {
+      this.setData({ loading: true });
+      await app.loadChatsFromApi(ws.id);
+      this.setData({ loading: false });
+    }
+    var wsCardIds = new Set(app.getWorkspaceCards().map(function (c) { return c.id; }));
+    var chats = app.globalData.aiChats.filter(function (c) {
+      return wsCardIds.has(c.cardId) || !c.cardId;
+    });
+    this.setData({ chats: chats });
   },
 
   onRecordTap(e) {
-    wx.navigateTo({ url: '/pages/ai-chat/ai-chat?cardId=' + e.currentTarget.dataset.cardId });
+    var chatId = e.currentTarget.dataset.id;
+    var cardId = e.currentTarget.dataset.cardId;
+    if (cardId) {
+      wx.navigateTo({ url: '/pages/ai-chat/ai-chat?cardId=' + cardId });
+    } else {
+      wx.navigateTo({ url: '/pages/ai-chat/ai-chat?chatId=' + chatId });
+    }
   },
 
   onDeleteRecord(e) {

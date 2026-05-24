@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -11,16 +10,9 @@ from app.models.user import User
 from app.schemas.card import CardCreate, CardRelationCreate, CardResponse, CardUpdate
 from app.services.embedding import embedding_service
 from app.utils.auth import get_current_user, get_workspace_membership, require_owner
+from app.utils.helpers import parse_uuid
 
 router = APIRouter()
-
-
-def _parse_uuid(value: str) -> uuid.UUID:
-    """Parse a UUID string, raising 400 on invalid input."""
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid UUID: {value}")
 
 
 async def _generate_embedding(card: Card):
@@ -55,7 +47,7 @@ async def list_cards(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    ws_id = _parse_uuid(workspace_id)
+    ws_id = parse_uuid(workspace_id)
     await get_workspace_membership(ws_id, user, db)
     query = select(Card).where(Card.workspace_id == ws_id)
     if is_favorite is not None:
@@ -95,7 +87,7 @@ async def get_card(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     await get_workspace_membership(card.workspace_id, user, db)
@@ -110,7 +102,7 @@ async def update_card(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     membership = await get_workspace_membership(card.workspace_id, user, db)
@@ -136,7 +128,7 @@ async def delete_card(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     membership = await get_workspace_membership(card.workspace_id, user, db)
@@ -154,7 +146,7 @@ async def add_relation(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     await get_workspace_membership(card.workspace_id, user, db)
@@ -163,8 +155,8 @@ async def add_relation(
 
     existing = await db.execute(
         sa_select(CardRelation).where(
-            CardRelation.card_id == _parse_uuid(card_id),
-            CardRelation.related_card_id == _parse_uuid(req.related_card_id),
+            CardRelation.card_id == parse_uuid(card_id),
+            CardRelation.related_card_id == parse_uuid(req.related_card_id),
             CardRelation.relation_type == req.relation_type,
         )
     )
@@ -172,8 +164,8 @@ async def add_relation(
         return {"ok": True, "duplicate": True}
 
     rel = CardRelation(
-        card_id=_parse_uuid(card_id),
-        related_card_id=_parse_uuid(req.related_card_id),
+        card_id=parse_uuid(card_id),
+        related_card_id=parse_uuid(req.related_card_id),
         relation_type=req.relation_type,
         score=req.score,
     )
@@ -188,14 +180,14 @@ async def get_related_cards(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     await get_workspace_membership(card.workspace_id, user, db)
     result = await db.execute(
         select(Card)
         .join(CardRelation, CardRelation.related_card_id == Card.id)
-        .where(CardRelation.card_id == _parse_uuid(card_id))
+        .where(CardRelation.card_id == parse_uuid(card_id))
     )
     return result.scalars().all()
 
@@ -207,14 +199,14 @@ async def remove_relation(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    card = await db.get(Card, _parse_uuid(card_id))
+    card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     await get_workspace_membership(card.workspace_id, user, db)
     result = await db.execute(
         select(CardRelation).where(
-            CardRelation.card_id == _parse_uuid(card_id),
-            CardRelation.related_card_id == _parse_uuid(related_card_id),
+            CardRelation.card_id == parse_uuid(card_id),
+            CardRelation.related_card_id == parse_uuid(related_card_id),
         )
     )
     rel = result.scalar_one_or_none()

@@ -14,6 +14,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/Breadcrumb";
 import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network } from "lucide-react";
 import { SearchModal } from "@/components/SearchModal";
+import { AiChatPanel } from "@/components/AiChatPanel";
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -29,6 +30,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const [showEdit, setShowEdit] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showAiChat, setShowAiChat] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Cmd+K / Ctrl+K to open search
@@ -62,8 +64,19 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     breadcrumbs.push({ label: wsName });
   }
 
+  // AI chat only available on card list and card detail pages
+  const wsBase = `/workspaces/${workspaceId}`;
+  const canShowAiChat = pathname === wsBase || pathname.startsWith(`${wsBase}/card/`);
+
+  // Close AI chat when navigating to a page that doesn't support it
+  useEffect(() => {
+    if (!canShowAiChat) setShowAiChat(false);
+  }, [canShowAiChat]);
+
   const navItems = [
-    { label: "AI 问答", href: `/rag?workspaceId=${workspaceId}`, highlight: true, icon: <Sparkles size={14} /> },
+    ...(canShowAiChat
+      ? [{ label: "AI 问答", href: null, highlight: true, icon: <Sparkles size={14} />, toggle: "aiChat" as const }]
+      : []),
     { label: "洞察", href: `/workspaces/${workspaceId}/insights`, highlight: false, icon: <Lightbulb size={14} /> },
     { label: "网络", href: `/workspaces/${workspaceId}/network`, highlight: false, icon: <Network size={14} /> },
   ];
@@ -74,7 +87,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   };
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="flex h-screen flex-col bg-bg">
       {/* Top nav */}
       <nav className="sticky top-0 z-10 border-b border-border bg-surface/80 backdrop-blur-sm">
         <div className="flex items-center justify-between px-4 py-3">
@@ -112,11 +125,19 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             {navItems.map((item) => (
               <button
                 key={item.label}
-                onClick={() => navigate(item.href)}
+                onClick={() => {
+                  if ("toggle" in item && item.toggle === "aiChat") {
+                    setShowAiChat((v) => !v);
+                  } else {
+                    navigate(item.href!);
+                  }
+                }}
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${
-                  item.highlight
-                    ? "bg-primary/10 font-medium text-primary-dark"
-                    : "text-text-secondary hover:bg-gray-100"
+                  "toggle" in item && item.toggle === "aiChat" && showAiChat
+                    ? "bg-primary text-white"
+                    : item.highlight
+                      ? "bg-primary/10 font-medium text-primary-dark"
+                      : "text-text-secondary hover:bg-gray-100"
                 }`}
               >
                 {item.icon}
@@ -162,11 +183,20 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             {navItems.map((item) => (
               <button
                 key={item.label}
-                onClick={() => navigate(item.href)}
+                onClick={() => {
+                  if ("toggle" in item && item.toggle === "aiChat") {
+                    setShowAiChat((v) => !v);
+                    setMenuOpen(false);
+                  } else {
+                    navigate(item.href!);
+                  }
+                }}
                 className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
-                  item.highlight
-                    ? "bg-primary/10 font-medium text-primary-dark"
-                    : "text-text-secondary hover:bg-gray-100"
+                  "toggle" in item && item.toggle === "aiChat" && showAiChat
+                    ? "bg-primary text-white"
+                    : item.highlight
+                      ? "bg-primary/10 font-medium text-primary-dark"
+                      : "text-text-secondary hover:bg-gray-100"
                 }`}
               >
                 {item.icon}
@@ -182,7 +212,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         <ErrorState message={error.message} onRetry={revalidate} />
       )}
 
-      {children}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto">{children}</div>
+        {showAiChat && canShowAiChat && (
+          <AiChatPanel workspaceId={workspaceId} onClose={() => setShowAiChat(false)} />
+        )}
+      </div>
 
       {/* Edit workspace modal */}
       {showEdit && workspace && (

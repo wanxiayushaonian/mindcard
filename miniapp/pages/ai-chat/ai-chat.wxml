@@ -1,11 +1,16 @@
 <!--pages/ai-chat/ai-chat.wxml-->
 <navigation-bar title="AI灵感助手" back="{{true}}" background="#F9FAFC">
-  <view slot="right" class="nav-icon-btn" bindtap="onSettings">
-    <text class="nav-icon-text">⚙</text>
+  <view slot="right" class="nav-right-btns">
+    <view class="nav-icon-btn" bindtap="onHistory">
+      <icon name="history" size="20" color="#555" />
+    </view>
+    <view class="nav-icon-btn" bindtap="onSettings">
+      <icon name="settings" size="20" color="#555" />
+    </view>
   </view>
 </navigation-bar>
 
-<scroll-view class="scrollarea" scroll-y type="list" scroll-into-view="{{scrollTarget}}">
+<scroll-view class="scrollarea" scroll-y scroll-into-view="{{scrollTarget}}">
   <!-- Mode tabs -->
   <view class="mode-tabs">
     <view
@@ -34,7 +39,7 @@
   <view class="chat-list">
     <view
       wx:for="{{messages}}"
-      wx:key="id"
+      wx:key="uid"
       id="msg-{{item.id}}"
     >
       <!-- User message -->
@@ -50,7 +55,7 @@
         <view class="msg-avatar">AI</view>
         <view class="msg-body">
           <view class="msg-bubble msg-bubble-ai">
-            <text>{{item.content}}</text>
+            <text class="ai-content-text">{{item.content}}</text>
           </view>
           <!-- Source cards (RAG mode) -->
           <view class="source-cards" wx:if="{{item.sources && item.sources.length > 0}}">
@@ -125,7 +130,10 @@
       maxlength="-1"
       style="max-height: 160rpx;"
     />
-    <view class="send-btn {{inputText.trim() ? 'send-btn-active' : ''}}" bindtap="onSend">
+    <view wx:if="{{isLoading}}" class="send-btn send-btn-stop" bindtap="onStopStream">
+      <text>停止</text>
+    </view>
+    <view wx:else class="send-btn {{inputText.trim() ? 'send-btn-active' : ''}}" bindtap="onSend">
       <text>发送</text>
     </view>
   </view>

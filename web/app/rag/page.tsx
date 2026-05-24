@@ -43,8 +43,8 @@ function RAGContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
   const streamContentRef = useRef("");
-  const [precipitating, setPrecipitating] = useState<number | null>(null);
-  const [precipitated, setPrecipitated] = useState<Set<number>>(new Set());
+  const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
+  const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
 
   const { data: workspace } = useSWR(
     workspaceId ? `workspace-${workspaceId}` : null,
@@ -54,30 +54,32 @@ function RAGContent() {
 
   const ragDisabled = mode === "rag" && !workspaceId;
 
-  const handlePrecipitate = async (content: string, index: number) => {
+  const handlePrecipitateBlock = async (blockText: string) => {
     if (!workspaceId) {
       toast("请从空间页面进入以使用沉淀功能", "error");
       return;
     }
-    setPrecipitating(index);
+    const key = blockText.slice(0, 50);
+    if (precipitatedBlocks.has(key)) return;
+    setPrecipitatingBlock(key);
     try {
       const [titleRes, kwRes] = await Promise.all([
-        aiApi.generateTitle(content),
-        aiApi.extractKeywords(content),
+        aiApi.generateTitle(blockText),
+        aiApi.extractKeywords(blockText),
       ]);
       await cardApi.create({
         local_id: "card_" + Date.now(),
         workspace_id: workspaceId,
         title: titleRes.title,
-        content,
+        content: blockText,
         keywords: kwRes.keywords,
       });
-      setPrecipitated((prev) => new Set(prev).add(index));
+      setPrecipitatedBlocks((prev) => new Set(prev).add(key));
       toast("已沉淀为卡片", "success");
     } catch (e: any) {
       toast("沉淀失败: " + e.message, "error");
     } finally {
-      setPrecipitating(null);
+      setPrecipitatingBlock(null);
     }
   };
 
@@ -373,7 +375,10 @@ function RAGContent() {
                   }`}
                 >
                   {msg.role === "assistant" ? (
-                    <MarkdownContent content={msg.content || " "} />
+                    <MarkdownContent
+                      content={msg.content || " "}
+                      onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
+                    />
                   ) : (
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                   )}
@@ -386,23 +391,6 @@ function RAGContent() {
                           <span className="line-clamp-1">{s.content}</span>
                         </div>
                       ))}
-                    </div>
-                  )}
-                  {msg.content && !isStreaming && canPrecipitate && (
-                    <div className="mt-2 flex justify-end">
-                      {precipitated.has(i) ? (
-                        <span className="rounded-lg px-2 py-1 text-[10px] text-green-600">
-                          已沉淀 ✓
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handlePrecipitate(msg.content, i)}
-                          disabled={precipitating === i}
-                          className="rounded-lg px-2 py-1 text-[10px] text-text-secondary hover:bg-gray-100 hover:text-primary-dark disabled:opacity-50"
-                        >
-                          {precipitating === i ? "沉淀中..." : "沉淀为卡片"}
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>

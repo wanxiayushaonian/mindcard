@@ -3,20 +3,23 @@
 </navigation-bar>
 
 <scroll-view class="scrollarea" scroll-y type="list">
-  <view class="records-list" wx:if="{{chats.length > 0}}">
-    <view wx:for="{{chats}}" wx:key="id" class="record-item" bindtap="onRecordTap" data-card-id="{{item.cardId}}">
+  <view class="loading-state" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+  <view class="records-list" wx:if="{{!loading && chats.length > 0}}">
+    <view wx:for="{{chats}}" wx:key="id" class="record-item" bindtap="onRecordTap" data-id="{{item.id}}" data-card-id="{{item.cardId}}">
       <view class="record-header">
         <text class="record-title">{{item.title}}</text>
         <view class="record-delete" catchtap="onDeleteRecord" data-id="{{item.id}}"><text>删除</text></view>
       </view>
       <text class="record-time">{{item.createdAt}}</text>
-      <text class="record-count">{{item.messages.length}} 条消息</text>
-      <view class="record-preview" wx:if="{{item.messages.length > 0}}">
-        <text class="record-preview-text">{{item.messages[0].content}}</text>
+      <text class="record-count">{{item.messageCount || item.messages.length}} 条消息</text>
+      <view class="record-preview" wx:if="{{item.lastMessage || item.messages.length > 0}}">
+        <text class="record-preview-text">{{item.lastMessage || item.messages[0].content}}</text>
       </view>
     </view>
   </view>
-  <view class="empty-state" wx:if="{{chats.length === 0}}">
+  <view class="empty-state" wx:if="{{!loading && chats.length === 0}}">
     <text class="empty-text">暂无AI对话记录</text>
   </view>
 </scroll-view>

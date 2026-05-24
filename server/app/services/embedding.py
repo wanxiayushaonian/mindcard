@@ -13,7 +13,7 @@ load_dotenv(override=False)
 
 
 class EmbeddingService:
-    """Embedding service using BGE-M3 (BAAI) for Chinese-friendly text embeddings."""
+    """Embedding service using BGE (BAAI) for Chinese-friendly text embeddings."""
 
     def __init__(self):
         self._model = None

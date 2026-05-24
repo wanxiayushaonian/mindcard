@@ -68,7 +68,12 @@ Page({
         return app._loadAllData();
       })
       .then(function () {
-        wx.navigateBack({ delta: 1 });
+        var pages = getCurrentPages();
+        if (pages.length > 1) {
+          wx.navigateBack({ delta: 1 });
+        } else {
+          wx.reLaunch({ url: '/pages/index/index' });
+        }
       })
       .catch(function (err) {
         self.setData({ error: err.message || '操作失败' });
@@ -96,7 +101,12 @@ Page({
             return app._loadAllData();
           })
           .then(function () {
-            wx.navigateBack({ delta: 1 });
+            var pages = getCurrentPages();
+            if (pages.length > 1) {
+              wx.navigateBack({ delta: 1 });
+            } else {
+              wx.reLaunch({ url: '/pages/index/index' });
+            }
           })
           .catch(function (err) {
             self.setData({ error: err.message || '微信登录失败' });

@@ -2,28 +2,30 @@
 <navigation-bar title="关联网络" back="{{true}}" background="#F9FAFC">
   <view slot="right" class="nav-right">
     <view class="nav-icon-btn" bindtap="onResetView">
-      <text class="nav-icon-text">⌖</text>
+      <icon name="target" size="20" color="#555" />
     </view>
   </view>
 </navigation-bar>
 
 <!-- Keyword filter bar -->
-<scroll-view class="filter-bar" scroll-x enhanced show-scrollbar="{{false}}" enable-flex="{{true}}">
-  <view
-    class="filter-item {{selectedTag === '全部' ? 'filter-active' : ''}}"
-    bindtap="onFilterSelect"
-    data-tag="全部"
-  >
-    <text>全部</text>
-  </view>
-  <view
-    wx:for="{{allKeywords}}"
-    wx:key="*this"
-    class="filter-item {{selectedTag === item ? 'filter-active' : ''}}"
-    bindtap="onFilterSelect"
-    data-tag="{{item}}"
-  >
-    <text>{{item}}</text>
+<scroll-view class="filter-bar" scroll-x enhanced show-scrollbar="{{false}}">
+  <view class="filter-bar-inner">
+    <view
+      class="filter-item {{selectedTags.length === 0 ? 'filter-active' : ''}}"
+      bindtap="onFilterSelect"
+      data-tag="全部"
+    >
+      <text>全部</text>
+    </view>
+    <view
+      wx:for="{{allKeywords}}"
+      wx:key="*this"
+      class="filter-item {{selectedTagsMap[item] ? 'filter-active' : ''}}"
+      bindtap="onFilterSelect"
+      data-tag="{{item}}"
+    >
+      <text>{{item}}</text>
+    </view>
   </view>
 </scroll-view>
 

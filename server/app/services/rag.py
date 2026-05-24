@@ -3,17 +3,34 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models.card import Card
 from app.schemas.rag import CardSummary
 from app.services.embedding import embedding_service
+from app.services.llm import llm_service
 from app.services.search import search_service
 
 logger = logging.getLogger(__name__)
+
+MARKDOWN_SYSTEM_PROMPT = (
+    "你是一个知识问答助手。回答必须使用 Markdown 格式，严格遵守以下规则：\n"
+    "1. 每个主题用 ## 标题开头，标题前后必须有空行\n"
+    "2. 列表项每项占一行，以 - 或 1. 开头\n"
+    "3. 对比信息用表格，每列用 | 分隔\n"
+    "4. 不同段落之间必须用空行分隔\n"
+    "5. 绝对不要把所有内容写在一行里\n\n"
+    "示例格式：\n"
+    "## 主题一\n\n"
+    "这里是内容说明。\n\n"
+    "- 要点1\n"
+    "- 要点2\n\n"
+    "## 主题二\n\n"
+    "| 列A | 列B |\n"
+    "|-----|-----|\n"
+    "| 值1 | 值2 |"
+)
 
 
 class RAGService:
@@ -46,16 +63,22 @@ class RAGService:
         context = "\n\n".join(
             f"【{c.title or 'Untitled'}】{c.content}" for c in context_cards
         )
-        prompt = f"""Based on the following inspiration cards, answer the user's question.
-If the card content is insufficient to answer, say so.
+        prompt = f"""基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
-Relevant inspiration cards:
+回答格式要求（必须严格遵守）：
+- 用 ## 标题分隔不同主题，标题前后加空行
+- 用 - 列表罗列要点，每项一行
+- 用 Markdown 表格对比信息
+- 段落之间用空行分隔
+- 不要把所有内容写成一段
+
+相关灵感卡片：
 {context}
 
-User question: {question}"""
+用户问题：{question}"""
 
         # 3. Call LLM
-        answer = await self._call_llm(prompt)
+        answer = await llm_service.complete([{"role": "user", "content": prompt}])
 
         # 4. Return with sources
         source_cards = [
@@ -105,11 +128,9 @@ Inspiration cards:
 Respond in JSON format:
 {{"themes": [...], "trends": "...", "unexplored": [...], "suggestions": [...]}}"""
 
-        answer = await self._call_llm(prompt)
+        answer = await llm_service.complete([{"role": "user", "content": prompt}])
 
         # Parse JSON from answer
-        import json
-
         try:
             # Extract JSON from response (may be wrapped in markdown code block)
             json_str = answer
@@ -165,42 +186,21 @@ Respond in JSON format:
         self, message: str, history: list[dict[str, str]] | None = None
     ) -> str:
         """General chat without RAG, supports conversation history."""
-        if not settings.deepseek_api_key:
-            return "LLM API key not configured. Please set DEEPSEEK_API_KEY."
-
-        messages = [{"role": "system", "content": "你是一个 helpful AI 助手，可以回答各种问题。"}]
+        messages = [{"role": "system", "content": MARKDOWN_SYSTEM_PROMPT}]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": message})
-
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{settings.deepseek_base_url}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
-                json={
-                    "model": "deepseek-chat",
-                    "messages": messages,
-                    "max_tokens": 2048,
-                    "temperature": 0.7,
-                },
-            )
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        return await llm_service.complete(messages)
 
     async def chat_stream(
         self, message: str, history: list[dict[str, str]] | None = None
     ) -> AsyncGenerator[str, None]:
         """Streaming general chat without RAG."""
-        if not settings.deepseek_api_key:
-            yield "LLM API key not configured."
-            return
-
-        messages = [{"role": "system", "content": "你是一个 helpful AI 助手，可以回答各种问题。"}]
+        messages = [{"role": "system", "content": MARKDOWN_SYSTEM_PROMPT}]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": message})
-
-        async for chunk in self._call_llm_stream(messages):
+        async for chunk in llm_service.stream(messages):
             yield chunk
 
     async def ask_stream(
@@ -227,17 +227,23 @@ Respond in JSON format:
         context = "\n\n".join(
             f"【{c.title or 'Untitled'}】{c.content}" for c in context_cards
         )
-        prompt = f"""Based on the following inspiration cards, answer the user's question.
-If the card content is insufficient to answer, say so.
+        prompt = f"""基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
-Relevant inspiration cards:
+回答格式要求（必须严格遵守）：
+- 用 ## 标题分隔不同主题，标题前后加空行
+- 用 - 列表罗列要点，每项一行
+- 用 Markdown 表格对比信息
+- 段落之间用空行分隔
+- 不要把所有内容写成一段
+
+相关灵感卡片：
 {context}
 
-User question: {question}"""
+用户问题：{question}"""
 
         # 3. Stream LLM response
         messages = [{"role": "user", "content": prompt}]
-        async for chunk in self._call_llm_stream(messages):
+        async for chunk in llm_service.stream(messages):
             yield chunk
 
         # 4. Yield sources as a dict (the endpoint layer will serialize it)
@@ -251,57 +257,6 @@ User question: {question}"""
             for c in context_cards
         ]
         yield {"source_cards": source_cards}
-
-    async def _call_llm_stream(
-        self, messages: list[dict[str, str]]
-    ) -> AsyncGenerator[str, None]:
-        """Stream response from DeepSeek API."""
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
-            async with client.stream(
-                "POST",
-                f"{settings.deepseek_base_url}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
-                json={
-                    "model": "deepseek-chat",
-                    "messages": messages,
-                    "max_tokens": 2048,
-                    "temperature": 0.7,
-                    "stream": True,
-                },
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        return
-                    try:
-                        data = json.loads(data_str)
-                        delta = data["choices"][0].get("delta", {})
-                        content = delta.get("content")
-                        if content:
-                            yield content
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        continue
-
-    async def _call_llm(self, prompt: str) -> str:
-        """Call DeepSeek API for LLM completion."""
-        if not settings.deepseek_api_key:
-            return "LLM API key not configured. Please set DEEPSEEK_API_KEY."
-
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{settings.deepseek_base_url}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 2048,
-                    "temperature": 0.7,
-                },
-            )
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
 
 
 rag_service = RAGService()

@@ -153,6 +153,18 @@ Page({
     wx.navigateTo({ url: '/pages/network/network' });
   },
 
+  onMore() {
+    var self = this;
+    wx.showActionSheet({
+      itemList: ['关联网络', '洞察', '设置'],
+      success: function (res) {
+        if (res.tapIndex === 0) self.onNetwork();
+        else if (res.tapIndex === 1) self.onInsights();
+        else if (res.tapIndex === 2) self.onProfile();
+      },
+    });
+  },
+
   onCategory() {
     wx.navigateTo({ url: '/pages/category/category' });
   },

@@ -1,6 +1,5 @@
 import random
 import string
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -17,16 +16,9 @@ from app.schemas.workspace import (
     WorkspaceUpdate,
 )
 from app.utils.auth import get_current_user, get_workspace_membership, require_owner
+from app.utils.helpers import parse_uuid
 
 router = APIRouter()
-
-
-def _parse_uuid(value: str) -> uuid.UUID:
-    """Parse a UUID string, raising 400 on invalid input."""
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid UUID: {value}")
 
 
 @router.get("/", response_model=list[WorkspaceResponse])
@@ -78,7 +70,7 @@ async def get_workspace(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    ws_id = _parse_uuid(workspace_id)
+    ws_id = parse_uuid(workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
     ws = await db.get(Workspace, ws_id)
     return WorkspaceResponse(
@@ -100,7 +92,7 @@ async def update_workspace(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    ws_id = _parse_uuid(workspace_id)
+    ws_id = parse_uuid(workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
     require_owner(membership)
     ws = await db.get(Workspace, ws_id)
@@ -116,7 +108,7 @@ async def delete_workspace(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    ws_id = _parse_uuid(workspace_id)
+    ws_id = parse_uuid(workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
     require_owner(membership)
     ws = await db.get(Workspace, ws_id)
@@ -131,7 +123,7 @@ async def list_members(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    ws_id = _parse_uuid(workspace_id)
+    ws_id = parse_uuid(workspace_id)
     await get_workspace_membership(ws_id, user, db)
     result = await db.execute(
         select(WorkspaceMember, User.nickname)
@@ -157,7 +149,7 @@ async def generate_invite_code(
     user: User = Depends(get_current_user),
 ):
     """Generate a 6-char invite code. Only workspace owner can do this."""
-    ws_id = _parse_uuid(workspace_id)
+    ws_id = parse_uuid(workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
     require_owner(membership)
     ws = await db.get(Workspace, ws_id)
@@ -207,13 +199,13 @@ async def remove_member(
     user: User = Depends(get_current_user),
 ):
     """Remove a member from workspace. Only owner can do this."""
-    ws_id = _parse_uuid(workspace_id)
+    ws_id = parse_uuid(workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
     require_owner(membership)
     if str(user.id) == user_id:
         raise HTTPException(status_code=400, detail="Cannot remove yourself")
 
-    target = await db.get(WorkspaceMember, (ws_id, _parse_uuid(user_id)))
+    target = await db.get(WorkspaceMember, (ws_id, parse_uuid(user_id)))
     if not target:
         raise HTTPException(status_code=404, detail="成员不存在")
 
@@ -229,7 +221,7 @@ async def leave_workspace(
     user: User = Depends(get_current_user),
 ):
     """Leave a workspace. Owner cannot leave their own workspace."""
-    ws_id = _parse_uuid(workspace_id)
+    ws_id = parse_uuid(workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
     if membership.role == "owner":
         raise HTTPException(status_code=400, detail="空间创建者无法退出自己的空间")

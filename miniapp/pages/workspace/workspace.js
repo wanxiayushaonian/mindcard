@@ -1,19 +1,34 @@
 // pages/workspace/workspace.js
 var api = require('../../utils/api');
 
-const WS_ICONS = ['💡', '📖', '🎨', '🎵', '✈️', '💼', '📝', '🏠', '🌱', '🎯', '🔥', '❤️'];
+const WS_ICONS = ['lightbulb', 'palette', 'book-open', 'flask-conical', 'music', 'rocket', 'sprout', 'brain', 'sparkles', 'flame'];
+
+const EMOJI_TO_ICON = {
+  '💡': 'lightbulb', '📖': 'book-open', '🎨': 'palette', '🎵': 'music',
+  '✈️': 'rocket', '💼': 'flask-conical', '📝': 'sprout', '🏠': 'brain',
+  '🌱': 'sprout', '🎯': 'sparkles', '🔥': 'flame', '❤️': 'sparkles',
+};
+
+function normalizeIcon(icon) {
+  if (!icon) return 'lightbulb';
+  if (EMOJI_TO_ICON[icon]) return EMOJI_TO_ICON[icon];
+  if (WS_ICONS.indexOf(icon) !== -1) return icon;
+  return 'lightbulb';
+}
+
 const WS_COLORS = ['#94B4C8', '#B8D4E3', '#C4D7B2', '#E8C9A0', '#D4B5D0', '#D4C5A9', '#A0B8C8', '#B8A9D4'];
 
 Page({
   data: {
     workspaces: [],
     sharedWorkspaces: [],
+    gridItems: [],
     WS_ICONS,
     WS_COLORS,
     showCreateModal: false,
     showDeleteConfirm: false,
     wsName: '',
-    wsIcon: '💡',
+    wsIcon: 'lightbulb',
     wsColor: '#94B4C8',
     editingWorkspaceId: '',
     deletingWorkspaceId: '',
@@ -41,22 +56,42 @@ Page({
     const cards = app.globalData.cards;
     const workspaces = app.globalData.workspaces.map(ws => ({
       ...ws,
+      icon: normalizeIcon(ws.icon),
       _cardCount: cards.filter(c => c.workspaceId === ws.id).length,
       _memberCount: (ws.members || []).length,
       _isOwner: ws.owner === app.globalData.currentUser.openId,
     }));
     const sharedWorkspaces = (app.globalData.sharedWorkspaces || []).map(ws => ({
       ...ws,
+      icon: normalizeIcon(ws.icon),
       _cardCount: 0, // shared spaces cards loaded separately
       _memberCount: (ws.members || []).length,
       _isShared: true,
     }));
-    this.setData({ workspaces, sharedWorkspaces });
+    const gridItems = [
+      ...workspaces,
+      { id: '__add__', _type: 'add' },
+      { id: '__join__', _type: 'join' },
+    ];
+    this.setData({ workspaces, sharedWorkspaces, gridItems });
   },
 
   onStopPropagation() {},
 
   // ── Navigation ──
+
+  onGridItemTap(e) {
+    const type = e.currentTarget.dataset.type;
+    if (type === 'add') return this.onCreateWorkspace();
+    if (type === 'join') return this.onShowJoinModal();
+    this.onWorkspaceTap(e);
+  },
+
+  onGridItemLongPress(e) {
+    const type = e.currentTarget.dataset.type;
+    if (type) return; // ignore long press on action buttons
+    this.onWorkspaceLongPress(e);
+  },
 
   onWorkspaceTap(e) {
     const id = e.currentTarget.dataset.id;
@@ -93,7 +128,7 @@ Page({
             showCreateModal: true,
             editingWorkspaceId: id,
             wsName: ws.name,
-            wsIcon: ws.icon,
+            wsIcon: normalizeIcon(ws.icon),
             wsColor: ws.color,
           });
         } else if (action === '分享空间') {
@@ -252,7 +287,7 @@ Page({
       showCreateModal: true,
       editingWorkspaceId: '',
       wsName: '',
-      wsIcon: '💡',
+      wsIcon: 'lightbulb',
       wsColor: '#94B4C8',
     });
   },

@@ -15,8 +15,24 @@ Page({
     ],
   },
 
+  _debounceTimer: null,
+
   onInput(e) {
-    this.setData({ query: e.detail.value });
+    var query = e.detail.value;
+    this.setData({ query: query });
+
+    // Debounce auto-search
+    if (this._debounceTimer) {
+      clearTimeout(this._debounceTimer);
+    }
+    var self = this;
+    if (query.trim()) {
+      this._debounceTimer = setTimeout(function () {
+        self.doSearch();
+      }, 400);
+    } else {
+      this.setData({ results: [], searched: false });
+    }
   },
 
   onModeTap(e) {

@@ -28,17 +28,19 @@ page {
 
 /* Filter bar */
 .filter-bar {
+  background: var(--color-white);
+}
+
+.filter-bar-inner {
   display: flex;
   flex-direction: row;
-  white-space: nowrap;
-  padding: 10rpx 24rpx;
-  background: var(--color-white);
-  height: 68rpx;
+  flex-wrap: nowrap;
   align-items: center;
+  padding: 10rpx 24rpx;
 }
 
 .filter-item {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 8rpx 24rpx;
@@ -49,6 +51,10 @@ page {
   color: #666;
   flex-shrink: 0;
   line-height: 1.2;
+}
+
+.filter-item:last-child {
+  margin-right: 0;
 }
 
 .filter-active {

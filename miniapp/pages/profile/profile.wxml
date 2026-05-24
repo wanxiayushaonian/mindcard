@@ -34,21 +34,21 @@
     <view class="settings-list">
       <view class="settings-item" bindtap="onBackup">
         <view class="settings-left">
-          <text class="settings-icon icon-backup">☁</text>
+          <view class="settings-icon-wrap"><icon name="cloud" size="18" color="#555" /></view>
           <text class="settings-text">数据备份</text>
         </view>
         <view class="settings-arrow"></view>
       </view>
       <view class="settings-item" bindtap="onClearData">
         <view class="settings-left">
-          <text class="settings-icon icon-clear">✕</text>
+          <view class="settings-icon-wrap"><icon name="x" size="18" color="#e74c3c" /></view>
           <text class="settings-text danger-text">清空数据</text>
         </view>
         <view class="settings-arrow"></view>
       </view>
       <view class="settings-item" bindtap="onAiChatRecords">
         <view class="settings-left">
-          <text class="settings-icon icon-chat-records">💬</text>
+          <view class="settings-icon-wrap"><icon name="message-square" size="18" color="#555" /></view>
           <text class="settings-text">AI对话记录</text>
         </view>
         <view class="settings-right-info">
@@ -65,7 +65,7 @@
     <view class="settings-list">
       <view class="settings-item" bindtap="onAgentSettings">
         <view class="settings-left">
-          <text class="settings-icon icon-agent">⚡</text>
+          <view class="settings-icon-wrap"><icon name="zap" size="18" color="#555" /></view>
           <text class="settings-text">Agent推荐灵敏度</text>
         </view>
         <view class="settings-right-info">
@@ -75,7 +75,7 @@
       </view>
       <view class="settings-item" bindtap="onDefaultColor">
         <view class="settings-left">
-          <text class="settings-icon icon-color">🎨</text>
+          <view class="settings-icon-wrap"><icon name="palette" size="18" color="#555" /></view>
           <text class="settings-text">卡片默认配色</text>
         </view>
         <view class="settings-right-info">
@@ -85,7 +85,7 @@
       </view>
       <view class="settings-item" bindtap="onWalkSettings">
         <view class="settings-left">
-          <text class="settings-icon icon-walk">👣</text>
+          <view class="settings-icon-wrap"><icon name="footprints" size="18" color="#555" /></view>
           <text class="settings-text">灵感漫游灵敏度</text>
         </view>
         <view class="settings-right-info">
@@ -102,7 +102,7 @@
     <view class="settings-list">
       <view class="settings-item" bindtap="onAiTone">
         <view class="settings-left">
-          <text class="settings-icon icon-ai-tone">🗣</text>
+          <view class="settings-icon-wrap"><icon name="mic" size="18" color="#555" /></view>
           <text class="settings-text">AI对话语气</text>
         </view>
         <view class="settings-right-info">
@@ -112,7 +112,7 @@
       </view>
       <view class="settings-item" bindtap="onAiDirection">
         <view class="settings-left">
-          <text class="settings-icon icon-ai-direction">🧭</text>
+          <view class="settings-icon-wrap"><icon name="compass" size="18" color="#555" /></view>
           <text class="settings-text">思路引导方向</text>
         </view>
         <view class="settings-right-info">
@@ -122,7 +122,7 @@
       </view>
       <view class="settings-item" bindtap="onAiAutoRecommend">
         <view class="settings-left">
-          <text class="settings-icon icon-auto">🤖</text>
+          <view class="settings-icon-wrap"><icon name="bot" size="18" color="#555" /></view>
           <text class="settings-text">AI自动推荐编辑</text>
         </view>
         <view class="settings-right-info">
@@ -139,10 +139,22 @@
     <view class="settings-list">
       <view class="settings-item" bindtap="onHelp">
         <view class="settings-left">
-          <text class="settings-icon icon-help">❓</text>
+          <view class="settings-icon-wrap"><icon name="help-circle" size="18" color="#555" /></view>
           <text class="settings-text">操作说明</text>
         </view>
         <view class="settings-arrow"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Logout -->
+  <view class="settings-section">
+    <view class="settings-list">
+      <view class="settings-item" bindtap="onLogout">
+        <view class="settings-left">
+          <view class="settings-icon-wrap"><icon name="log-out" size="18" color="#e74c3c" /></view>
+          <text class="settings-text danger-text">退出登录</text>
+        </view>
       </view>
     </view>
   </view>

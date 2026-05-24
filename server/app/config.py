@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
 
+    # CORS
+    cors_origins: str = "*"
+
     # Search
     search_top_k: int = 20
     rag_top_k: int = 5

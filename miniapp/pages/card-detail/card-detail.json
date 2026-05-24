@@ -1,6 +1,8 @@
 {
   "usingComponents": {
     "navigation-bar": "../../components/navigation-bar/navigation-bar",
-    "card-picker": "../../components/card-picker/card-picker"
+    "card-picker": "../../components/card-picker/card-picker",
+    "markdown-render": "../../components/markdown-render/markdown-render",
+    "icon": "../../components/icon/icon"
   }
 }

@@ -1,0 +1,5 @@
+/* components/icon/icon.wxss */
+.icon-img {
+  display: inline-block;
+  flex-shrink: 0;
+}

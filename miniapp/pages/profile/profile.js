@@ -179,4 +179,21 @@ Page({
       confirmText: '知道了',
     });
   },
+
+  onLogout() {
+    wx.showModal({
+      title: '确认退出',
+      content: '退出后需要重新登录，本地数据不会丢失。',
+      confirmText: '退出',
+      confirmColor: '#e74c3c',
+      success: (res) => {
+        if (res.confirm) {
+          const api = require('../../utils/api');
+          api.clearToken();
+          wx.removeStorageSync('user_identity');
+          wx.redirectTo({ url: '/pages/login/login' });
+        }
+      },
+    });
+  },
 });

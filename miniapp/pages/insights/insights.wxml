@@ -31,7 +31,7 @@
       <text class="section-title">未探索方向</text>
       <view class="insight-list">
         <view wx:for="{{unexplored}}" wx:key="*this" class="insight-item">
-          <text class="insight-icon">💡</text>
+          <icon name="lightbulb" size="18" color="#C4955A" />
           <text class="insight-text">{{item}}</text>
         </view>
       </view>
@@ -42,7 +42,7 @@
       <text class="section-title">发展建议</text>
       <view class="insight-list">
         <view wx:for="{{suggestions}}" wx:key="*this" class="insight-item">
-          <text class="insight-icon">✓</text>
+          <icon name="check" size="18" color="#7DA66A" />
           <text class="insight-text">{{item}}</text>
         </view>
       </view>

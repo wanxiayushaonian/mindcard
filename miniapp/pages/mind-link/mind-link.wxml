@@ -1,7 +1,7 @@
 <!--pages/mind-link/mind-link.wxml-->
 <navigation-bar title="思维链路" back="{{true}}" background="#F9FAFC">
   <view slot="right" class="nav-action" bindtap="onSaveTemplate">
-    <text class="nav-action-text">☰</text>
+    <icon name="menu" size="20" color="#555" />
   </view>
 </navigation-bar>
 

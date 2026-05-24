@@ -77,13 +77,14 @@ App({
   async _loadWorkspacesFromApi() {
     try {
       const workspaces = await api.get('/api/workspaces/');
+      var self = this;
       this.globalData.workspaces = workspaces.map(function (ws) {
         return {
           id: ws.id,
           name: ws.name,
           icon: ws.icon || '💡',
           color: ws.color || '#94B4C8',
-          createdAt: ws.created_at,
+          createdAt: self._formatApiTime(ws.created_at),
           owner: ws.owner_id,
           inviteCode: ws.invite_code || '',
           memberRole: ws.member_role || 'editor',
@@ -247,6 +248,7 @@ App({
     if (!wsId || wsId.indexOf('ws_') === 0) return; // skip local-only IDs
     try {
       var cards = await api.get('/api/cards/?workspace_id=' + wsId);
+      var self = this;
       this.globalData.cards = cards.map(function (c) {
         return {
           id: c.id,
@@ -255,8 +257,8 @@ App({
           content: c.content || '',
           keywords: c.keywords || [],
           color: c.color || '#B8D4E3',
-          createdAt: c.created_at,
-          updatedAt: c.updated_at,
+          createdAt: self._formatApiTime(c.created_at),
+          updatedAt: self._formatApiTime(c.updated_at),
           isFavorite: c.is_favorite || false,
           relatedIds: (c.relations || []).map(function (r) { return r.related_card_id; }),
           agentRecommendIds: [],
@@ -426,12 +428,12 @@ App({
     }
     wx.setStorageSync('ai_chats', this.globalData.aiChats);
 
-    // Sync to API (create chat if needed, then save messages)
+    // Sync to API (create chat if needed, then save all messages)
     try {
-      // Check if this is a server-side chat (UUID format) or local chat
       var isServerChat = /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(chat.id);
+      var serverChatId = chat.id;
+
       if (!isServerChat) {
-        // Create on server
         var created = await api.post('/api/chats/', {
           local_id: chat.id,
           title: chat.title || '',
@@ -440,19 +442,30 @@ App({
           mode: 'chat',
         });
         if (created && created.id) {
-          // Save last user message to server
-          var lastMsg = chat.messages && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
-          if (lastMsg) {
-            await api.post('/api/chats/' + created.id + '/messages', {
-              role: lastMsg.role === 'ai' ? 'assistant' : lastMsg.role,
-              content: lastMsg.content,
-            });
+          var oldId = chat.id;
+          serverChatId = created.id;
+          // Update local chat: change ID but keep cardId
+          var cidx = this.globalData.aiChats.findIndex(function (c) { return c.id === oldId; });
+          if (cidx !== -1) {
+            this.globalData.aiChats[cidx] = Object.assign({}, this.globalData.aiChats[cidx], { id: created.id });
+            wx.setStorageSync('ai_chats', this.globalData.aiChats);
           }
         }
       }
+
+      // Save all messages via batch endpoint
+      if (chat.messages && chat.messages.length > 0) {
+        var msgs = chat.messages.map(function (m) {
+          return { role: m.role === 'ai' ? 'assistant' : m.role, content: m.content };
+        });
+        await api.post('/api/chats/' + serverChatId + '/messages/batch', msgs);
+      }
+
+      if (serverChatId !== chat.id) return serverChatId;
     } catch (e) {
       console.error('[API] saveChat failed:', e);
     }
+    return chat.id;
   },
 
   async deleteChat(chatId) {
@@ -511,10 +524,83 @@ App({
 
   // ── Comments ──
 
+  async loadChatsFromApi(workspaceId) {
+    try {
+      var self = this;
+      var chats = await api.get('/api/chats/?workspace_id=' + workspaceId);
+      var loaded = (chats || []).map(function (c) {
+        return {
+          id: c.id,
+          cardId: c.card_id || '',
+          title: c.title || '灵感对话',
+          createdAt: self._formatApiTime(c.created_at),
+          messages: [],
+          messageCount: c.message_count || 0,
+          lastMessage: c.last_message || '',
+        };
+      });
+      // Merge with local chats (don't overwrite local messages)
+      loaded.forEach(function (serverChat) {
+        var existing = self.globalData.aiChats.find(function (lc) { return lc.id === serverChat.id; });
+        if (!existing) {
+          self.globalData.aiChats.push(serverChat);
+        } else {
+          // Update metadata but keep local messages
+          existing.messageCount = serverChat.messageCount;
+          existing.lastMessage = serverChat.lastMessage;
+          existing.title = serverChat.title || existing.title;
+        }
+      });
+      wx.setStorageSync('ai_chats', this.globalData.aiChats);
+      return loaded;
+    } catch (e) {
+      console.error('[API] loadChatsFromApi failed:', e);
+      return [];
+    }
+  },
+
+  async loadChatMessages(chatId) {
+    try {
+      var chat = await api.get('/api/chats/' + chatId);
+      var messages = (chat.messages || []).map(function (m) {
+        var d = new Date(m.created_at);
+        var time = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        return {
+          id: m.id,
+          uid: m.id,
+          role: m.role === 'assistant' ? 'ai' : m.role,
+          content: m.content,
+          time: time,
+        };
+      });
+      // Update local cache
+      var idx = this.globalData.aiChats.findIndex(function (c) { return c.id === chatId; });
+      if (idx !== -1) {
+        this.globalData.aiChats[idx].messages = messages;
+        wx.setStorageSync('ai_chats', this.globalData.aiChats);
+      }
+      return messages;
+    } catch (e) {
+      console.error('[API] loadChatMessages failed:', e);
+      return [];
+    }
+  },
+
   async loadComments(cardId) {
     if (cardId.indexOf('card_') === 0) return [];
     try {
+      var self = this;
       var comments = await api.get('/api/cards/' + cardId + '/comments');
+      comments = (comments || []).map(function (c) {
+        return {
+          id: c.id,
+          cardId: c.card_id,
+          authorId: c.author_id,
+          authorNickName: c.author_nickname || '',
+          content: c.content,
+          createdAt: self._formatApiTime(c.created_at),
+        };
+      });
       this.globalData.comments = comments;
       return comments;
     } catch (e) {
@@ -634,5 +720,14 @@ App({
     var h = String(date.getHours()).padStart(2, '0');
     var min = String(date.getMinutes()).padStart(2, '0');
     return y + '-' + m + '-' + d + ' ' + h + ':' + min;
+  },
+
+  _formatApiTime(isoStr) {
+    if (!isoStr) return '';
+    try {
+      return this._formatTime(new Date(isoStr));
+    } catch (_e) {
+      return isoStr;
+    }
   },
 });

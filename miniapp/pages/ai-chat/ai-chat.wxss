@@ -74,6 +74,12 @@ page {
   -webkit-box-orient: vertical;
 }
 
+.nav-right-btns {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
 .nav-icon-btn {
   width: 56rpx;
   height: 56rpx;
@@ -127,6 +133,12 @@ page {
   font-size: 22rpx;
   color: #fff;
   flex-shrink: 0;
+}
+
+/* Scroll area */
+.scrollarea {
+  flex: 1;
+  overflow: hidden;
 }
 
 /* Chat list */
@@ -188,6 +200,14 @@ page {
   color: var(--color-text);
   border-top-left-radius: 4rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+}
+
+.ai-content-text {
+  font-size: 28rpx;
+  color: var(--color-text);
+  line-height: 1.7;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .msg-actions {
@@ -286,5 +306,10 @@ page {
 
 .send-btn-active {
   background: var(--color-primary);
+  color: #fff;
+}
+
+.send-btn-stop {
+  background: #e74c3c;
   color: #fff;
 }
