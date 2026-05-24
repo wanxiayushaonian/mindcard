@@ -159,7 +159,7 @@ export default function WorkspacePage() {
           />
           <button
             onClick={() => setShowCreate(true)}
-            className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary-dark"
+            className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-dark"
           >
             <Plus size={16} /> 新建卡片
           </button>
