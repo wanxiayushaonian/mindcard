@@ -7,7 +7,7 @@ import { workspaceApi, authApi, type Workspace } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
 import { FormField } from "@/components/FormField";
-import { IconPicker } from "@/components/IconPicker";
+import { IconPicker, WorkspaceIcon, SPACE_ICON_KEYS } from "@/components/IconPicker";
 import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -70,7 +70,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         <div className="flex items-center justify-between px-4 py-3">
           {/* Left: breadcrumb */}
           <div className="flex items-center gap-3">
-            <span className="text-lg">{workspace?.icon}</span>
+            <span className="text-gray-600">
+              <WorkspaceIcon icon={workspace?.icon || "lightbulb"} size={22} />
+            </span>
             <Breadcrumb items={breadcrumbs} />
           </div>
 
@@ -224,7 +226,7 @@ function EditWorkspaceModal({
         />
       </FormField>
       <FormField label="图标">
-        <IconPicker value={icon} onChange={setIcon} icons={["💡", "🧠", "📚", "🎨", "🔬", "💼", "🌟", "🎯"]} />
+        <IconPicker value={icon} onChange={setIcon} />
       </FormField>
       <FormField label="配色">
         <ColorPicker value={color} onChange={setColor} colors={SPACE_COLORS} />

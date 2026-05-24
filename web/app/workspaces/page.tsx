@@ -7,7 +7,7 @@ import { workspaceApi, type Workspace } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
 import { FormField } from "@/components/FormField";
-import { IconPicker } from "@/components/IconPicker";
+import { IconPicker, WorkspaceIcon, SPACE_ICON_KEYS } from "@/components/IconPicker";
 import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
@@ -20,7 +20,7 @@ export default function WorkspacesPage() {
   const { data: workspaces, isLoading, error, mutate: revalidate } = useSWR("workspaces", () => workspaceApi.list());
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
-  const [icon, setIcon] = useState("💡");
+  const [icon, setIcon] = useState("lightbulb");
   const [color, setColor] = useState("#94B4C8");
   const [creating, setCreating] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
@@ -174,7 +174,9 @@ export default function WorkspacesPage() {
                 </button>
               </div>
             )}
-            <div className="mb-2 text-3xl">{ws.icon}</div>
+            <div className="mb-2 text-gray-600">
+              <WorkspaceIcon icon={ws.icon} size={32} />
+            </div>
             <h3 className="font-semibold text-text">{ws.name}</h3>
             <p className="mt-1 text-xs text-text-secondary">
               {new Date(ws.created_at).toLocaleDateString("zh-CN")}
