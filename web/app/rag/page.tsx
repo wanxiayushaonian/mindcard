@@ -8,6 +8,7 @@ import { ragApi, chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type C
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Breadcrumb } from "@/components/Breadcrumb";
 
 type ChatMode = "rag" | "chat";
 
@@ -258,10 +259,19 @@ function RAGContent() {
     <div className="flex h-screen flex-col bg-bg">
       {/* Header */}
       <nav className="flex items-center gap-3 border-b border-border bg-surface/80 px-4 py-3 backdrop-blur-sm">
-        <button onClick={() => router.back()} className="text-text-secondary hover:text-text">
-          &larr;
-        </button>
-        <h1 className="text-lg font-semibold">AI 对话</h1>
+        <Breadcrumb
+          items={
+            workspaceId
+              ? [
+                  { label: "我的空间", href: "/workspaces" },
+                  { label: workspace?.name || "空间", href: `/workspaces/${workspaceId}` },
+                  { label: "AI 对话" },
+                ]
+              : [
+                  { label: "AI 对话" },
+                ]
+          }
+        />
 
         <div className="ml-auto flex rounded-full bg-gray-100 p-0.5">
           <button
