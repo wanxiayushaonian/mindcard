@@ -13,6 +13,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Plus, Link, Share2, Trash2, LogOut, Settings } from "lucide-react";
 
 export default function WorkspacesPage() {
   const router = useRouter();
@@ -152,24 +153,24 @@ export default function WorkspacesPage() {
               <div className="absolute right-2 top-2 hidden gap-1 group-hover:flex">
                 <button
                   onClick={(e) => handleShare(e, ws.id, ws.name)}
-                  className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-400 hover:bg-blue-100 hover:text-blue-600"
+                  className="flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-400 hover:bg-blue-100 hover:text-blue-600"
                 >
-                  分享
+                  <Share2 size={12} /> 分享
                 </button>
                 <button
                   onClick={(e) => handleDelete(e, ws.id)}
-                  className="rounded-full bg-red-50 px-2 py-0.5 text-xs text-red-400 hover:bg-red-100 hover:text-red-600"
+                  className="flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs text-red-400 hover:bg-red-100 hover:text-red-600"
                 >
-                  删除
+                  <Trash2 size={12} /> 删除
                 </button>
               </div>
             ) : (
               <div className="absolute right-2 top-2 hidden group-hover:flex">
                 <button
                   onClick={(e) => handleLeave(e, ws.id, ws.name)}
-                  className="rounded-full bg-orange-50 px-2 py-0.5 text-xs text-orange-400 hover:bg-orange-100 hover:text-orange-600"
+                  className="flex items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-xs text-orange-400 hover:bg-orange-100 hover:text-orange-600"
                 >
-                  退出
+                  <LogOut size={12} /> 退出
                 </button>
               </div>
             )}
@@ -185,7 +186,7 @@ export default function WorkspacesPage() {
           onClick={() => setShowCreate(true)}
           className="flex min-h-[160px] cursor-pointer flex-col items-center justify-center rounded-card border-2 border-dashed border-gray-300 bg-transparent transition hover:border-primary"
         >
-          <span className="mb-2 text-3xl text-gray-400">+</span>
+          <Plus size={32} className="mb-2 text-gray-400" />
           <span className="text-sm text-text-secondary">新建空间</span>
         </div>
 
@@ -193,7 +194,7 @@ export default function WorkspacesPage() {
           onClick={() => { setShowJoin(true); setJoinCode(""); setJoinError(""); }}
           className="flex min-h-[160px] cursor-pointer flex-col items-center justify-center rounded-card border-2 border-dashed border-gray-300 bg-transparent transition hover:border-primary"
         >
-          <span className="mb-2 text-3xl text-gray-400">🔗</span>
+          <Link size={32} className="mb-2 text-gray-400" />
           <span className="text-sm text-text-secondary">加入空间</span>
         </div>
       </div>

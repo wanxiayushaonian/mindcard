@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ragApi } from "@/lib/api";
+import { Lightbulb } from "lucide-react";
 
 interface Insights {
   themes: string[];
@@ -98,7 +99,7 @@ export default function InsightsPage() {
               <ul className="flex flex-col gap-2">
                 {insights.unexplored.map((item, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-text">
-                    <span className="mt-0.5 text-yellow-500">💡</span>
+                    <Lightbulb size={16} className="mt-0.5 text-yellow-500" />
                     {item}
                   </li>
                 ))}

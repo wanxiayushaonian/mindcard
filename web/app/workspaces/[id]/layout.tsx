@@ -12,6 +12,7 @@ import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/Breadcrumb";
+import { Menu, X, Settings, Users } from "lucide-react";
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -78,16 +79,16 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             {workspace?.member_role === "owner" && (
               <button
                 onClick={() => setShowEdit(true)}
-                className="rounded-lg px-2 py-1 text-xs text-text-secondary hover:bg-gray-100"
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-text-secondary hover:bg-gray-100"
               >
-                编辑
+                <Settings size={14} /> 编辑
               </button>
             )}
             <button
               onClick={() => setShowMembers(true)}
-              className="rounded-lg px-2 py-1 text-xs text-text-secondary hover:bg-gray-100"
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-text-secondary hover:bg-gray-100"
             >
-              成员
+              <Users size={14} /> 成员
             </button>
             {navItems.map((item) => (
               <button
@@ -109,13 +110,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             onClick={() => setMenuOpen(!menuOpen)}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary hover:bg-gray-100 md:hidden"
           >
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              {menuOpen ? (
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-              ) : (
-                <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-              )}
-            </svg>
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
 
@@ -126,16 +121,16 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               {workspace?.member_role === "owner" && (
                 <button
                   onClick={() => { setShowEdit(true); setMenuOpen(false); }}
-                  className="rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
+                  className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
                 >
-                  编辑
+                  <Settings size={14} /> 编辑
                 </button>
               )}
               <button
                 onClick={() => { setShowMembers(true); setMenuOpen(false); }}
-                className="rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
+                className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
               >
-                成员
+                <Users size={14} /> 成员
               </button>
             </div>
             {navItems.map((item) => (

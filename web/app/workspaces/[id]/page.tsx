@@ -12,6 +12,7 @@ import { AiActionButtons } from "@/components/AiActionButtons";
 import { CardItem } from "@/components/CardItem";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
+import { Plus } from "lucide-react";
 
 const PAGE_SIZE = 20;
 
@@ -160,7 +161,7 @@ export default function WorkspacePage() {
             onClick={() => setShowCreate(true)}
             className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary-dark"
           >
-            + 新建卡片
+            <Plus size={16} /> 新建卡片
           </button>
         </div>
       </div>

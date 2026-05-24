@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { aiApi } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { Wand2, Plus, Tag, Heading } from "lucide-react";
 
 interface AiActionButtonsProps {
   content: string;
@@ -52,25 +53,25 @@ export function AiActionButtons({
     }
   };
 
-  const btn = (action: "polish" | "supplement" | "title" | "keywords", label: string) => (
-    <button
-      key={action}
-      onClick={() => handle(action)}
-      disabled={!!loading}
-      className="rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary-dark disabled:opacity-50"
-    >
-      {loading === action
-        ? { polish: "润色中...", supplement: "补充中...", title: "生成中...", keywords: "提取中..." }[action]
-        : label}
-    </button>
-  );
+  const actions: { key: "polish" | "supplement" | "title" | "keywords"; label: string; loadingLabel: string; icon: React.ReactNode }[] = [
+    { key: "polish", label: "AI 润色", loadingLabel: "润色中...", icon: <Wand2 size={14} /> },
+    { key: "supplement", label: "AI 补充", loadingLabel: "补充中...", icon: <Plus size={14} /> },
+    { key: "title", label: "AI 提炼标题", loadingLabel: "生成中...", icon: <Heading size={14} /> },
+    { key: "keywords", label: "AI 提取关键词", loadingLabel: "提取中...", icon: <Tag size={14} /> },
+  ];
 
   return (
     <div className="mb-3 flex flex-wrap gap-2">
-      {btn("polish", "AI 润色")}
-      {btn("supplement", "AI 补充")}
-      {btn("title", "AI 提炼标题")}
-      {btn("keywords", "AI 提取关键词")}
+      {actions.map((a) => (
+        <button
+          key={a.key}
+          onClick={() => handle(a.key)}
+          disabled={!!loading}
+          className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary-dark disabled:opacity-50"
+        >
+          {loading === a.key ? a.loadingLabel : <>{a.icon} {a.label}</>}
+        </button>
+      ))}
     </div>
   );
 }

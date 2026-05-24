@@ -15,6 +15,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { TagChip } from "@/components/TagChip";
+import { Star, Pencil, Sparkles, Pin, PinOff, Trash2, X, MessageSquare } from "lucide-react";
 
 export default function CardDetailPage() {
   const params = useParams();
@@ -214,11 +215,11 @@ export default function CardDetailPage() {
 
       {/* Action bar */}
       <div className="mb-6 flex justify-around rounded-card border border-border bg-surface p-4 shadow-sm">
-        <ActionButton icon={card.is_favorite ? "★" : "☆"} label={card.is_favorite ? "已收藏" : "收藏"} onClick={handleToggleFavorite} />
-        <ActionButton icon="&#9998;" label="编辑" onClick={startEdit} disabled={!canEdit} />
-        <ActionButton icon="AI" label="AI问答" onClick={() => router.push(`/rag?workspaceId=${workspaceId}&cardId=${cardId}`)} />
-        <ActionButton icon={card.is_temp ? "📌" : "📎"} label={card.is_temp ? "永久保存" : "移至临时"} onClick={handleToggleTemp} />
-        <ActionButton icon="&#128465;" label="删除" onClick={handleDelete} disabled={!canEdit} />
+        <ActionButton icon={<Star size={20} fill={card.is_favorite ? "currentColor" : "none"} />} label={card.is_favorite ? "已收藏" : "收藏"} onClick={handleToggleFavorite} />
+        <ActionButton icon={<Pencil size={20} />} label="编辑" onClick={startEdit} disabled={!canEdit} />
+        <ActionButton icon={<Sparkles size={20} />} label="AI问答" onClick={() => router.push(`/rag?workspaceId=${workspaceId}&cardId=${cardId}`)} />
+        <ActionButton icon={card.is_temp ? <PinOff size={20} /> : <Pin size={20} />} label={card.is_temp ? "永久保存" : "移至临时"} onClick={handleToggleTemp} />
+        <ActionButton icon={<Trash2 size={20} />} label="删除" onClick={handleDelete} disabled={!canEdit} />
       </div>
 
       {/* Related cards */}
@@ -240,7 +241,7 @@ export default function CardDetailPage() {
                     className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full text-xs text-text-secondary hover:bg-red-50 hover:text-danger"
                     title="取消关联"
                   >
-                    ×
+                    <X size={12} />
                   </button>
                 )}
                 <div
