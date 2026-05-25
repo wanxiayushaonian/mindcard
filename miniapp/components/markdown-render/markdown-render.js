@@ -267,31 +267,32 @@ function fixMarkdown(text) {
       while (j2 < pass1.length) {
         var t = pass1[j2].trim();
         if (isPipeRow(t) || isSpaceRow(t)) {
-          region.push(t);
+          region.push({ text: t, isSep: isSepRow(t) });
           j2++;
         } else {
           break;
         }
       }
-      // Convert all to pipe format and insert separator after header
-      var pipeRows = region.map(toPipe);
-      var sepInserted = false;
+      // Convert all to pipe format
+      var pipeRows = region.map(function (r) { return toPipe(r.text); });
+      // Only insert separator if no separator row exists in the region
+      var hasExistingSep = region.some(function (r) { return r.isSep; });
+      var headerDone = false;
       for (var ri = 0; ri < pipeRows.length; ri++) {
         var row = pipeRows[ri];
-        if (isSepRow(row)) {
+        if (region[ri].isSep) {
           result.push(row);
-          sepInserted = true;
         } else {
           result.push(row);
-          if (!sepInserted && ri + 1 < pipeRows.length && !isSepRow(pipeRows[ri + 1])) {
+          if (!headerDone && !hasExistingSep) {
             var ncols = (row.match(/\|/g) || []).length - 1;
             if (ncols >= 1) {
               var sepLine = '|';
               for (var si = 0; si < ncols; si++) sepLine += '---|';
               result.push(sepLine);
-              sepInserted = true;
             }
           }
+          headerDone = true;
         }
       }
       idx = j2;

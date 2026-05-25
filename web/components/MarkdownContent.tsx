@@ -125,43 +125,40 @@ function fixMarkdown(text: string): string {
   let i4 = 0;
   while (i4 < sLines.length) {
     const trimmed = sLines[i4].trim();
-    // Check if this starts a table region (pipe row or space-separated row)
     if (isPipeRow(trimmed) || isSpaceRow(trimmed)) {
-      // Collect all consecutive table-like rows (pipe or space-separated)
-      const region: { idx: number; text: string; isSep: boolean }[] = [];
+      // Collect all consecutive table-like rows
+      const region: { text: string; isSep: boolean }[] = [];
       let j = i4;
       while (j < sLines.length) {
         const t = sLines[j].trim();
         if (isPipeRow(t) || isSpaceRow(t)) {
-          region.push({ idx: j, text: t, isSep: isSepRow(t) });
+          region.push({ text: t, isSep: isSepRow(t) });
           j++;
         } else {
           break;
         }
       }
-      // Convert all rows to pipe format
+      // Convert all to pipe format
       const pipeRows = region.map((r) => toPipe(r.text));
-      const colCounts = pipeRows.map((r) => getColCount(r));
-      const mainCols = colCounts[0];
-      // Insert separator after header (first non-separator row)
-      let sepInserted = false;
+      // Check if a separator already exists in the region
+      const hasExistingSep = region.some((r) => r.isSep);
+      // Output rows: insert separator after first non-separator row only if
+      // no separator exists elsewhere in the region
+      let headerDone = false;
       for (let k = 0; k < pipeRows.length; k++) {
         const row = pipeRows[k];
-        const rowIsSep = isSepRow(row);
+        const rowIsSep = region[k].isSep;
         if (rowIsSep) {
-          // Already a separator row, output as-is
           final.push(row);
-          sepInserted = true;
         } else {
           final.push(row);
-          // Insert separator after first data row if not already present
-          if (!sepInserted && k + 1 < pipeRows.length && !isSepRow(pipeRows[k + 1])) {
-            const cols = colCounts[k] || mainCols;
+          if (!headerDone && !hasExistingSep) {
+            const cols = getColCount(row);
             if (cols >= 1) {
               final.push("|" + Array(cols).fill("---").join("|") + "|");
-              sepInserted = true;
             }
           }
+          headerDone = true;
         }
       }
       i4 = j;
@@ -171,36 +168,6 @@ function fixMarkdown(text: string): string {
     }
   }
   s = final.join("\n");
-
-  // Step 5: Convert space-separated rows within table regions
-  const tLines = s.split("\n");
-  const toConvert = new Set<number>();
-  for (let i = 0; i < tLines.length; i++) {
-    const trimmed = tLines[i].trim();
-    if (!/^\|[\s\-:|]+\|$/.test(trimmed)) continue;
-    for (let j = i - 1; j >= 0; j--) {
-      const prev = tLines[j].trim();
-      if (/^\|.+\|$/.test(prev) || /\S{2,}\s{2,}\S/.test(prev)) {
-        if (!/^\|.+\|$/.test(prev)) toConvert.add(j);
-      } else break;
-    }
-    for (let j = i + 1; j < tLines.length; j++) {
-      const nxt = tLines[j].trim();
-      if (/^\|.+\|$/.test(nxt) || /\S{2,}\s{2,}\S/.test(nxt)) {
-        if (!/^\|.+\|$/.test(nxt)) toConvert.add(j);
-      } else break;
-    }
-  }
-  const converted: string[] = [];
-  for (let i = 0; i < tLines.length; i++) {
-    if (toConvert.has(i)) {
-      const cells = tLines[i].trim().split(/\s{2,}/).filter(Boolean);
-      converted.push(cells.length >= 2 ? "| " + cells.join(" | ") + " |" : tLines[i]);
-    } else {
-      converted.push(tLines[i]);
-    }
-  }
-  s = converted.join("\n");
 
   s = s.replace(/\n{3,}/g, "\n\n");
   return s.trim();
