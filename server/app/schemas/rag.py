@@ -8,6 +8,7 @@ class RAGRequest(BaseModel):
     workspace_id: str
     card_id: str | None = None  # Optional: use a specific card as context center
     top_k: int = 5
+    web_search: bool = False  # Enable web search for supplementary context
 
 
 class CardSummary(BaseModel):
@@ -17,10 +18,17 @@ class CardSummary(BaseModel):
     keywords: list[str]
 
 
+class WebSearchResult(BaseModel):
+    title: str
+    snippet: str
+    url: str
+
+
 class RAGResponse(BaseModel):
     answer: str
     source_cards: list[CardSummary]
     confidence: float
+    web_search_results: list[WebSearchResult] = []
 
 
 class InsightRequest(BaseModel):
@@ -37,6 +45,7 @@ class InsightResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[dict[str, str]] = []  # [{"role": "user"/"assistant", "content": "..."}]
+    web_search: bool = False  # Enable web search for supplementary context
 
 
 class ChatResponse(BaseModel):

@@ -32,7 +32,7 @@ async def rag_ask(
     """RAG knowledge Q&A: retrieve relevant cards, then generate answer."""
     await get_workspace_membership(req.workspace_id, user, db)
     result = await rag_service.ask(
-        db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k
+        db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search
     )
     source_cards = [
         CardSummary.model_validate(s) if isinstance(s, dict) else s
@@ -42,23 +42,28 @@ async def rag_ask(
         answer=result["answer"],
         source_cards=source_cards,
         confidence=result["confidence"],
+        web_search_results=result.get("web_search_results", []),
     )
 
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, user: User = Depends(get_current_user)):
     """General chat without RAG, supports conversation history."""
-    reply = await rag_service.chat(req.message, history=req.history)
+    reply = await rag_service.chat(req.message, history=req.history, web_search=req.web_search)
     return ChatResponse(reply=reply)
 
 
 @router.post("/chat/stream")
 async def chat_stream(req: ChatRequest, user: User = Depends(get_current_user)):
     """Streaming general chat without RAG (SSE)."""
+    import json as _json
 
     async def event_generator():
-        async for chunk in rag_service.chat_stream(req.message, history=req.history):
-            yield f"data: {chunk}\n\n"
+        async for chunk in rag_service.chat_stream(req.message, history=req.history, web_search=req.web_search):
+            if isinstance(chunk, dict):
+                yield f"data: {_json.dumps(chunk)}\n\n"
+            else:
+                yield f"data: {chunk}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -78,10 +83,15 @@ async def ask_stream(
     async def event_generator():
         sources = []
         async for chunk in rag_service.ask_stream(
-            db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k
+            db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search
         ):
             if isinstance(chunk, dict):
-                sources = chunk.get("source_cards", [])
+                chunk_type = chunk.get("type", "")
+                if chunk_type == "web_search_results":
+                    # Send web search results immediately
+                    yield f"data: {_json.dumps(chunk)}\n\n"
+                elif chunk_type == "sources":
+                    sources = chunk.get("source_cards", [])
             else:
                 yield f"data: {chunk}\n\n"
         if sources:

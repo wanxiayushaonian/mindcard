@@ -305,17 +305,24 @@ export const searchApi = {
 };
 
 // --- RAG ---
+export interface WebSearchResult {
+  title: string;
+  snippet: string;
+  url: string;
+}
+
 export interface RAGResponse {
   answer: string;
   source_cards: { id: string; title: string; content: string; keywords: string[] }[];
   confidence: number;
+  web_search_results?: WebSearchResult[];
 }
 
 export const ragApi = {
-  ask: (question: string, workspaceId: string, cardId?: string, topK = 5) =>
+  ask: (question: string, workspaceId: string, cardId?: string, topK = 5, webSearch = false) =>
     request<RAGResponse>("/api/rag/ask", {
       method: "POST",
-      body: JSON.stringify({ question, workspace_id: workspaceId, card_id: cardId, top_k: topK }),
+      body: JSON.stringify({ question, workspace_id: workspaceId, card_id: cardId, top_k: topK, web_search: webSearch }),
     }),
   askStream: (
     question: string,
@@ -325,18 +332,19 @@ export const ragApi = {
     onError?: (err: Error) => void,
     cardId?: string,
     topK = 5,
+    webSearch = false,
   ) =>
     streamRequest(
       "/api/rag/ask/stream",
-      { question, workspace_id: workspaceId, card_id: cardId, top_k: topK },
+      { question, workspace_id: workspaceId, card_id: cardId, top_k: topK, web_search: webSearch },
       onChunk,
       onDone,
       onError,
     ),
-  chat: (message: string, history: { role: string; content: string }[] = []) =>
+  chat: (message: string, history: { role: string; content: string }[] = [], webSearch = false) =>
     request<{ reply: string }>("/api/rag/chat", {
       method: "POST",
-      body: JSON.stringify({ message, history }),
+      body: JSON.stringify({ message, history, web_search: webSearch }),
     }),
   chatStream: (
     message: string,
@@ -344,10 +352,11 @@ export const ragApi = {
     onDone: () => void,
     onError?: (err: Error) => void,
     history: { role: string; content: string }[] = [],
+    webSearch = false,
   ) =>
     streamRequest(
       "/api/rag/chat/stream",
-      { message, history },
+      { message, history, web_search: webSearch },
       onChunk,
       onDone,
       onError,

@@ -2,11 +2,11 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import useSWR from "swr";
-import { ragApi, chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type ChatSession } from "@/lib/api";
+import { ragApi, chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type WebSearchResult, type ChatSession } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2 } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe } from "lucide-react";
 
 type ChatMode = "rag" | "chat";
 
@@ -14,6 +14,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   sources?: RAGResponse["source_cards"];
+  webSearchResults?: WebSearchResult[];
 }
 
 interface AiChatPanelProps {
@@ -36,6 +37,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const streamContentRef = useRef("");
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
+  const [webSearch, setWebSearch] = useState(false);
 
   const { data: workspace } = useSWR(
     workspaceId ? `workspace-${workspaceId}` : null,
@@ -134,7 +136,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     streamContentRef.current = "";
 
     setMessages((prev) => [...prev, { role: "user", content: question }]);
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    // Show loading hint when web search is enabled
+    const loadingHint = webSearch ? "正在搜索网页..." : "";
+    setMessages((prev) => [...prev, { role: "assistant", content: loadingHint }]);
 
     let currentChatId = chatId;
     if (!currentChatId) {
@@ -158,13 +162,30 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     }
 
     const onChunk = (text: string) => {
-      if (text.startsWith('{"type":"sources"') || text.startsWith('{"type": "sources"')) {
+      // Handle JSON messages
+      if (text.startsWith('{')) {
         try {
           const parsed = JSON.parse(text);
+          if (parsed.type === "web_search_results" && parsed.results) {
+            // Show web search results immediately
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                webSearchResults: parsed.results,
+                content: "", // Clear "正在搜索网页..." hint
+              };
+              return updated;
+            });
+            return;
+          }
           if (parsed.type === "sources" && parsed.cards) {
             setMessages((prev) => {
               const updated = [...prev];
-              updated[updated.length - 1] = { ...updated[updated.length - 1], sources: parsed.cards };
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                sources: parsed.cards,
+              };
               return updated;
             });
             return;
@@ -210,10 +231,10 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       const hist = messages
         .filter((m) => m.content)
         .map((m) => ({ role: m.role, content: m.content }));
-      abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist);
+      abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist, webSearch);
     } else {
       abortRef.current = ragApi.askStream(
-        question, workspaceId, onChunk, onDone, onError, cardId,
+        question, workspaceId, onChunk, onDone, onError, cardId, 5, webSearch,
       );
     }
   };
@@ -365,11 +386,18 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                   }`}
                 >
                   {msg.role === "assistant" ? (
-                    <MarkdownContent
-                      content={msg.content || " "}
-                      streaming={isStreaming && i === messages.length - 1}
-                      onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
-                    />
+                    msg.content === "正在搜索网页..." ? (
+                      <div className="flex items-center gap-2 text-sm text-text-secondary">
+                        <Globe size={14} className="animate-pulse" />
+                        <span className="animate-pulse">{msg.content}</span>
+                      </div>
+                    ) : (
+                      <MarkdownContent
+                        content={msg.content || " "}
+                        streaming={isStreaming && i === messages.length - 1}
+                        onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
+                      />
+                    )
                   ) : (
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                   )}
@@ -384,6 +412,27 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                       ))}
                     </div>
                   )}
+                  {msg.webSearchResults && msg.webSearchResults.length > 0 && (
+                    <div className="mt-2 border-t border-border pt-2">
+                      <p className="mb-1 flex items-center gap-1 text-[10px] text-text-secondary">
+                        <Globe size={10} />
+                        网页搜索结果：
+                      </p>
+                      {msg.webSearchResults.map((r, j) => (
+                        <div key={j} className="mb-1 rounded bg-blue-50 px-2 py-1 text-[10px]">
+                          <a
+                            href={r.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-blue-600 hover:underline"
+                          >
+                            {r.title}
+                          </a>
+                          <p className="mt-0.5 line-clamp-2 text-text-secondary">{r.snippet}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -393,6 +442,23 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
           {/* Input */}
           <div className="border-t border-border bg-surface px-3 py-2.5">
+            <div className="mb-2 flex items-center gap-2">
+              <Globe size={12} className={webSearch ? "text-primary-dark" : "text-text-secondary"} />
+              <span className={`text-xs ${webSearch ? "text-primary-dark" : "text-text-secondary"}`}>联网搜索</span>
+              <button
+                onClick={() => setWebSearch(!webSearch)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  webSearch ? "bg-primary" : "bg-gray-300"
+                }`}
+                title={webSearch ? "关闭网页搜索" : "开启网页搜索"}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                    webSearch ? "translate-x-4" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
             <div className="flex gap-2">
               <input
                 value={input}

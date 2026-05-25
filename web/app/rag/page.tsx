@@ -4,11 +4,12 @@ import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
 import useSWR from "swr";
-import { ragApi, chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type ChatSession, type Workspace } from "@/lib/api";
+import { ragApi, chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type WebSearchResult, type ChatSession, type Workspace } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { Globe } from "lucide-react";
 
 type ChatMode = "rag" | "chat";
 
@@ -16,6 +17,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   sources?: RAGResponse["source_cards"];
+  webSearchResults?: WebSearchResult[];
 }
 
 export default function RAGPage() {
@@ -45,6 +47,7 @@ function RAGContent() {
   const streamContentRef = useRef("");
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
+  const [webSearch, setWebSearch] = useState(false);
 
   const { data: workspace } = useSWR(
     workspaceId ? `workspace-${workspaceId}` : null,
@@ -144,7 +147,9 @@ function RAGContent() {
     streamContentRef.current = "";
 
     setMessages((prev) => [...prev, { role: "user", content: question }]);
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    // Show loading hint when web search is enabled
+    const loadingHint = webSearch ? "正在搜索网页..." : "";
+    setMessages((prev) => [...prev, { role: "assistant", content: loadingHint }]);
 
     let currentChatId = chatId;
     if (!currentChatId) {
@@ -168,14 +173,30 @@ function RAGContent() {
     }
 
     const onChunk = (text: string) => {
-      // Check if this is a sources JSON payload
-      if (text.startsWith('{"type":"sources"') || text.startsWith('{"type": "sources"')) {
+      // Handle JSON messages
+      if (text.startsWith('{')) {
         try {
           const parsed = JSON.parse(text);
+          if (parsed.type === "web_search_results" && parsed.results) {
+            // Show web search results immediately
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                webSearchResults: parsed.results,
+                content: "", // Clear "正在搜索网页..." hint
+              };
+              return updated;
+            });
+            return;
+          }
           if (parsed.type === "sources" && parsed.cards) {
             setMessages((prev) => {
               const updated = [...prev];
-              updated[updated.length - 1] = { ...updated[updated.length - 1], sources: parsed.cards };
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                sources: parsed.cards,
+              };
               return updated;
             });
             return;
@@ -221,7 +242,7 @@ function RAGContent() {
       const hist = messages
         .filter((m) => m.content)
         .map((m) => ({ role: m.role, content: m.content }));
-      abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist);
+      abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist, webSearch);
     } else {
       if (!workspaceId) {
         setMessages((prev) => [
@@ -232,7 +253,7 @@ function RAGContent() {
         return;
       }
       abortRef.current = ragApi.askStream(
-        question, workspaceId, onChunk, onDone, onError, cardId,
+        question, workspaceId, onChunk, onDone, onError, cardId, 5, webSearch,
       );
     }
   };
@@ -375,11 +396,18 @@ function RAGContent() {
                   }`}
                 >
                   {msg.role === "assistant" ? (
-                    <MarkdownContent
-                      content={msg.content || " "}
-                      streaming={isStreaming && i === messages.length - 1}
-                      onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
-                    />
+                    msg.content === "正在搜索网页..." ? (
+                      <div className="flex items-center gap-2 text-sm text-text-secondary">
+                        <Globe size={16} className="animate-pulse" />
+                        <span className="animate-pulse">{msg.content}</span>
+                      </div>
+                    ) : (
+                      <MarkdownContent
+                        content={msg.content || " "}
+                        streaming={isStreaming && i === messages.length - 1}
+                        onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
+                      />
+                    )
                   ) : (
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                   )}
@@ -390,6 +418,27 @@ function RAGContent() {
                         <div key={s.id} className="mb-1 rounded bg-gray-50 px-2 py-1 text-xs text-text-secondary">
                           {s.title && <span className="font-medium">{s.title}: </span>}
                           <span className="line-clamp-1">{s.content}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {msg.webSearchResults && msg.webSearchResults.length > 0 && (
+                    <div className="mt-3 border-t border-border pt-2">
+                      <p className="mb-1 flex items-center gap-1 text-xs text-text-secondary">
+                        <Globe size={12} />
+                        网页搜索结果：
+                      </p>
+                      {msg.webSearchResults.map((r, j) => (
+                        <div key={j} className="mb-1 rounded bg-blue-50 px-2 py-1 text-xs">
+                          <a
+                            href={r.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-blue-600 hover:underline"
+                          >
+                            {r.title}
+                          </a>
+                          <p className="mt-0.5 line-clamp-2 text-text-secondary">{r.snippet}</p>
                         </div>
                       ))}
                     </div>
@@ -408,6 +457,23 @@ function RAGContent() {
                 请从空间页面进入以使用知识问答功能
               </div>
             )}
+            <div className="mb-2 flex items-center gap-2">
+              <Globe size={14} className={webSearch ? "text-primary-dark" : "text-text-secondary"} />
+              <span className={`text-xs ${webSearch ? "text-primary-dark" : "text-text-secondary"}`}>联网搜索</span>
+              <button
+                onClick={() => setWebSearch(!webSearch)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  webSearch ? "bg-primary" : "bg-gray-300"
+                }`}
+                title={webSearch ? "关闭网页搜索" : "开启网页搜索"}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+                    webSearch ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
             <div className="flex gap-2">
               <input
                 value={input}

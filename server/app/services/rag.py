@@ -11,6 +11,7 @@ from app.schemas.rag import CardSummary
 from app.services.embedding import embedding_service
 from app.services.llm import llm_service
 from app.services.search import search_service
+from app.services.web_search import web_search_service
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class RAGService:
         workspace_id: str,
         card_id: str | None = None,
         top_k: int = 5,
+        web_search: bool = False,
     ) -> dict:
         """Answer a question using RAG over workspace cards."""
         # 1. Retrieve relevant cards
@@ -66,6 +68,16 @@ class RAGService:
         context = "\n\n".join(
             f"【{c.title or 'Untitled'}】{c.content}" for c in context_cards
         )
+
+        # 2.5 Optional web search
+        search_context = ""
+        web_search_results = []
+        if web_search:
+            search_results = web_search_service.search(question, max_results=5)
+            web_search_results = search_results
+            if search_results:
+                search_context = "\n\n" + web_search_service.format_results(search_results)
+
         prompt = f"""基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
 回答格式要求（必须严格遵守）：
@@ -80,6 +92,7 @@ class RAGService:
 
 相关灵感卡片：
 {context}
+{search_context}
 
 用户问题：{question}"""
 
@@ -100,6 +113,10 @@ class RAGService:
             "answer": answer,
             "source_cards": source_cards,
             "confidence": 0.8 if context_cards else 0.0,
+            "web_search_results": [
+                {"title": r.title, "snippet": r.snippet, "url": r.url}
+                for r in web_search_results
+            ],
         }
 
     async def find_similar(
@@ -189,23 +206,47 @@ Respond in JSON format:
         return result.scalars().all()
 
     async def chat(
-        self, message: str, history: list[dict[str, str]] | None = None
+        self, message: str, history: list[dict[str, str]] | None = None, web_search: bool = False
     ) -> str:
         """General chat without RAG, supports conversation history."""
         messages = [{"role": "system", "content": MARKDOWN_SYSTEM_PROMPT}]
         if history:
             messages.extend(history)
-        messages.append({"role": "user", "content": message})
+
+        # Optional web search
+        user_message = message
+        if web_search:
+            search_results = web_search_service.search(message, max_results=5)
+            if search_results:
+                user_message = message + "\n\n" + web_search_service.format_results(search_results)
+
+        messages.append({"role": "user", "content": user_message})
         return await llm_service.complete(messages)
 
     async def chat_stream(
-        self, message: str, history: list[dict[str, str]] | None = None
-    ) -> AsyncGenerator[str, None]:
+        self, message: str, history: list[dict[str, str]] | None = None, web_search: bool = False
+    ) -> AsyncGenerator[str | dict, None]:
         """Streaming general chat without RAG."""
         messages = [{"role": "system", "content": MARKDOWN_SYSTEM_PROMPT}]
         if history:
             messages.extend(history)
-        messages.append({"role": "user", "content": message})
+
+        # Optional web search - yield results immediately
+        user_message = message
+        if web_search:
+            search_results = web_search_service.search(message, max_results=5)
+            if search_results:
+                user_message = message + "\n\n" + web_search_service.format_results(search_results)
+                # Yield web search results immediately for frontend display
+                yield {
+                    "type": "web_search_results",
+                    "results": [
+                        {"title": r.title, "snippet": r.snippet, "url": r.url}
+                        for r in search_results
+                    ],
+                }
+
+        messages.append({"role": "user", "content": user_message})
         async for chunk in llm_service.stream(messages):
             yield chunk
 
@@ -216,6 +257,7 @@ Respond in JSON format:
         workspace_id: str,
         card_id: str | None = None,
         top_k: int = 5,
+        web_search: bool = False,
     ) -> AsyncGenerator[str | dict, None]:
         """Streaming RAG answer: retrieve cards, stream LLM, yield sources dict at end."""
         # 1. Retrieve relevant cards
@@ -233,6 +275,24 @@ Respond in JSON format:
         context = "\n\n".join(
             f"【{c.title or 'Untitled'}】{c.content}" for c in context_cards
         )
+
+        # 2.5 Optional web search - yield results immediately
+        search_context = ""
+        web_search_results = []
+        if web_search:
+            search_results = web_search_service.search(question, max_results=5)
+            web_search_results = search_results
+            if search_results:
+                search_context = "\n\n" + web_search_service.format_results(search_results)
+                # Yield web search results immediately for frontend display
+                yield {
+                    "type": "web_search_results",
+                    "results": [
+                        {"title": r.title, "snippet": r.snippet, "url": r.url}
+                        for r in search_results
+                    ],
+                }
+
         prompt = f"""基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
 回答格式要求（必须严格遵守）：
@@ -247,6 +307,7 @@ Respond in JSON format:
 
 相关灵感卡片：
 {context}
+{search_context}
 
 用户问题：{question}"""
 
@@ -265,7 +326,10 @@ Respond in JSON format:
             )
             for c in context_cards
         ]
-        yield {"source_cards": source_cards}
+        yield {
+            "type": "sources",
+            "source_cards": source_cards,
+        }
 
 
 rag_service = RAGService()
