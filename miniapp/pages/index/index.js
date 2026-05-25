@@ -46,7 +46,11 @@ Page({
   _setupShake() {
     let lastTime = 0;
     let lastX = 0, lastY = 0, lastZ = 0;
-    wx.startAccelerometer({ interval: 'normal' });
+    wx.stopAccelerometer({
+      complete: function () {
+        wx.startAccelerometer({ interval: 'normal' });
+      }
+    });
     wx.onAccelerometerChange((res) => {
       const now = Date.now();
       if (now - lastTime < 500) return;

@@ -29,7 +29,7 @@
     </view>
     <text class="detail-card-title" wx:if="{{card.title}}">{{card.title}}</text>
     <view class="detail-card-content">
-      <markdown-render content="{{card.content}}" />
+      <markdown-render content="{{card.content || ''}}" />
     </view>
     <view class="detail-card-meta">
       <text class="detail-meta-item">创建于 {{card.createdAt}}</text>

@@ -60,7 +60,7 @@
           </view>
           <!-- Normal AI message -->
           <view wx:else class="msg-bubble msg-bubble-ai">
-            <markdown-render content="{{item.content}}" />
+            <markdown-render content="{{item.content || ''}}" />
           </view>
           <!-- Source cards (RAG mode) -->
           <view class="source-cards" wx:if="{{item.sources && item.sources.length > 0}}">

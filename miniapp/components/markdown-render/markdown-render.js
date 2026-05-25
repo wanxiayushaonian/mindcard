@@ -258,7 +258,7 @@ Component({
 
   observers: {
     'content': function (newVal) {
-      this.setData({ blocks: parseMarkdown(newVal) });
+      this.setData({ blocks: parseMarkdown(newVal || '') });
     },
   },
 
