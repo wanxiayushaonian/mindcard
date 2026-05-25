@@ -207,7 +207,16 @@ function fixMarkdown(text) {
   // Fix common AI output formatting issues
   var lines = text.split('\n');
   var result = [];
+  var isSpaceRow = function (t) { return /^(\S+\s{2,})+\S+$/.test(t); };
+  var isPipeRow = function (t) { return /^\|.+\|$/.test(t); };
+  var isSepRow = function (t) { return /^\|[\s\-:|]+\|$/.test(t); };
+  var toPipe = function (t) {
+    if (isPipeRow(t)) return t;
+    var cells = t.split(/\s{2,}/).filter(Boolean);
+    return '| ' + cells.join(' | ') + ' |';
+  };
 
+  // Pass 1: Convert bare separator rows and space-separated rows near separators
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
 
@@ -243,6 +252,53 @@ function fixMarkdown(text) {
     }
 
     result.push(line);
+  }
+
+  // Pass 2: Convert standalone space-separated table regions and insert separators
+  var pass1 = result;
+  result = [];
+  var idx = 0;
+  while (idx < pass1.length) {
+    var trimmed = pass1[idx].trim();
+    if (isPipeRow(trimmed) || isSpaceRow(trimmed)) {
+      // Collect consecutive table-like rows
+      var region = [];
+      var j2 = idx;
+      while (j2 < pass1.length) {
+        var t = pass1[j2].trim();
+        if (isPipeRow(t) || isSpaceRow(t)) {
+          region.push(t);
+          j2++;
+        } else {
+          break;
+        }
+      }
+      // Convert all to pipe format and insert separator after header
+      var pipeRows = region.map(toPipe);
+      var sepInserted = false;
+      for (var ri = 0; ri < pipeRows.length; ri++) {
+        var row = pipeRows[ri];
+        if (isSepRow(row)) {
+          result.push(row);
+          sepInserted = true;
+        } else {
+          result.push(row);
+          if (!sepInserted && ri + 1 < pipeRows.length && !isSepRow(pipeRows[ri + 1])) {
+            var ncols = (row.match(/\|/g) || []).length - 1;
+            if (ncols >= 1) {
+              var sepLine = '|';
+              for (var si = 0; si < ncols; si++) sepLine += '---|';
+              result.push(sepLine);
+              sepInserted = true;
+            }
+          }
+        }
+      }
+      idx = j2;
+    } else {
+      result.push(pass1[idx]);
+      idx++;
+    }
   }
 
   return result.join('\n');

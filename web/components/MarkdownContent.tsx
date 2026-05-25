@@ -80,16 +80,16 @@ function fixMarkdown(text: string): string {
       }
     }
 
-    const isTableSep = /^\|[\s\-:|]+\|$/.test(trimmed) || /^-{2,}(\s+-{2,})*$/.test(trimmed);
-    const isTableRow = /^\|.+\|$/.test(trimmed);
+    // Bare separator rows like ------ ------ → convert to pipe format
+    if (/^-{2,}(\s+-{2,})+$/.test(trimmed)) {
+      const cols = trimmed.split(/\s+/).filter(Boolean).length;
+      result.push("|" + Array(Math.max(cols, 1)).fill("---").join("|") + "|");
+      continue;
+    }
 
-    if (isTableSep || isTableRow) {
-      if (isTableSep && !trimmed.startsWith("|")) {
-        const cols = trimmed.split(/\s+/).filter(Boolean).length;
-        result.push("|" + Array(Math.max(cols, 1)).fill("---").join("|") + "|");
-      } else {
-        result.push(line);
-      }
+    // Already pipe-formatted rows (table or separator)
+    if (/^\|[\s\-:|]+\|$/.test(trimmed) || /^\|.+\|$/.test(trimmed)) {
+      result.push(line);
       continue;
     }
 
@@ -101,85 +101,73 @@ function fixMarkdown(text: string): string {
   }
   s = result.join("\n");
 
-  // Step 3.5: Convert standalone space-separated table regions
-  // Detect groups of consecutive lines with consistent column counts (2+ cols)
-  const ssLines = s.split("\n");
-  const ssConverted: string[] = [];
-  let i3 = 0;
-  while (i3 < ssLines.length) {
-    const trimmed = ssLines[i3].trim();
-    // Check if this line looks like a space-separated table row
-    if (
-      trimmed.length > 0 &&
-      !trimmed.startsWith("|") &&
-      !trimmed.startsWith("#") &&
-      !trimmed.startsWith("-") &&
-      !trimmed.startsWith("*") &&
-      !trimmed.startsWith(">") &&
-      !/^\d+\./.test(trimmed) &&
-      !/^```/.test(trimmed) &&
-      /^(\S+\s{2,})+\S+$/.test(trimmed)
-    ) {
-      // Collect consecutive space-separated rows
-      const group: string[] = [];
-      let j = i3;
-      while (
-        j < ssLines.length &&
-        ssLines[j].trim().length > 0 &&
-        !ssLines[j].trim().startsWith("|") &&
-        !ssLines[j].trim().startsWith("#") &&
-        !ssLines[j].trim().startsWith("-") &&
-        !ssLines[j].trim().startsWith("*") &&
-        !ssLines[j].trim().startsWith(">") &&
-        !/^\d+\./.test(ssLines[j].trim()) &&
-        !/^```/.test(ssLines[j].trim()) &&
-        /^(\S+\s{2,})+\S+$/.test(ssLines[j].trim())
-      ) {
-        group.push(ssLines[j]);
-        j++;
-      }
-      // Only convert if 2+ rows with consistent column count
-      if (group.length >= 2) {
-        const colCounts = group.map(
-          (l) => l.trim().split(/\s{2,}/).filter(Boolean).length
-        );
-        const firstCols = colCounts[0];
-        const consistent = colCounts.every((c) => c === firstCols);
-        if (consistent && firstCols >= 2) {
-          for (const row of group) {
-            const cells = row.trim().split(/\s{2,}/).filter(Boolean);
-            ssConverted.push("| " + cells.join(" | ") + " |");
-          }
-          i3 = j;
-          continue;
-        }
-      }
-    }
-    ssConverted.push(ssLines[i3]);
-    i3++;
-  }
-  s = ssConverted.join("\n");
-
-  // Step 4: Insert separator row once
+  // Step 4: Convert space-separated table regions and insert separators
+  // This handles cases like:
+  //   col1    col2    col3
+  //   val1    val2    val3
+  //   ---    ---    ---
+  //   val4    val5    val6
   const sLines = s.split("\n");
   const final: string[] = [];
-  let sepInserted = false;
-  for (let i = 0; i < sLines.length; i++) {
-    final.push(sLines[i]);
-    if (!sepInserted && i + 1 < sLines.length) {
-      const curr = sLines[i].trim();
-      const nxt = sLines[i + 1].trim();
-      const currIsSep = /^\|[\s\-:|]+\|$/.test(curr);
-      const nxtIsSep = /^\|[\s\-:|]+\|$/.test(nxt);
-      const currIsRow = /^\|.+\|$/.test(curr);
-      const nxtIsRow = /^\|.+\|$/.test(nxt);
-      if (currIsRow && nxtIsRow && !currIsSep && !nxtIsSep) {
-        const cols = (curr.match(/\|/g) || []).length - 1;
-        if (cols >= 1) {
-          final.push("|" + Array(cols).fill("---").join("|") + "|");
-          sepInserted = true;
+  const isSepRow = (t: string) => /^\|[\s\-:|]+\|$/.test(t);
+  const isPipeRow = (t: string) => /^\|.+\|$/.test(t);
+  const isSpaceRow = (t: string) => /^(\S+\s{2,})+\S+$/.test(t);
+  const getColCount = (t: string) => {
+    if (isPipeRow(t)) return (t.match(/\|/g) || []).length - 1;
+    return t.split(/\s{2,}/).filter(Boolean).length;
+  };
+  const toPipe = (t: string) => {
+    if (isPipeRow(t)) return t;
+    const cells = t.split(/\s{2,}/).filter(Boolean);
+    return "| " + cells.join(" | ") + " |";
+  };
+
+  let i4 = 0;
+  while (i4 < sLines.length) {
+    const trimmed = sLines[i4].trim();
+    // Check if this starts a table region (pipe row or space-separated row)
+    if (isPipeRow(trimmed) || isSpaceRow(trimmed)) {
+      // Collect all consecutive table-like rows (pipe or space-separated)
+      const region: { idx: number; text: string; isSep: boolean }[] = [];
+      let j = i4;
+      while (j < sLines.length) {
+        const t = sLines[j].trim();
+        if (isPipeRow(t) || isSpaceRow(t)) {
+          region.push({ idx: j, text: t, isSep: isSepRow(t) });
+          j++;
+        } else {
+          break;
         }
       }
+      // Convert all rows to pipe format
+      const pipeRows = region.map((r) => toPipe(r.text));
+      const colCounts = pipeRows.map((r) => getColCount(r));
+      const mainCols = colCounts[0];
+      // Insert separator after header (first non-separator row)
+      let sepInserted = false;
+      for (let k = 0; k < pipeRows.length; k++) {
+        const row = pipeRows[k];
+        const rowIsSep = isSepRow(row);
+        if (rowIsSep) {
+          // Already a separator row, output as-is
+          final.push(row);
+          sepInserted = true;
+        } else {
+          final.push(row);
+          // Insert separator after first data row if not already present
+          if (!sepInserted && k + 1 < pipeRows.length && !isSepRow(pipeRows[k + 1])) {
+            const cols = colCounts[k] || mainCols;
+            if (cols >= 1) {
+              final.push("|" + Array(cols).fill("---").join("|") + "|");
+              sepInserted = true;
+            }
+          }
+        }
+      }
+      i4 = j;
+    } else {
+      final.push(sLines[i4]);
+      i4++;
     }
   }
   s = final.join("\n");
