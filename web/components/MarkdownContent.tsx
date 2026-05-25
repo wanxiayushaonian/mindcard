@@ -93,11 +93,7 @@ function fixMarkdown(text: string): string {
       continue;
     }
 
-    let processed = line;
-    processed = processed.replace(/([^\n\s])- /g, "$1\n- ");
-    processed = processed.replace(/([^\n\s])-([^\s*\-|a-zA-Z])/g, "$1\n- $2");
-    processed = processed.replace(/([^\n\s])(\d+\.)([^\s\d])/g, "$1\n$2 $3");
-    result.push(processed);
+    result.push(line);
   }
   s = result.join("\n");
 
