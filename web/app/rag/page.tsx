@@ -377,6 +377,7 @@ function RAGContent() {
                   {msg.role === "assistant" ? (
                     <MarkdownContent
                       content={msg.content || " "}
+                      streaming={isStreaming && i === messages.length - 1}
                       onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
                     />
                   ) : (
