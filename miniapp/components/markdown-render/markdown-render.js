@@ -130,6 +130,7 @@ function parseTable(tableLines) {
 
   // Parse header
   var headerCells = splitTableRow(tableLines[0]);
+  var headerSegs = headerCells.map(function (c) { return parseInline(c); });
 
   // Check if second row is separator
   var dataStart = 1;
@@ -139,14 +140,19 @@ function parseTable(tableLines) {
 
   // Parse data rows
   var rows = [];
+  var rowSegs = [];
   for (var i = dataStart; i < tableLines.length; i++) {
-    rows.push(splitTableRow(tableLines[i]));
+    var cells = splitTableRow(tableLines[i]);
+    rows.push(cells);
+    rowSegs.push(cells.map(function (c) { return parseInline(c); }));
   }
 
   return {
     type: 'table',
     headers: headerCells,
+    headerSegs: headerSegs,
     rows: rows,
+    rowSegs: rowSegs,
   };
 }
 
@@ -265,6 +271,29 @@ Component({
       if (href) {
         this.triggerEvent('linktap', { href: href });
       }
+    },
+    onCopyCode: function (e) {
+      var content = e.currentTarget.dataset.content;
+      var idx = e.currentTarget.dataset.index;
+      if (!content) return;
+      var self = this;
+      wx.setClipboardData({
+        data: content,
+        success: function () {
+          var blocks = self.data.blocks.slice();
+          if (blocks[idx]) {
+            blocks[idx] = Object.assign({}, blocks[idx], { _copied: true });
+            self.setData({ blocks: blocks });
+            setTimeout(function () {
+              var blocks2 = self.data.blocks.slice();
+              if (blocks2[idx]) {
+                blocks2[idx] = Object.assign({}, blocks2[idx], { _copied: false });
+                self.setData({ blocks: blocks2 });
+              }
+            }, 1500);
+          }
+        },
+      });
     },
   },
 });

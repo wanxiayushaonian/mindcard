@@ -51,9 +51,21 @@
   border-radius: 8rpx;
   overflow: hidden;
 }
-.md-code-lang {
-  padding: 8rpx 16rpx;
+.md-code-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16rpx;
   background: #e8ecf0;
+}
+.md-code-lang {
+  padding: 8rpx 0;
+  font-size: 22rpx;
+  color: #57606a;
+}
+.md-code-copy {
+  padding: 8rpx 16rpx;
   font-size: 22rpx;
   color: #57606a;
 }

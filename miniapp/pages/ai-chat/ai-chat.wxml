@@ -54,8 +54,13 @@
       <view class="msg msg-ai" wx:if="{{item.role === 'ai'}}" bindlongpress="onMsgLongPress" data-msg-id="{{item.id}}">
         <view class="msg-avatar">AI</view>
         <view class="msg-body">
-          <view class="msg-bubble msg-bubble-ai">
-            <text class="ai-content-text">{{item.content}}</text>
+          <!-- Error message -->
+          <view wx:if="{{item.isError}}" class="msg-bubble msg-bubble-error">
+            <text class="error-text">{{item.content}}</text>
+          </view>
+          <!-- Normal AI message -->
+          <view wx:else class="msg-bubble msg-bubble-ai">
+            <markdown-render content="{{item.content}}" />
           </view>
           <!-- Source cards (RAG mode) -->
           <view class="source-cards" wx:if="{{item.sources && item.sources.length > 0}}">

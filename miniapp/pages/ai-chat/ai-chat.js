@@ -160,10 +160,12 @@ Page({
         // onChunk
         self._streamContent = text;
         if (!self._streamTimer) {
+          var len = text.length;
+          var delay = len < 3000 ? 80 : len < 10000 ? 140 : 220;
           self._streamTimer = setTimeout(function () {
             self._flushStream();
             self._streamTimer = null;
-          }, 100);
+          }, delay);
         }
       }, function (fullContent, extra) {
         // onDone
@@ -187,7 +189,7 @@ Page({
         // onError
         self._streamTask = null;
         if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-        var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime };
+        var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime, isError: true };
         self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
         self.scrollToBottom();
       });
@@ -204,10 +206,12 @@ Page({
       }, function (text) {
         self._streamContent = text;
         if (!self._streamTimer) {
+          var len = text.length;
+          var delay = len < 3000 ? 80 : len < 10000 ? 140 : 220;
           self._streamTimer = setTimeout(function () {
             self._flushStream();
             self._streamTimer = null;
-          }, 100);
+          }, delay);
         }
       }, function (fullContent) {
         self._streamTask = null;
@@ -220,7 +224,7 @@ Page({
       }, function (err) {
         self._streamTask = null;
         if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-        var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime };
+        var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime, isError: true };
         self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
         self.scrollToBottom();
       });

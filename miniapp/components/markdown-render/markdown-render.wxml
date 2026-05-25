@@ -27,8 +27,11 @@
 
     <!-- Code block -->
     <view wx:elif="{{item.type === 'code'}}" class="md-code-block" data-index="{{index}}" bindtap="onBlockTap">
-      <view wx:if="{{item.lang}}" class="md-code-lang">
-        <text>{{item.lang}}</text>
+      <view class="md-code-header">
+        <text wx:if="{{item.lang}}" class="md-code-lang">{{item.lang}}</text>
+        <view class="md-code-copy" catchtap="onCopyCode" data-content="{{item.content}}" data-index="{{index}}">
+          <text>{{item._copied ? '已复制' : '复制'}}</text>
+        </view>
       </view>
       <scroll-view scroll-x class="md-code-scroll">
         <text class="md-code-text" selectable>{{item.content}}</text>
@@ -75,14 +78,28 @@
         <view class="md-table">
           <!-- Header row -->
           <view class="md-tr md-tr-header">
-            <view wx:for="{{item.headers}}" wx:key="*this" class="md-th">
-              <text>{{item}}</text>
+            <view wx:for="{{item.headerSegs}}" wx:for-item="hSegs" wx:key="index" class="md-th">
+              <block wx:for="{{hSegs}}" wx:for-item="seg" wx:key="idx" wx:for-index="idx">
+                <text wx:if="{{seg.type === 'text'}}">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'bold'}}" class="md-bold">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'italic'}}" class="md-italic">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'code'}}" class="md-inline-code">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'del'}}" class="md-del">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'link'}}" class="md-link">{{seg.content}}</text>
+              </block>
             </view>
           </view>
           <!-- Data rows -->
-          <view wx:for="{{item.rows}}" wx:for-item="row" wx:key="index" class="md-tr">
-            <view wx:for="{{row}}" wx:for-item="cell" wx:key="*this" class="md-td">
-              <text>{{cell}}</text>
+          <view wx:for="{{item.rowSegs}}" wx:for-item="rSegs" wx:key="index" class="md-tr">
+            <view wx:for="{{rSegs}}" wx:for-item="cSegs" wx:key="index" class="md-td">
+              <block wx:for="{{cSegs}}" wx:for-item="seg" wx:key="idx" wx:for-index="idx">
+                <text wx:if="{{seg.type === 'text'}}">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'bold'}}" class="md-bold">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'italic'}}" class="md-italic">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'code'}}" class="md-inline-code">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'del'}}" class="md-del">{{seg.content}}</text>
+                <text wx:elif="{{seg.type === 'link'}}" class="md-link">{{seg.content}}</text>
+              </block>
             </view>
           </view>
         </view>
