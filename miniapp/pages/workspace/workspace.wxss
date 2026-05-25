@@ -28,21 +28,25 @@ page {
 
 /* Grid */
 .ws-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 24rpx;
-  gap: 20rpx;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  padding: 24rpx 14rpx;
 }
 
 .ws-card {
+  width: 50%;
+  padding: 0 10rpx 20rpx;
+  box-sizing: border-box;
+}
+
+.ws-card-inner {
   background: var(--color-white);
   border-radius: 20rpx;
   padding: 28rpx 24rpx;
   box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
   display: flex;
   flex-direction: column;
-  gap: 8rpx;
-  box-sizing: border-box;
 }
 
 .ws-icon-wrap {

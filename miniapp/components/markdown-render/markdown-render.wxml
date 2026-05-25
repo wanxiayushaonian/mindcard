@@ -3,12 +3,26 @@
   <block wx:for="{{blocks}}" wx:key="index">
     <!-- Heading -->
     <view wx:if="{{item.type === 'heading'}}" class="md-heading md-h{{item.level}}" data-index="{{index}}" bindtap="onBlockTap">
-      <text>{{item.content}}</text>
+      <block wx:for="{{item.segments}}" wx:for-item="seg" wx:key="idx" wx:for-index="idx">
+        <text wx:if="{{seg.type === 'text'}}">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'bold'}}" class="md-bold">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'italic'}}" class="md-italic">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'code'}}" class="md-inline-code">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'del'}}" class="md-del">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'link'}}" class="md-link">{{seg.content}}</text>
+      </block>
     </view>
 
     <!-- Paragraph -->
     <view wx:elif="{{item.type === 'paragraph'}}" class="md-paragraph" data-index="{{index}}" bindtap="onBlockTap">
-      <text>{{item.content}}</text>
+      <block wx:for="{{item.segments}}" wx:for-item="seg" wx:key="idx" wx:for-index="idx">
+        <text wx:if="{{seg.type === 'text'}}">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'bold'}}" class="md-bold">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'italic'}}" class="md-italic">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'code'}}" class="md-inline-code">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'del'}}" class="md-del">{{seg.content}}</text>
+        <text wx:elif="{{seg.type === 'link'}}" class="md-link" bindtap="onLinkTap" data-href="{{seg.href}}">{{seg.content}}</text>
+      </block>
     </view>
 
     <!-- Code block -->
@@ -25,7 +39,16 @@
     <view wx:elif="{{item.type === 'ul'}}" class="md-list" data-index="{{index}}" bindtap="onBlockTap">
       <view wx:for="{{item.items}}" wx:for-item="li" wx:for-index="liIdx" wx:key="liIdx" class="md-list-item">
         <text class="md-list-bullet">•</text>
-        <text class="md-list-text">{{li}}</text>
+        <view class="md-list-text">
+          <block wx:for="{{item.itemSegs[liIdx]}}" wx:for-item="seg" wx:key="idx" wx:for-index="idx">
+            <text wx:if="{{seg.type === 'text'}}">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'bold'}}" class="md-bold">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'italic'}}" class="md-italic">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'code'}}" class="md-inline-code">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'del'}}" class="md-del">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'link'}}" class="md-link">{{seg.content}}</text>
+          </block>
+        </view>
       </view>
     </view>
 
@@ -33,7 +56,16 @@
     <view wx:elif="{{item.type === 'ol'}}" class="md-list md-list-ordered" data-index="{{index}}" bindtap="onBlockTap">
       <view wx:for="{{item.items}}" wx:for-item="li" wx:for-index="liIdx" wx:key="liIdx" class="md-list-item">
         <text class="md-list-number">{{liIdx + 1}}.</text>
-        <text class="md-list-text">{{li}}</text>
+        <view class="md-list-text">
+          <block wx:for="{{item.itemSegs[liIdx]}}" wx:for-item="seg" wx:key="idx" wx:for-index="idx">
+            <text wx:if="{{seg.type === 'text'}}">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'bold'}}" class="md-bold">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'italic'}}" class="md-italic">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'code'}}" class="md-inline-code">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'del'}}" class="md-del">{{seg.content}}</text>
+            <text wx:elif="{{seg.type === 'link'}}" class="md-link">{{seg.content}}</text>
+          </block>
+        </view>
       </view>
     </view>
 
@@ -61,7 +93,14 @@
     <view wx:elif="{{item.type === 'blockquote'}}" class="md-blockquote" data-index="{{index}}" bindtap="onBlockTap">
       <view class="md-blockquote-bar"></view>
       <view class="md-blockquote-content">
-        <text>{{item.content}}</text>
+        <block wx:for="{{item.segments}}" wx:for-item="seg" wx:key="idx" wx:for-index="idx">
+          <text wx:if="{{seg.type === 'text'}}">{{seg.content}}</text>
+          <text wx:elif="{{seg.type === 'bold'}}" class="md-bold">{{seg.content}}</text>
+          <text wx:elif="{{seg.type === 'italic'}}" class="md-italic">{{seg.content}}</text>
+          <text wx:elif="{{seg.type === 'code'}}" class="md-inline-code">{{seg.content}}</text>
+          <text wx:elif="{{seg.type === 'del'}}" class="md-del">{{seg.content}}</text>
+          <text wx:elif="{{seg.type === 'link'}}" class="md-link">{{seg.content}}</text>
+        </block>
       </view>
     </view>
 

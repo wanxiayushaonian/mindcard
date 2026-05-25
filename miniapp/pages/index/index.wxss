@@ -166,9 +166,6 @@ page {
   line-height: 1.6;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
 }
 
 .card-badges {
@@ -407,36 +404,28 @@ page {
 /* Inspiration Walk Modal */
 .walk-modal {
   width: 85%;
-  max-height: 80vh;
   background: var(--color-white);
   border-radius: 32rpx;
   box-shadow: 0 16rpx 64rpx rgba(0, 0, 0, 0.1);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  padding: 36rpx;
 }
 
 .walk-modal-header {
-  flex-shrink: 0;
   display: flex;
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
-  padding: 36rpx 36rpx 28rpx;
+  margin-bottom: 24rpx;
 }
 
 .walk-modal-body {
-  flex: 1;
-  max-height: 50vh;
-  padding: 0 36rpx;
+  margin-bottom: 24rpx;
 }
 
 .walk-actions {
-  flex-shrink: 0;
   display: flex;
   flex-direction: row;
   gap: 20rpx;
-  padding: 28rpx 36rpx 36rpx;
 }
 
 .walk-modal-title {

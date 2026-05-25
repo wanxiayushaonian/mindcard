@@ -38,7 +38,7 @@ function parseMarkdown(text) {
     // Heading: # ## ### etc.
     var headingMatch = line.match(/^(#{1,6})\s+(.+)/);
     if (headingMatch) {
-      blocks.push({ type: 'heading', level: headingMatch[1].length, content: headingMatch[2].trim() });
+      blocks.push({ type: 'heading', level: headingMatch[1].length, content: headingMatch[2].trim(), segments: parseInline(headingMatch[2].trim()) });
       i++;
       continue;
     }
@@ -69,29 +69,36 @@ function parseMarkdown(text) {
         quoteLines.push(lines[i].replace(/^>\s?/, ''));
         i++;
       }
-      blocks.push({ type: 'blockquote', content: quoteLines.join('\n') });
+      var quoteContent = quoteLines.join('\n');
+      blocks.push({ type: 'blockquote', content: quoteContent, segments: parseInline(quoteContent) });
       continue;
     }
 
     // Unordered list: - or * or +
     if (/^\s*[-*+]\s+/.test(line)) {
       var items = [];
+      var itemSegs = [];
       while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*+]\s+/, ''));
+        var t = lines[i].replace(/^\s*[-*+]\s+/, '');
+        items.push(t);
+        itemSegs.push(parseInline(t));
         i++;
       }
-      blocks.push({ type: 'ul', items: items });
+      blocks.push({ type: 'ul', items: items, itemSegs: itemSegs });
       continue;
     }
 
     // Ordered list: 1. 2. etc.
     if (/^\s*\d+\.\s+/.test(line)) {
       var orderedItems = [];
+      var orderedSegs = [];
       while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        orderedItems.push(lines[i].replace(/^\s*\d+\.\s+/, ''));
+        var ot = lines[i].replace(/^\s*\d+\.\s+/, '');
+        orderedItems.push(ot);
+        orderedSegs.push(parseInline(ot));
         i++;
       }
-      blocks.push({ type: 'ol', items: orderedItems });
+      blocks.push({ type: 'ol', items: orderedItems, itemSegs: orderedSegs });
       continue;
     }
 
@@ -110,7 +117,8 @@ function parseMarkdown(text) {
       i++;
     }
     if (paraLines.length > 0) {
-      blocks.push({ type: 'paragraph', content: paraLines.join('\n') });
+      var content = paraLines.join('\n');
+      blocks.push({ type: 'paragraph', content: content, segments: parseInline(content) });
     }
   }
 
@@ -149,6 +157,40 @@ function splitTableRow(line) {
   if (cells.length > 0 && cells[0].trim() === '') cells.shift();
   if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop();
   return cells.map(function (c) { return c.trim(); });
+}
+
+var INLINE_RE = /(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`([^`]+?)`)|(\[([^\]]+?)\]\(([^)]+?)\))|(~~(.+?)~~)/g;
+
+function parseInline(text) {
+  if (!text) return [{ type: 'text', content: '' }];
+  var segments = [];
+  var last = 0;
+  var m;
+  INLINE_RE.lastIndex = 0;
+  while ((m = INLINE_RE.exec(text)) !== null) {
+    if (m.index > last) {
+      segments.push({ type: 'text', content: text.slice(last, m.index) });
+    }
+    if (m[1]) {
+      segments.push({ type: 'bold', content: m[2] });
+    } else if (m[3]) {
+      segments.push({ type: 'italic', content: m[4] });
+    } else if (m[5]) {
+      segments.push({ type: 'code', content: m[6] });
+    } else if (m[7]) {
+      segments.push({ type: 'link', content: m[8], href: m[9] });
+    } else if (m[10]) {
+      segments.push({ type: 'del', content: m[11] });
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) {
+    segments.push({ type: 'text', content: text.slice(last) });
+  }
+  if (segments.length === 0) {
+    segments.push({ type: 'text', content: text });
+  }
+  return segments;
 }
 
 function fixMarkdown(text) {
@@ -217,6 +259,12 @@ Component({
   methods: {
     onBlockTap: function (e) {
       this.triggerEvent('blocktap', { index: e.currentTarget.dataset.index });
+    },
+    onLinkTap: function (e) {
+      var href = e.currentTarget.dataset.href;
+      if (href) {
+        this.triggerEvent('linktap', { href: href });
+      }
     },
   },
 });

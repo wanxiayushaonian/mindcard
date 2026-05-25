@@ -26,7 +26,7 @@
         <view class="picker-item-tag" style="background: {{item.color}};">
           <text>{{item.keywords[0] || ''}}</text>
         </view>
-        <text class="picker-item-content">{{item.content}}</text>
+        <text class="picker-item-content" overflow="ellipsis" max-lines="2">{{item.content}}</text>
         <text class="picker-item-time">{{item.createdAt}}</text>
       </view>
       <view class="picker-empty" wx:if="{{filteredCards.length === 0}}">

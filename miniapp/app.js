@@ -115,7 +115,7 @@ App({
         name: ws.name,
         icon: ws.icon || '💡',
         color: ws.color || '#94B4C8',
-        createdAt: ws.created_at,
+        createdAt: self._formatApiTime(ws.created_at),
         owner: ws.owner_id,
       }];
       this.globalData.currentWorkspaceId = ws.id;
@@ -186,7 +186,7 @@ App({
         name: ws.name,
         icon: ws.icon || '💡',
         color: ws.color || '#94B4C8',
-        createdAt: ws.created_at,
+        createdAt: this._formatApiTime(ws.created_at),
         owner: ws.owner_id,
       };
       this.globalData.workspaces = this.globalData.workspaces.concat([localWs]);

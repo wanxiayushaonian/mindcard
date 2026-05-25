@@ -13,35 +13,38 @@
     <view
       wx:for="{{gridItems}}"
       wx:key="id"
-      class="ws-card {{item._type === 'add' ? 'ws-add' : ''}} {{item._type === 'join' ? 'ws-join' : ''}}"
-      style="{{item.color ? 'border-top: 6rpx solid ' + item.color : ''}}"
+      class="ws-card"
       bindtap="onGridItemTap"
       bindlongpress="onGridItemLongPress"
       data-id="{{item.id}}"
       data-type="{{item._type || ''}}"
     >
-      <!-- Workspace card -->
-      <block wx:if="{{!item._type}}">
-        <view class="ws-icon-wrap">
-          <icon name="{{item.icon}}" size="28" color="{{item.color || '#94B4C8'}}" />
-        </view>
-        <text class="ws-name">{{item.name}}</text>
-        <view class="ws-meta">
-          <text class="ws-count">{{item._cardCount}} 张卡片</text>
-          <text wx:if="{{item._memberCount > 1}}" class="ws-member-badge">{{item._memberCount}} 人</text>
-        </view>
-        <text class="ws-time">{{item.createdAt}}</text>
-      </block>
-      <!-- Add button -->
-      <block wx:elif="{{item._type === 'add'}}">
-        <icon name="plus" size="28" color="#555" />
-        <text class="ws-add-text">新建空间</text>
-      </block>
-      <!-- Join button -->
-      <block wx:elif="{{item._type === 'join'}}">
-        <icon name="link" size="28" color="#555" />
-        <text class="ws-add-text">加入空间</text>
-      </block>
+      <view class="ws-card-inner {{item._type === 'add' ? 'ws-add' : ''}} {{item._type === 'join' ? 'ws-join' : ''}}"
+        style="{{item.color ? 'border-top: 6rpx solid ' + item.color : ''}}"
+      >
+        <!-- Workspace card -->
+        <block wx:if="{{!item._type}}">
+          <view class="ws-icon-wrap">
+            <icon name="{{item.icon}}" size="28" color="{{item.color || '#94B4C8'}}" />
+          </view>
+          <text class="ws-name">{{item.name}}</text>
+          <view class="ws-meta">
+            <text class="ws-count">{{item._cardCount}} 张卡片</text>
+            <text wx:if="{{item._memberCount > 1}}" class="ws-member-badge">{{item._memberCount}} 人</text>
+          </view>
+          <text class="ws-time">{{item.createdAt}}</text>
+        </block>
+        <!-- Add button -->
+        <block wx:elif="{{item._type === 'add'}}">
+          <icon name="plus" size="28" color="#555" />
+          <text class="ws-add-text">新建空间</text>
+        </block>
+        <!-- Join button -->
+        <block wx:elif="{{item._type === 'join'}}">
+          <icon name="link" size="28" color="#555" />
+          <text class="ws-add-text">加入空间</text>
+        </block>
+      </view>
     </view>
   </view>
 
@@ -53,18 +56,19 @@
     <view
       wx:for="{{sharedWorkspaces}}"
       wx:key="localId"
-      class="ws-card ws-shared"
-      style="border-top: 6rpx solid {{item.color}};"
+      class="ws-card"
       bindtap="onWorkspaceTap"
       data-id="{{item.localId}}"
     >
-      <view class="ws-icon-wrap">
-        <icon name="{{item.icon}}" size="28" color="{{item.color || '#94B4C8'}}" />
-      </view>
-      <text class="ws-name">{{item.name}}</text>
-      <view class="ws-meta">
-        <text class="ws-shared-badge">共享</text>
-        <text class="ws-member-badge">{{item._memberCount}} 人</text>
+      <view class="ws-card-inner ws-shared" style="border-top: 6rpx solid {{item.color}};">
+        <view class="ws-icon-wrap">
+          <icon name="{{item.icon}}" size="28" color="{{item.color || '#94B4C8'}}" />
+        </view>
+        <text class="ws-name">{{item.name}}</text>
+        <view class="ws-meta">
+          <text class="ws-shared-badge">共享</text>
+          <text class="ws-member-badge">{{item._memberCount}} 人</text>
+        </view>
       </view>
     </view>
   </view>

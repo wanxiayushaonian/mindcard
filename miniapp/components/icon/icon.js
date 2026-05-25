@@ -73,8 +73,8 @@ function iconToSvgDataUri(name, color, size) {
   var paths = ICON_PATHS[name];
   if (!paths) return '';
   paths = paths.replace(/currentColor/g, color);
-  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
-  return 'data:image/svg+xml;base64,' + svgToBase64(svg);
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2">' + paths + '</svg>';
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
 function svgToBase64(svg) {

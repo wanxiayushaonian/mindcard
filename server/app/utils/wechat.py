@@ -9,7 +9,7 @@ WECHAT_LOGIN_URL = "https://api.weixin.qq.com/sns/jscode2session"
 
 async def code_to_openid(code: str) -> dict:
     """Exchange WeChat miniapp login code for openid and session_key."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(trust_env=False) as client:
         resp = await client.get(
             WECHAT_LOGIN_URL,
             params={
@@ -47,7 +47,7 @@ def get_web_authorize_url(redirect_uri: str, state: str = "") -> str:
 
 async def exchange_web_code(code: str) -> dict:
     """Exchange WeChat web OAuth code for access_token, openid, and optionally unionid."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(trust_env=False) as client:
         resp = await client.get(
             WEB_TOKEN_URL,
             params={
@@ -65,7 +65,7 @@ async def exchange_web_code(code: str) -> dict:
 
 async def get_web_userinfo(access_token: str, openid: str) -> dict:
     """Get WeChat web user info (nickname, avatar, etc.)."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(trust_env=False) as client:
         resp = await client.get(
             WEB_USERINFO_URL,
             params={

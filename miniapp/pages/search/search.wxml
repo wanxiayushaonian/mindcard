@@ -43,7 +43,7 @@
           <text class="result-score" wx:if="{{item.score > 0}}">{{item.scorePercent}}%</text>
         </view>
         <text class="result-title" wx:if="{{item.title}}">{{item.title}}</text>
-        <text class="result-content">{{item.content}}</text>
+        <text class="result-content" overflow="ellipsis" max-lines="2">{{item.content}}</text>
       </view>
     </view>
   </view>

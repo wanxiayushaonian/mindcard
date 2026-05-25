@@ -26,7 +26,7 @@ class LLMService:
         if not self.api_key:
             return "LLM API key not configured. Please set DEEPSEEK_API_KEY."
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             resp = await client.post(
                 f"{self.base_url}/v1/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
@@ -69,7 +69,7 @@ class LLMService:
             yield "LLM API key not configured."
             return
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), trust_env=False) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/v1/chat/completions",

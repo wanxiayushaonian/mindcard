@@ -68,7 +68,7 @@
         style="background: {{tooltipNode.color}};"
       >{{kw}}</text>
     </view>
-    <text class="tooltip-label">{{tooltipNode.fullLabel}}</text>
+    <text class="tooltip-label" overflow="ellipsis" max-lines="3">{{tooltipNode.fullLabel}}</text>
     <view class="tooltip-shared" wx:if="{{tooltipNode.sharedKeywords.length > 0}}">
       <text class="tooltip-shared-label">关联关键字：</text>
       <text class="tooltip-shared-text">{{tooltipNode.sharedKeywords[0]}}{{tooltipNode.sharedKeywords[1] ? ' · ' + tooltipNode.sharedKeywords[1] : ''}}{{tooltipNode.sharedKeywords[2] ? ' · ' + tooltipNode.sharedKeywords[2] : ''}}</text>

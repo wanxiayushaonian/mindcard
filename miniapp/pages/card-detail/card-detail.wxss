@@ -53,7 +53,7 @@ page {
 }
 
 .detail-card-tag {
-  display: inline-block;
+  display: block;
   padding: 6rpx 20rpx;
   border-radius: 12rpx;
   font-size: 22rpx;
@@ -108,13 +108,14 @@ page {
 }
 
 .ai-badge {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   padding: 8rpx 20rpx;
   background: rgba(148, 180, 200, 0.12);
   border-radius: 12rpx;
   font-size: 22rpx;
   color: var(--color-primary-dark);
+  align-self: flex-start;
 }
 
 /* Action Bar */
@@ -184,12 +185,17 @@ page {
 
 /* Related Cards Scroll */
 .related-scroll {
-  white-space: nowrap;
   height: 220rpx;
 }
 
+.related-scroll-inner {
+  display: flex;
+  flex-direction: row;
+}
+
 .related-card {
-  display: inline-block;
+  display: flex;
+  flex-direction: column;
   width: 240rpx;
   height: 180rpx;
   padding: 20rpx;
@@ -197,7 +203,7 @@ page {
   border-radius: 16rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
   margin-right: 16rpx;
-  vertical-align: top;
+  flex-shrink: 0;
   box-sizing: border-box;
 }
 
@@ -205,12 +211,6 @@ page {
   font-size: 24rpx;
   line-height: 1.5;
   color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  white-space: normal;
   margin-bottom: 12rpx;
 }
 
@@ -219,7 +219,7 @@ page {
 }
 
 .related-add {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -267,11 +267,6 @@ page {
   font-size: 24rpx;
   line-height: 1.5;
   color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
   margin-bottom: 8rpx;
 }
 

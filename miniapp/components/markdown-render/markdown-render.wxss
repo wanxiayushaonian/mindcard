@@ -175,3 +175,27 @@
   background: #e8e8e8;
   margin: 24rpx 0;
 }
+
+/* Inline formatting */
+.md-bold {
+  font-weight: 600;
+}
+.md-italic {
+  font-style: italic;
+}
+.md-inline-code {
+  font-family: Menlo, Monaco, Consolas, monospace;
+  font-size: 26rpx;
+  background: #f0f0f0;
+  padding: 2rpx 8rpx;
+  border-radius: 6rpx;
+  color: #c7254e;
+}
+.md-del {
+  text-decoration: line-through;
+  color: #999;
+}
+.md-link {
+  color: #4a90d9;
+  text-decoration: underline;
+}

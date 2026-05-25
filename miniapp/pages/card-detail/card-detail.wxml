@@ -74,20 +74,22 @@
       <text class="section-count" wx:if="{{relatedCards.length > 0}}">{{relatedCards.length}} 张</text>
     </view>
     <scroll-view class="related-scroll" scroll-x enhanced show-scrollbar="{{false}}">
-      <view
-        wx:for="{{relatedCards}}"
-        wx:key="id"
-        class="related-card"
-        style="border-left: 4rpx solid {{item.color}};"
-        bindtap="onRelatedCardTap"
-        data-id="{{item.id}}"
-      >
-        <text class="related-card-content">{{item.content}}</text>
-        <text class="related-card-tag" style="color: {{item.color}};">{{item.keywords[0] || ''}}</text>
-      </view>
-      <view class="related-card related-add" bindtap="onAddRelate">
-        <text class="related-add-plus">+</text>
-        <text class="related-add-text">添加关联</text>
+      <view class="related-scroll-inner">
+        <view
+          wx:for="{{relatedCards}}"
+          wx:key="id"
+          class="related-card"
+          style="border-left: 4rpx solid {{item.color}};"
+          bindtap="onRelatedCardTap"
+          data-id="{{item.id}}"
+        >
+          <text class="related-card-content" overflow="ellipsis" max-lines="3">{{item.content}}</text>
+          <text class="related-card-tag" style="color: {{item.color}};">{{item.keywords[0] || ''}}</text>
+        </view>
+        <view class="related-card related-add" bindtap="onAddRelate">
+          <text class="related-add-plus">+</text>
+          <text class="related-add-text">添加关联</text>
+        </view>
       </view>
     </scroll-view>
   </view>
@@ -104,7 +106,7 @@
         class="recommend-card"
       >
         <view class="recommend-info" style="border-left: 4rpx solid {{item.color}};">
-          <text class="recommend-content">{{item.content}}</text>
+          <text class="recommend-content" overflow="ellipsis" max-lines="2">{{item.content}}</text>
           <view class="recommend-footer">
             <text class="recommend-tag" style="background: {{item.color}};">{{item.keywords[0] || ''}}</text>
             <text class="recommend-match">匹配度 {{item.matchScore}}%</text>

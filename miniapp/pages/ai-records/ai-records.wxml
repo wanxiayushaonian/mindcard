@@ -15,7 +15,7 @@
       <text class="record-time">{{item.createdAt}}</text>
       <text class="record-count">{{item.messageCount || item.messages.length}} 条消息</text>
       <view class="record-preview" wx:if="{{item.lastMessage || item.messages.length > 0}}">
-        <text class="record-preview-text">{{item.lastMessage || item.messages[0].content}}</text>
+        <text class="record-preview-text" overflow="ellipsis" max-lines="2">{{item.lastMessage || item.messages[0].content}}</text>
       </view>
     </view>
   </view>

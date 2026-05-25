@@ -28,7 +28,7 @@
   <view class="context-bar" wx:if="{{contextCard}}">
     <view class="context-inner">
       <view class="context-label">当前上下文</view>
-      <text class="context-content">{{contextCard.content}}</text>
+      <text class="context-content" overflow="ellipsis" max-lines="2">{{contextCard.content}}</text>
     </view>
     <view class="context-change" bindtap="onChangeContext">
       <text>更换</text>
@@ -69,7 +69,7 @@
               data-id="{{src.id}}"
             >
               <text class="source-title">{{src.title || '未命名卡片'}}</text>
-              <text class="source-content">{{src.content}}</text>
+              <text class="source-content" overflow="ellipsis" max-lines="2">{{src.content}}</text>
             </view>
           </view>
           <view class="msg-actions">

@@ -34,7 +34,7 @@
             <view class="node-tag" style="background: {{item.color}};">
               <text>{{item.keywords[0] || ''}}</text>
             </view>
-            <text class="node-text">{{item.content}}</text>
+            <text class="node-text" overflow="ellipsis" max-lines="3">{{item.content}}</text>
             <text class="node-type">灵感卡片</text>
           </view>
         </view>
@@ -52,7 +52,7 @@
             <view class="node-tag node-tag-ai">
               <text>AI引导</text>
             </view>
-            <text class="node-text">{{item.title}}</text>
+            <text class="node-text" overflow="ellipsis" max-lines="3">{{item.title}}</text>
             <text class="node-type">AI对话</text>
           </view>
         </view>

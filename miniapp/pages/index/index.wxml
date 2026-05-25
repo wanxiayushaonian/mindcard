@@ -95,7 +95,7 @@
           </view>
         </view>
         <text class="card-title" wx:if="{{item.title}}">{{item.title}}</text>
-        <text class="card-content-text">{{item.content}}</text>
+        <text class="card-content-text" overflow="ellipsis" max-lines="4">{{item.content}}</text>
         <view class="card-footer">
           <text class="card-time">{{item.createdAt}}</text>
           <view class="card-badges">
@@ -127,7 +127,7 @@
           </view>
         </view>
         <text class="card-title" wx:if="{{item.title}}">{{item.title}}</text>
-        <text class="card-content-text">{{item.content}}</text>
+        <text class="card-content-text" overflow="ellipsis" max-lines="4">{{item.content}}</text>
         <view class="card-footer">
           <text class="card-time">{{item.createdAt}}</text>
           <view class="card-badges">
@@ -234,7 +234,7 @@
         <icon name="x" size="18" color="#999" />
       </view>
     </view>
-    <scroll-view class="walk-modal-body" scroll-y wx:if="{{walkCard}}">
+    <view class="walk-modal-body">
       <view class="walk-card" style="border-left: 6rpx solid {{walkCard.color}};">
         <view class="card-keywords" wx:if="{{walkCard.keywords.length > 0}}">
           <view
@@ -248,13 +248,13 @@
           </view>
         </view>
         <text class="walk-card-title" wx:if="{{walkCard.title}}">{{walkCard.title}}</text>
-        <text class="walk-card-content">{{walkCard.content}}</text>
+        <text class="walk-card-content" overflow="ellipsis" max-lines="6">{{walkCard.content}}</text>
         <view class="walk-card-footer">
           <text class="walk-card-time">{{walkCard.createdAt}}</text>
           <text wx:if="{{walkCard.hasAiChat}}" class="walk-card-ai">AI对话</text>
         </view>
       </view>
-    </scroll-view>
+    </view>
     <view class="walk-actions">
       <view class="walk-btn walk-btn-secondary" bindtap="onWalkRefresh">
         <text>再换一张</text>

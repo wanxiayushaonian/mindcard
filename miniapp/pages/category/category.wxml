@@ -74,7 +74,7 @@
               </view>
             </view>
             <text class="cat-card-title" wx:if="{{item.title}}">{{item.title}}</text>
-            <text class="cat-card-content">{{item.content}}</text>
+            <text class="cat-card-content" overflow="ellipsis" max-lines="2">{{item.content}}</text>
             <view class="cat-card-footer">
               <text class="cat-card-time">{{item.createdAt}}</text>
               <view class="cat-card-badges">
