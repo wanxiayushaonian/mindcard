@@ -1,6 +1,9 @@
 // components/markdown-render/markdown-render.js
 // Lightweight Markdown parser for WeChat mini-program (Skyline compatible)
 
+// Safe string: guarantee non-null string for Skyline WXML bindings
+function ss(v) { return v == null ? '' : String(v); }
+
 function parseMarkdown(text) {
   if (!text) return [];
 
@@ -23,7 +26,7 @@ function parseMarkdown(text) {
 
     // Code block: ```
     if (line.trim().startsWith('```')) {
-      var lang = line.trim().slice(3).trim();
+      var lang = ss(line.trim().slice(3).trim());
       var codeLines = [];
       i++;
       while (i < lines.length && !lines[i].trim().startsWith('```')) {
@@ -31,14 +34,15 @@ function parseMarkdown(text) {
         i++;
       }
       if (i < lines.length) i++; // skip closing ```
-      blocks.push({ type: 'code', lang: lang, content: codeLines.join('\n') });
+      blocks.push({ type: 'code', lang: lang, content: ss(codeLines.join('\n')), _copied: false });
       continue;
     }
 
     // Heading: # ## ### etc.
     var headingMatch = line.match(/^(#{1,6})\s+(.+)/);
     if (headingMatch) {
-      blocks.push({ type: 'heading', level: headingMatch[1].length, content: headingMatch[2].trim(), segments: parseInline(headingMatch[2].trim()) });
+      var hContent = ss(headingMatch[2].trim());
+      blocks.push({ type: 'heading', level: headingMatch[1].length, content: hContent, segments: parseInline(hContent) });
       i++;
       continue;
     }
@@ -69,7 +73,7 @@ function parseMarkdown(text) {
         quoteLines.push(lines[i].replace(/^>\s?/, ''));
         i++;
       }
-      var quoteContent = quoteLines.join('\n');
+      var quoteContent = ss(quoteLines.join('\n'));
       blocks.push({ type: 'blockquote', content: quoteContent, segments: parseInline(quoteContent) });
       continue;
     }
@@ -79,7 +83,7 @@ function parseMarkdown(text) {
       var items = [];
       var itemSegs = [];
       while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        var t = lines[i].replace(/^\s*[-*+]\s+/, '');
+        var t = ss(lines[i].replace(/^\s*[-*+]\s+/, ''));
         items.push(t);
         itemSegs.push(parseInline(t));
         i++;
@@ -93,7 +97,7 @@ function parseMarkdown(text) {
       var orderedItems = [];
       var orderedSegs = [];
       while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        var ot = lines[i].replace(/^\s*\d+\.\s+/, '');
+        var ot = ss(lines[i].replace(/^\s*\d+\.\s+/, ''));
         orderedItems.push(ot);
         orderedSegs.push(parseInline(ot));
         i++;
@@ -117,7 +121,7 @@ function parseMarkdown(text) {
       i++;
     }
     if (paraLines.length > 0) {
-      var content = paraLines.join('\n');
+      var content = ss(paraLines.join('\n'));
       blocks.push({ type: 'paragraph', content: content, segments: parseInline(content) });
     }
   }
@@ -162,7 +166,7 @@ function splitTableRow(line) {
   // Remove first and last empty strings from leading/trailing |
   if (cells.length > 0 && cells[0].trim() === '') cells.shift();
   if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop();
-  return cells.map(function (c) { return c.trim(); });
+  return cells.map(function (c) { return ss(c.trim()); });
 }
 
 var INLINE_RE = /(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`([^`]+?)`)|(\[([^\]]+?)\]\(([^)]+?)\))|(~~(.+?)~~)/g;
@@ -178,15 +182,15 @@ function parseInline(text) {
       segments.push({ type: 'text', content: text.slice(last, m.index) });
     }
     if (m[1]) {
-      segments.push({ type: 'bold', content: m[2] });
+      segments.push({ type: 'bold', content: ss(m[2]) });
     } else if (m[3]) {
-      segments.push({ type: 'italic', content: m[4] });
+      segments.push({ type: 'italic', content: ss(m[4]) });
     } else if (m[5]) {
-      segments.push({ type: 'code', content: m[6] });
+      segments.push({ type: 'code', content: ss(m[6]) });
     } else if (m[7]) {
-      segments.push({ type: 'link', content: m[8], href: m[9] });
+      segments.push({ type: 'link', content: ss(m[8]), href: ss(m[9]) });
     } else if (m[10]) {
-      segments.push({ type: 'del', content: m[11] });
+      segments.push({ type: 'del', content: ss(m[11]) });
     }
     last = m.index + m[0].length;
   }
@@ -194,7 +198,7 @@ function parseInline(text) {
     segments.push({ type: 'text', content: text.slice(last) });
   }
   if (segments.length === 0) {
-    segments.push({ type: 'text', content: text });
+    segments.push({ type: 'text', content: ss(text) });
   }
   return segments;
 }
@@ -258,7 +262,7 @@ Component({
 
   observers: {
     'content': function (newVal) {
-      this.setData({ blocks: parseMarkdown(newVal || '') });
+      this.setData({ blocks: parseMarkdown(ss(newVal)) });
     },
   },
 
