@@ -93,7 +93,13 @@ function fixMarkdown(text: string): string {
       continue;
     }
 
-    result.push(line);
+    // Split inline "-xxx" after Chinese punctuation into new list items
+    // e.g., "发言。-阶段一" → "发言。\n- 阶段一"
+    let processed = line.replace(
+      /([。！？；：])(-)([^\s])/g,
+      "$1\n- $3"
+    );
+    result.push(processed);
   }
   s = result.join("\n");
 

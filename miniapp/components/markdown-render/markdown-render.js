@@ -251,7 +251,9 @@ function fixMarkdown(text) {
       continue;
     }
 
-    result.push(line);
+    // Split inline "-xxx" after Chinese punctuation into new list items
+    // e.g., "发言。-阶段一" → "发言。\n- 阶段一"
+    result.push(line.replace(/([。！？；：])(-)([^\s])/g, '$1\n- $3'));
   }
 
   // Pass 2: Convert standalone space-separated table regions and insert separators
