@@ -101,6 +101,65 @@ function fixMarkdown(text: string): string {
   }
   s = result.join("\n");
 
+  // Step 3.5: Convert standalone space-separated table regions
+  // Detect groups of consecutive lines with consistent column counts (2+ cols)
+  const ssLines = s.split("\n");
+  const ssConverted: string[] = [];
+  let i3 = 0;
+  while (i3 < ssLines.length) {
+    const trimmed = ssLines[i3].trim();
+    // Check if this line looks like a space-separated table row
+    if (
+      trimmed.length > 0 &&
+      !trimmed.startsWith("|") &&
+      !trimmed.startsWith("#") &&
+      !trimmed.startsWith("-") &&
+      !trimmed.startsWith("*") &&
+      !trimmed.startsWith(">") &&
+      !/^\d+\./.test(trimmed) &&
+      !/^```/.test(trimmed) &&
+      /^(\S+\s{2,})+\S+$/.test(trimmed)
+    ) {
+      // Collect consecutive space-separated rows
+      const group: string[] = [];
+      let j = i3;
+      while (
+        j < ssLines.length &&
+        ssLines[j].trim().length > 0 &&
+        !ssLines[j].trim().startsWith("|") &&
+        !ssLines[j].trim().startsWith("#") &&
+        !ssLines[j].trim().startsWith("-") &&
+        !ssLines[j].trim().startsWith("*") &&
+        !ssLines[j].trim().startsWith(">") &&
+        !/^\d+\./.test(ssLines[j].trim()) &&
+        !/^```/.test(ssLines[j].trim()) &&
+        /^(\S+\s{2,})+\S+$/.test(ssLines[j].trim())
+      ) {
+        group.push(ssLines[j]);
+        j++;
+      }
+      // Only convert if 2+ rows with consistent column count
+      if (group.length >= 2) {
+        const colCounts = group.map(
+          (l) => l.trim().split(/\s{2,}/).filter(Boolean).length
+        );
+        const firstCols = colCounts[0];
+        const consistent = colCounts.every((c) => c === firstCols);
+        if (consistent && firstCols >= 2) {
+          for (const row of group) {
+            const cells = row.trim().split(/\s{2,}/).filter(Boolean);
+            ssConverted.push("| " + cells.join(" | ") + " |");
+          }
+          i3 = j;
+          continue;
+        }
+      }
+    }
+    ssConverted.push(ssLines[i3]);
+    i3++;
+  }
+  s = ssConverted.join("\n");
+
   // Step 4: Insert separator row once
   const sLines = s.split("\n");
   const final: string[] = [];
@@ -161,6 +220,14 @@ function fixMarkdown(text: string): string {
 
 // --- splitIntoBlocks: split content for per-block precipitate ---
 
+function isTableLike(text: string): boolean {
+  if (/^\|.*\|/.test(text)) return true;
+  // Space-separated with 2+ columns
+  const lines = text.split("\n");
+  if (lines.length >= 1 && /^(\S+\s{2,})+\S+$/.test(lines[0].trim())) return true;
+  return false;
+}
+
 function splitIntoBlocks(text: string): string[] {
   const fixed = fixMarkdown(text);
   const blocks = fixed.split(/\n{2,}/);
@@ -169,9 +236,9 @@ function splitIntoBlocks(text: string): string[] {
     const trimmed = block.trim();
     if (!trimmed) continue;
     const isListItem = /^(\d+\.|[-*+])\s/.test(trimmed);
-    const isTable = /^\|.*\|/.test(trimmed);
+    const isTable = isTableLike(trimmed);
     const prevIsList = merged.length > 0 && /^(\d+\.|[-*+])\s/m.test(merged[merged.length - 1]);
-    const prevIsTable = merged.length > 0 && /^\|.*\|/m.test(merged[merged.length - 1]);
+    const prevIsTable = merged.length > 0 && isTableLike(merged[merged.length - 1]);
     if ((isListItem && prevIsList) || (isTable && prevIsTable)) {
       merged[merged.length - 1] += "\n\n" + trimmed;
     } else {
