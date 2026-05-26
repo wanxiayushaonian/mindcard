@@ -19,6 +19,7 @@ from app.schemas.rag import (
 from app.services.rag import rag_service
 from app.utils.auth import get_current_user, get_workspace_membership
 from app.utils.helpers import parse_uuid
+from app.utils.rate_limit import rag_rate_limit
 
 router = APIRouter()
 
@@ -28,6 +29,7 @@ async def rag_ask(
     req: RAGRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _: None = Depends(rag_rate_limit),
 ):
     """RAG knowledge Q&A: retrieve relevant cards, then generate answer."""
     await get_workspace_membership(req.workspace_id, user, db)
@@ -48,14 +50,14 @@ async def rag_ask(
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest, user: User = Depends(get_current_user)):
+async def chat(req: ChatRequest, user: User = Depends(get_current_user), _: None = Depends(rag_rate_limit)):
     """General chat without RAG, supports conversation history."""
     reply = await rag_service.chat(req.message, history=req.history, web_search=req.web_search)
     return ChatResponse(reply=reply)
 
 
 @router.post("/chat/stream")
-async def chat_stream(req: ChatRequest, user: User = Depends(get_current_user)):
+async def chat_stream(req: ChatRequest, user: User = Depends(get_current_user), _: None = Depends(rag_rate_limit)):
     """Streaming general chat without RAG (SSE)."""
     import json as _json
 
@@ -75,6 +77,7 @@ async def ask_stream(
     req: RAGRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _: None = Depends(rag_rate_limit),
 ):
     """Streaming RAG Q&A (SSE). Sends text chunks, then sources JSON, then [DONE]."""
     import json as _json
@@ -136,6 +139,7 @@ async def generate_insights(
     req: InsightRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _: None = Depends(rag_rate_limit),
 ):
     """Analyze workspace inspiration patterns."""
     await get_workspace_membership(req.workspace_id, user, db)
