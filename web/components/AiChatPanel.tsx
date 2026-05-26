@@ -35,6 +35,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
   const streamContentRef = useRef("");
+  const webSearchResultsRef = useRef<WebSearchResult[] | undefined>(undefined);
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
@@ -136,6 +137,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setInput("");
     setIsStreaming(true);
     streamContentRef.current = "";
+    webSearchResultsRef.current = undefined;
 
     setMessages((prev) => [...prev, { role: "user", content: question }]);
     // Show loading hint when web search is enabled
@@ -171,6 +173,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           if (parsed.type === "web_search_results" && parsed.results) {
             // Show web search results immediately and reset content
             streamContentRef.current = "";
+            webSearchResultsRef.current = parsed.results;
             setMessages((prev) => {
               const updated = [...prev];
               updated[updated.length - 1] = {
@@ -210,13 +213,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       setIsStreaming(false);
       abortRef.current = null;
       if (currentChatId && streamContentRef.current) {
-        // Get web search results from the last assistant message
-        setMessages((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          const wsResults = lastMsg?.webSearchResults;
-          saveMessage(currentChatId!, "assistant", streamContentRef.current, wsResults);
-          return prev;
-        });
+        saveMessage(currentChatId, "assistant", streamContentRef.current, webSearchResultsRef.current);
       }
     };
 
