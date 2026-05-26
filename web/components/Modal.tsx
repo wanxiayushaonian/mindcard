@@ -47,7 +47,7 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className={`w-full ${sizeClasses[size]} rounded-2xl border border-border bg-surface p-6 shadow-xl`}
+        className={`w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="modal-title" className="mb-4 text-lg font-bold text-text">{title}</h2>

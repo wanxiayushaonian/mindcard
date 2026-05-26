@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
 import { useState, useEffect, useRef } from "react";
 import { cardApi, type Card, type CardFilters } from "@/lib/api";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
 import { FormField } from "@/components/FormField";
@@ -383,11 +384,15 @@ export default function WorkspacePage() {
           <p className="mb-3 text-sm text-text-secondary">
             解析到 {importPreview.length} 张卡片，确认导入？
           </p>
-          <div className="max-h-60 space-y-2 overflow-y-auto">
+          <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1">
             {importPreview.map((item, i) => (
-              <div key={i} className="rounded-lg border border-border bg-gray-50 px-3 py-2">
-                <p className="text-sm font-medium text-text">{item.title || "未命名"}</p>
-                <p className="mt-0.5 line-clamp-2 text-xs text-text-secondary">{item.content}</p>
+              <div key={i} className="rounded-lg border border-border bg-surface p-3">
+                {item.title && (
+                  <p className="mb-1 text-sm font-semibold text-text">{item.title}</p>
+                )}
+                <div className="max-h-32 overflow-y-auto text-xs">
+                  <MarkdownContent content={item.content} />
+                </div>
               </div>
             ))}
           </div>
