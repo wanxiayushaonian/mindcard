@@ -73,7 +73,7 @@ class RAGService:
         search_context = ""
         web_search_results = []
         if web_search:
-            search_results = web_search_service.search(question, max_results=5)
+            search_results = web_search_service.search(question, max_results=8)
             web_search_results = search_results
             if search_results:
                 search_context = "\n\n" + web_search_service.format_results(search_results)
@@ -280,7 +280,7 @@ Respond in JSON format:
         search_context = ""
         web_search_results = []
         if web_search:
-            search_results = web_search_service.search(question, max_results=5)
+            search_results = web_search_service.search(question, max_results=8)
             web_search_results = search_results
             if search_results:
                 search_context = "\n\n" + web_search_service.format_results(search_results)

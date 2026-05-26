@@ -16,7 +16,7 @@ class SearchResult:
 class WebSearchService:
     """Web search using DuckDuckGo (free, no API key required)."""
 
-    def search(self, query: str, max_results: int = 5, timeout: int = 10) -> list[SearchResult]:
+    def search(self, query: str, max_results: int = 8, timeout: int = 10) -> list[SearchResult]:
         """Search the web using DuckDuckGo with timeout."""
         try:
             ddgs = DDGS(timeout=timeout)

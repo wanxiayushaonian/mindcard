@@ -6,7 +6,7 @@ import { ragApi, chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type W
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp } from "lucide-react";
 
 type ChatMode = "rag" | "chat";
 
@@ -38,6 +38,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
+  const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number>>(new Set());
 
   const { data: workspace } = useSWR(
     workspaceId ? `workspace-${workspaceId}` : null,
@@ -177,6 +178,8 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 webSearchResults: parsed.results,
                 content: "",
               };
+              // Auto-expand search results for this message
+              setExpandedSearchResults((s) => new Set(s).add(updated.length - 1));
               return updated;
             });
             return;
@@ -422,23 +425,35 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                   )}
                   {msg.webSearchResults && msg.webSearchResults.length > 0 && (
                     <div className="mt-2 border-t border-border pt-2">
-                      <p className="mb-1 flex items-center gap-1 text-[10px] text-text-secondary">
+                      <button
+                        onClick={() => setExpandedSearchResults((s) => {
+                          const next = new Set(s);
+                          if (next.has(i)) next.delete(i); else next.add(i);
+                          return next;
+                        })}
+                        className="flex w-full items-center gap-1 text-[10px] text-text-secondary hover:text-text"
+                      >
                         <Globe size={10} />
-                        网页搜索结果：
-                      </p>
-                      {msg.webSearchResults.map((r, j) => (
-                        <div key={j} className="mb-1 rounded bg-blue-50 px-2 py-1 text-[10px]">
-                          <a
-                            href={r.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium text-blue-600 hover:underline"
-                          >
-                            {r.title}
-                          </a>
-                          <p className="mt-0.5 line-clamp-2 text-text-secondary">{r.snippet}</p>
+                        <span>网页搜索结果 ({msg.webSearchResults.length})</span>
+                        {expandedSearchResults.has(i) ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                      </button>
+                      {expandedSearchResults.has(i) && (
+                        <div className="mt-1">
+                          {msg.webSearchResults.map((r, j) => (
+                            <div key={j} className="mb-1 rounded bg-blue-50 px-2 py-1 text-[10px]">
+                              <a
+                                href={r.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-blue-600 hover:underline"
+                              >
+                                {r.title}
+                              </a>
+                              <p className="mt-0.5 line-clamp-2 text-text-secondary">{r.snippet}</p>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
                   )}
                 </div>
