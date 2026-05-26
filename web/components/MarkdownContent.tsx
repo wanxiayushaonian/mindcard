@@ -98,6 +98,18 @@ function fixMarkdown(text: string): string {
       /([。！？；：])(-)([^\s])/g,
       "$1\n- $3"
     );
+    // Split inline "-xxx：yyy" glued to Chinese text (no preceding punctuation)
+    // e.g., "潜在挑战-数据一致性：xxx-存储成本：yyy"
+    //   → "潜在挑战\n- 数据一致性：xxx\n- 存储成本：yyy"
+    // Loop to handle multiple occurrences on the same line
+    let prev = "";
+    while (prev !== processed) {
+      prev = processed;
+      processed = processed.replace(
+        /([一-鿿])(-[一-鿿])/,
+        "$1\n$2"
+      );
+    }
     result.push(processed);
   }
   s = result.join("\n");
