@@ -80,15 +80,7 @@ class RAGService:
             if search_results:
                 search_context = "\n\n" + web_search_service.format_results(search_results)
 
-        history_text = ""
-        if history:
-            history_lines = []
-            for h in history[-10:]:  # Last 10 messages for context
-                role = "用户" if h.get("role") == "user" else "助手"
-                history_lines.append(f"{role}：{h.get('content', '')}")
-            history_text = "\n\n对话历史：\n" + "\n".join(history_lines)
-
-        prompt = f"""基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
+        system_prompt = f"""你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
 回答格式要求（必须严格遵守）：
 - 每个主题必须用 ## 标题开头（必须写 ## 符号，不能省略），标题前后加空行
@@ -103,13 +95,14 @@ class RAGService:
 
 相关灵感卡片：
 {context}
-{search_context}
-{history_text}
-
-用户问题：{question}"""
+{search_context}"""
 
         # 3. Call LLM
-        answer = await llm_service.complete([{"role": "user", "content": prompt}])
+        messages = [{"role": "system", "content": system_prompt}]
+        if history:
+            messages.extend(history[-10:])
+        messages.append({"role": "user", "content": question})
+        answer = await llm_service.complete(messages)
 
         # 4. Return with sources
         source_cards = [
@@ -306,15 +299,7 @@ Respond in JSON format:
                     ],
                 }
 
-        history_text = ""
-        if history:
-            history_lines = []
-            for h in history[-10:]:  # Last 10 messages for context
-                role = "用户" if h.get("role") == "user" else "助手"
-                history_lines.append(f"{role}：{h.get('content', '')}")
-            history_text = "\n\n对话历史：\n" + "\n".join(history_lines)
-
-        prompt = f"""基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
+        system_prompt = f"""你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
 回答格式要求（必须严格遵守）：
 - 每个主题必须用 ## 标题开头（必须写 ## 符号，不能省略），标题前后加空行
@@ -329,13 +314,13 @@ Respond in JSON format:
 
 相关灵感卡片：
 {context}
-{search_context}
-{history_text}
-
-用户问题：{question}"""
+{search_context}"""
 
         # 3. Stream LLM response
-        messages = [{"role": "user", "content": prompt}]
+        messages = [{"role": "system", "content": system_prompt}]
+        if history:
+            messages.extend(history[-10:])
+        messages.append({"role": "user", "content": question})
         async for chunk in llm_service.stream(messages):
             yield chunk
 
