@@ -52,7 +52,7 @@ export function Modal({
       >
         <h2 id="modal-title" className="mb-4 text-lg font-bold text-text">{title}</h2>
         {children}
-        <div className="flex justify-end gap-3">
+        <div className="mt-4 flex justify-end gap-3">
           <button
             onClick={onClose}
             className="rounded-xl px-4 py-2 text-sm text-text-secondary hover:bg-gray-100"
