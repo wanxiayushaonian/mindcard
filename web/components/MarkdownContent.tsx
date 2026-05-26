@@ -6,7 +6,6 @@ import {
   memo,
   startTransition,
   Suspense,
-  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -175,36 +174,6 @@ function fixMarkdown(text: string): string {
   return s.trim();
 }
 
-// --- splitIntoBlocks: split content for per-block precipitate ---
-
-function isTableLike(text: string): boolean {
-  if (/^\|.*\|/.test(text)) return true;
-  // Space-separated with 2+ columns
-  const lines = text.split("\n");
-  if (lines.length >= 1 && /^(\S+\s{2,})+\S+$/.test(lines[0].trim())) return true;
-  return false;
-}
-
-function splitIntoBlocks(text: string): string[] {
-  const fixed = fixMarkdown(text);
-  const blocks = fixed.split(/\n{2,}/);
-  const merged: string[] = [];
-  for (const block of blocks) {
-    const trimmed = block.trim();
-    if (!trimmed) continue;
-    const isListItem = /^(\d+\.|[-*+])\s/.test(trimmed);
-    const isTable = isTableLike(trimmed);
-    const prevIsList = merged.length > 0 && /^(\d+\.|[-*+])\s/m.test(merged[merged.length - 1]);
-    const prevIsTable = merged.length > 0 && isTableLike(merged[merged.length - 1]);
-    if ((isListItem && prevIsList) || (isTable && prevIsTable)) {
-      merged[merged.length - 1] += "\n\n" + trimmed;
-    } else {
-      merged.push(trimmed);
-    }
-  }
-  return merged;
-}
-
 // --- Streaming-aware markdown throttle ---
 
 const SHORT_STREAM_COMMIT_MS = 80;
@@ -288,6 +257,60 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
   highlightCode,
   onPrecipitateBlock,
 }: MarkdownRendererProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [selectionState, setSelectionState] = useState<{ text: string; x: number; y: number } | null>(null);
+
+  const handlePrecipitate = useCallback(() => {
+    if (selectionState?.text && onPrecipitateBlock) {
+      onPrecipitateBlock(selectionState.text);
+      setSelectionState(null);
+      window.getSelection()?.removeAllRanges();
+    }
+  }, [selectionState, onPrecipitateBlock]);
+
+  useEffect(() => {
+    if (!onPrecipitateBlock) return;
+
+    const handleMouseUp = () => {
+      setTimeout(() => {
+        const selection = window.getSelection();
+        const text = selection?.toString().trim();
+        if (!text || !containerRef.current) {
+          setSelectionState(null);
+          return;
+        }
+
+        // Check if selection is within our container
+        const range = selection?.getRangeAt(0);
+        if (!range || !containerRef.current.contains(range.commonAncestorContainer)) {
+          setSelectionState(null);
+          return;
+        }
+
+        const rect = range.getBoundingClientRect();
+        const containerRect = containerRef.current.getBoundingClientRect();
+        setSelectionState({
+          text,
+          x: rect.left - containerRect.left + rect.width / 2,
+          y: rect.top - containerRect.top - 8,
+        });
+      }, 10);
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      // Don't clear if clicking the precipitate button
+      if ((e.target as HTMLElement).closest("[data-precipitate-btn]")) return;
+      setSelectionState(null);
+    };
+
+    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => {
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mousedown", handleMouseDown);
+    };
+  }, [onPrecipitateBlock]);
+
   const components = useMemo<Components>(
     () => ({
       code({ className: cls, children: kids, ...props }) {
@@ -353,58 +376,31 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
     [highlightCode],
   );
 
-  if (!onPrecipitateBlock) {
-    return (
-      <div className={PROSE_CLASSES}>
-        <ReactMarkdown
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          components={components}
-        >
-          {source}
-        </ReactMarkdown>
-      </div>
-    );
-  }
-
-  const blocks = splitIntoBlocks(source);
-  if (blocks.length <= 1) {
-    return (
-      <div className={PROSE_CLASSES}>
-        <ReactMarkdown
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          components={components}
-        >
-          {source}
-        </ReactMarkdown>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-1">
-      {blocks.map((block, i) => (
-        <div key={i} className="group relative">
-          <div className={PROSE_CLASSES}>
-            <ReactMarkdown
-              remarkPlugins={remarkPlugins}
-              rehypePlugins={rehypePlugins}
-              components={components}
-            >
-              {block}
-            </ReactMarkdown>
-          </div>
-          <button
-            onClick={() => onPrecipitateBlock(block)}
-            className="absolute -right-1 -top-1 z-10 hidden items-center gap-1 rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-secondary shadow-sm transition hover:border-primary hover:text-primary-dark group-hover:flex"
-            title="沉淀此段为卡片"
-          >
-            <Scissors size={10} />
-            沉淀
-          </button>
-        </div>
-      ))}
+    <div ref={containerRef} className={`relative ${PROSE_CLASSES}`}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        components={components}
+      >
+        {source}
+      </ReactMarkdown>
+      {onPrecipitateBlock && selectionState && (
+        <button
+          data-precipitate-btn
+          onClick={handlePrecipitate}
+          className="absolute z-50 flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary shadow-md transition hover:border-primary hover:text-primary-dark"
+          style={{
+            left: `${selectionState.x}px`,
+            top: `${selectionState.y}px`,
+            transform: "translate(-50%, -100%)",
+          }}
+          title="沉淀选取内容为卡片"
+        >
+          <Scissors size={12} />
+          沉淀
+        </button>
+      )}
     </div>
   );
 });
