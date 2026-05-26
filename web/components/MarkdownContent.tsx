@@ -110,9 +110,54 @@ function fixMarkdown(text: string): string {
         "$1\n$2"
       );
     }
+    // Normalize: "-Chinese" (no space) → "- Chinese" to ensure consistent list rendering
+    // This handles cases where the split gives "-知识联想" instead of "- 知识联想"
+    processed = processed.replace(/^(-)([一-鿿])/, "$1 $2");
     result.push(processed);
   }
   s = result.join("\n");
+
+  // Step 3.5: Normalize inline list items — ensure "- Chinese" has space, and
+  // if a short heading-like line is immediately followed by 2+ dash-prefixed items,
+  // convert it to a list item for consistency.
+  const normLines = s.split("\n");
+  const normResult: string[] = [];
+  let i35 = 0;
+  while (i35 < normLines.length) {
+    const line = normLines[i35];
+    const trimmed = line.trim();
+    const startsWithDash = /^-[一-鿿]/.test(trimmed);
+    const startsWithDashSpace = /^- [一-鿿]/.test(trimmed);
+
+    if (startsWithDash && !startsWithDashSpace) {
+      // "-Chinese" → "- Chinese"
+      normResult.push(line.replace(/^(\s*)(-)([一-鿿])/, "$1$2 $3"));
+    } else if (!startsWithDash && !startsWithDashSpace && trimmed.length > 0) {
+      // Check if this short heading-like text is followed by 2+ dash-prefixed items
+      // "Heading-like": under ~30 chars, no sentence-ending punctuation
+      const isHeadingLike = trimmed.length < 30 && !/[。！？；.!?]/.test(trimmed);
+      let dashCount = 0;
+      let j = i35 + 1;
+      while (j < normLines.length && j < i35 + 10) {
+        const nextTrimmed = normLines[j].trim();
+        if (/^-[一-鿿]/.test(nextTrimmed) || /^- [一-鿿]/.test(nextTrimmed)) {
+          dashCount++;
+          j++;
+        } else {
+          break;
+        }
+      }
+      if (isHeadingLike && dashCount >= 2) {
+        normResult.push("- " + trimmed);
+      } else {
+        normResult.push(line);
+      }
+    } else {
+      normResult.push(line);
+    }
+    i35++;
+  }
+  s = normResult.join("\n");
 
   // Step 4: Convert space-separated table regions and insert separators
   // This handles cases like:
