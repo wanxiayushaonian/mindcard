@@ -133,21 +133,28 @@ function fixMarkdown(text: string): string {
       // "-Chinese" → "- Chinese"
       normResult.push(line.replace(/^(\s*)(-)([一-鿿])/, "$1$2 $3"));
     } else if (!startsWithDash && !startsWithDashSpace && trimmed.length > 0) {
-      // Check if this short heading-like text is followed by 2+ dash-prefixed items
-      // "Heading-like": under ~30 chars, no sentence-ending punctuation
-      const isHeadingLike = trimmed.length < 30 && !/[。！？；.!?]/.test(trimmed);
+      // Check if this short text is followed by 2+ dash-prefixed items
       let dashCount = 0;
+      let nextHasColon = false;
       let j = i35 + 1;
       while (j < normLines.length && j < i35 + 10) {
         const nextTrimmed = normLines[j].trim();
         if (/^-[一-鿿]/.test(nextTrimmed) || /^- [一-鿿]/.test(nextTrimmed)) {
           dashCount++;
+          if (/：/.test(nextTrimmed)) nextHasColon = true;
           j++;
         } else {
           break;
         }
       }
-      if (isHeadingLike && dashCount >= 2) {
+      // Convert to list item only if:
+      // - short text (< 30 chars), no sentence-ending punctuation
+      // - followed by 2+ dash-prefixed items
+      // - current line has no colon (if it has colon, it's already a list item)
+      // - following items DO have colons (distinguishes heading from first list item)
+      const isShort = trimmed.length < 30 && !/[。！？；.!?]/.test(trimmed);
+      const currentHasColon = /：/.test(trimmed);
+      if (isShort && !currentHasColon && nextHasColon && dashCount >= 2) {
         normResult.push("- " + trimmed);
       } else {
         normResult.push(line);
