@@ -63,6 +63,19 @@ export default function WorkspacePage() {
     }
   };
 
+  const [keywordInput, setKeywordInput] = useState(filters.keyword || "");
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((prev) => {
+        const next = { ...prev };
+        if (keywordInput.trim()) next.keyword = keywordInput.trim();
+        else delete next.keyword;
+        return next;
+      });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [keywordInput]);
+
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -261,13 +274,8 @@ export default function WorkspacePage() {
           </select>
           <input
             type="text"
-            value={filters.keyword || ""}
-            onChange={(e) => {
-              const next = { ...filters };
-              if (e.target.value.trim()) next.keyword = e.target.value.trim();
-              else delete next.keyword;
-              setFilters(next);
-            }}
+            value={keywordInput}
+            onChange={(e) => setKeywordInput(e.target.value)}
             placeholder="关键词筛选"
             className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs text-text outline-none placeholder:text-text-secondary"
           />

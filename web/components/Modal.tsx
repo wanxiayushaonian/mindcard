@@ -26,15 +26,17 @@ export function Modal({
   children,
 }: ModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
+    containerRef.current?.focus();
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", handleKey);
-    containerRef.current?.focus();
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, []);
 
   return (
     <div
