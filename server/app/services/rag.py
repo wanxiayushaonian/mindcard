@@ -111,6 +111,7 @@ class RAGService:
                 title=c.title,
                 content=c.content[:200],
                 keywords=c.keywords,
+                color=c.color,
             )
             for c in context_cards
         ]
@@ -331,6 +332,7 @@ Respond in JSON format:
                 title=c.title,
                 content=c.content[:200],
                 keywords=c.keywords,
+                color=c.color,
             )
             for c in context_cards
         ]

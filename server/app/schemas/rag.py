@@ -17,6 +17,7 @@ class CardSummary(BaseModel):
     title: str
     content: str
     keywords: list[str]
+    color: str = "#B8D4E3"
 
 
 class WebSearchResult(BaseModel):

@@ -335,7 +335,7 @@ export interface WebSearchResult {
 
 export interface RAGResponse {
   answer: string;
-  source_cards: { id: string; title: string; content: string; keywords: string[] }[];
+  source_cards: { id: string; title: string; content: string; keywords: string[]; color: string }[];
   confidence: number;
   web_search_results?: WebSearchResult[];
 }

@@ -421,13 +421,22 @@ function RAGContent() {
                   )}
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="mt-3 border-t border-border pt-2">
-                      <p className="mb-1 text-xs text-text-secondary">引用来源：</p>
-                      {msg.sources.map((s) => (
-                        <div key={s.id} className="mb-1 rounded bg-gray-50 px-2 py-1 text-xs text-text-secondary">
-                          {s.title && <span className="font-medium">{s.title}: </span>}
-                          <span className="line-clamp-1">{s.content}</span>
-                        </div>
-                      ))}
+                      <p className="mb-1.5 text-[10px] text-text-secondary">引用来源：</p>
+                      <div className="flex flex-col gap-1">
+                        {msg.sources.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => router.push(`/workspaces/${workspaceId}/card/${s.id}`)}
+                            className="flex items-start gap-2 rounded-lg border border-border/50 bg-gray-50/80 px-2.5 py-1.5 text-left text-[11px] transition hover:border-primary/30 hover:bg-primary/5"
+                          >
+                            <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full" style={{ background: s.color || "#B8D4E3" }} />
+                            <div className="min-w-0 flex-1">
+                              {s.title && <span className="block font-medium text-text">{s.title}</span>}
+                              <span className="line-clamp-1 text-text-secondary">{s.content}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {msg.webSearchResults && msg.webSearchResults.length > 0 && (

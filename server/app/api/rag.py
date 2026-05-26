@@ -101,7 +101,7 @@ async def ask_stream(
                 yield f"data: {chunk}\n\n"
         if sources:
             source_data = [
-                {"id": s.id, "title": s.title, "content": s.content, "keywords": s.keywords}
+                {"id": s.id, "title": s.title, "content": s.content, "keywords": s.keywords, "color": s.color}
                 for s in sources
             ]
             yield f"data: {_json.dumps({'type': 'sources', 'cards': source_data})}\n\n"
