@@ -102,32 +102,42 @@ export default function WorkspacePage() {
 
   // --- Import / Export ---
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importPreview, setImportPreview] = useState<{ title: string; content: string }[] | null>(null);
+  const [importPreview, setImportPreview] = useState<{ title: string; content: string; keywords: string[] }[] | null>(null);
   const [importing, setImporting] = useState(false);
 
-  function parseMarkdownFiles(text: string, filename: string): { title: string; content: string }[] {
+  function parseMarkdownFiles(text: string, filename: string): { title: string; content: string; keywords: string[] }[] {
     // Strip YAML frontmatter
     const body = text.replace(/^---[\s\S]*?---\n?/, "").trim();
     if (!body) return [];
     // Split by ## headings
     const sections = body.split(/\n(?=## )/);
-    if (sections.length <= 1) {
-      // No ## headings — single card, use filename as title
-      return [{ title: filename.replace(/\.md$/i, ""), content: body }];
-    }
-    return sections
-      .map((s) => {
-        const match = s.match(/^## (.+)\n([\s\S]*)/);
-        if (match) return { title: match[1].trim(), content: match[2].trim() };
-        return { title: "", content: s.trim() };
-      })
-      .filter((s) => s.content);
+    const parsed = sections.length <= 1
+      ? [{ title: filename.replace(/\.md$/i, ""), content: body }]
+      : sections
+          .map((s) => {
+            const match = s.match(/^## (.+)\n([\s\S]*)/);
+            if (match) return { title: match[1].trim(), content: match[2].trim() };
+            return { title: "", content: s.trim() };
+          })
+          .filter((s) => s.content);
+    // Extract keywords from content lines like "关键词: a, b, c" or "keywords: a, b, c"
+    return parsed.map((item) => {
+      const lines = item.content.split("\n");
+      const kwLineIdx = lines.findIndex((l) => /^关键词[：:]\s*/.test(l.trim()) || /^keywords[：:]\s*/i.test(l.trim()));
+      let keywords: string[] = [];
+      if (kwLineIdx >= 0) {
+        const kwText = lines[kwLineIdx].replace(/^关键词[：:]\s*/i, "").replace(/^keywords[：:]\s*/i, "");
+        keywords = kwText.split(/[,，、]+/).map((k) => k.trim()).filter(Boolean).slice(0, 5);
+        lines.splice(kwLineIdx, 1);
+      }
+      return { title: item.title, content: lines.join("\n").trim(), keywords };
+    });
   }
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const allParsed: { title: string; content: string }[] = [];
+    const allParsed: { title: string; content: string; keywords: string[] }[] = [];
     for (const file of Array.from(files)) {
       const text = await file.text();
       allParsed.push(...parseMarkdownFiles(text, file.name));
@@ -154,6 +164,7 @@ export default function WorkspacePage() {
           workspace_id: workspaceId,
           title: item.title,
           content: item.content,
+          keywords: item.keywords,
         });
         success++;
       } catch {
@@ -389,6 +400,13 @@ export default function WorkspacePage() {
               <div key={i} className="rounded-lg border border-border bg-surface p-3">
                 {item.title && (
                   <p className="mb-1 text-sm font-semibold text-text">{item.title}</p>
+                )}
+                {item.keywords.length > 0 && (
+                  <div className="mb-1 flex flex-wrap gap-1">
+                    {item.keywords.map((kw) => (
+                      <span key={kw} className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary-dark">{kw}</span>
+                    ))}
+                  </div>
                 )}
                 <div className="max-h-32 overflow-y-auto text-xs">
                   <MarkdownContent content={item.content} />
