@@ -49,6 +49,7 @@ class RAGService:
         card_id: str | None = None,
         top_k: int = 5,
         web_search: bool = False,
+        history: list[dict[str, str]] | None = None,
     ) -> dict:
         """Answer a question using RAG over workspace cards."""
         # 1. Retrieve relevant cards
@@ -79,6 +80,14 @@ class RAGService:
             if search_results:
                 search_context = "\n\n" + web_search_service.format_results(search_results)
 
+        history_text = ""
+        if history:
+            history_lines = []
+            for h in history[-10:]:  # Last 10 messages for context
+                role = "用户" if h.get("role") == "user" else "助手"
+                history_lines.append(f"{role}：{h.get('content', '')}")
+            history_text = "\n\n对话历史：\n" + "\n".join(history_lines)
+
         prompt = f"""基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
 回答格式要求（必须严格遵守）：
@@ -95,6 +104,7 @@ class RAGService:
 相关灵感卡片：
 {context}
 {search_context}
+{history_text}
 
 用户问题：{question}"""
 
@@ -260,6 +270,7 @@ Respond in JSON format:
         card_id: str | None = None,
         top_k: int = 5,
         web_search: bool = False,
+        history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str | dict, None]:
         """Streaming RAG answer: retrieve cards, stream LLM, yield sources dict at end."""
         # 1. Retrieve relevant cards
@@ -295,6 +306,14 @@ Respond in JSON format:
                     ],
                 }
 
+        history_text = ""
+        if history:
+            history_lines = []
+            for h in history[-10:]:  # Last 10 messages for context
+                role = "用户" if h.get("role") == "user" else "助手"
+                history_lines.append(f"{role}：{h.get('content', '')}")
+            history_text = "\n\n对话历史：\n" + "\n".join(history_lines)
+
         prompt = f"""基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
 回答格式要求（必须严格遵守）：
@@ -311,6 +330,7 @@ Respond in JSON format:
 相关灵感卡片：
 {context}
 {search_context}
+{history_text}
 
 用户问题：{question}"""
 

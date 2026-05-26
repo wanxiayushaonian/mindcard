@@ -235,14 +235,14 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       }
     };
 
+    const hist = messages
+      .filter((m) => m.content)
+      .map((m) => ({ role: m.role, content: m.content }));
     if (mode === "chat") {
-      const hist = messages
-        .filter((m) => m.content)
-        .map((m) => ({ role: m.role, content: m.content }));
       abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist, webSearch);
     } else {
       abortRef.current = ragApi.askStream(
-        question, workspaceId, onChunk, onDone, onError, cardId, 5, webSearch,
+        question, workspaceId, onChunk, onDone, onError, cardId, 5, webSearch, hist,
       );
     }
   };

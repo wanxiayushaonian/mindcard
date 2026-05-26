@@ -333,10 +333,11 @@ export const ragApi = {
     cardId?: string,
     topK = 5,
     webSearch = false,
+    history: { role: string; content: string }[] = [],
   ) =>
     streamRequest(
       "/api/rag/ask/stream",
-      { question, workspace_id: workspaceId, card_id: cardId, top_k: topK, web_search: webSearch },
+      { question, workspace_id: workspaceId, card_id: cardId, top_k: topK, web_search: webSearch, history },
       onChunk,
       onDone,
       onError,

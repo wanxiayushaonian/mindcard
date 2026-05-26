@@ -32,7 +32,8 @@ async def rag_ask(
     """RAG knowledge Q&A: retrieve relevant cards, then generate answer."""
     await get_workspace_membership(req.workspace_id, user, db)
     result = await rag_service.ask(
-        db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search
+        db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
+        history=req.history or None,
     )
     source_cards = [
         CardSummary.model_validate(s) if isinstance(s, dict) else s
@@ -83,7 +84,8 @@ async def ask_stream(
     async def event_generator():
         sources = []
         async for chunk in rag_service.ask_stream(
-            db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search
+            db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
+            history=req.history or None,
         ):
             if isinstance(chunk, dict):
                 chunk_type = chunk.get("type", "")
