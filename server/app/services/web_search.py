@@ -16,10 +16,10 @@ class SearchResult:
 class WebSearchService:
     """Web search using DuckDuckGo (free, no API key required)."""
 
-    def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
-        """Search the web using DuckDuckGo."""
+    def search(self, query: str, max_results: int = 5, timeout: int = 10) -> list[SearchResult]:
+        """Search the web using DuckDuckGo with timeout."""
         try:
-            ddgs = DDGS()
+            ddgs = DDGS(timeout=timeout)
             results = list(ddgs.text(query, max_results=max_results))
             return [
                 SearchResult(
@@ -29,8 +29,8 @@ class WebSearchService:
                 )
                 for r in results
             ]
-        except Exception:
-            logger.exception("Web search failed")
+        except Exception as e:
+            logger.warning(f"Web search failed: {e}")
             return []
 
     def format_results(self, results: list[SearchResult]) -> str:
