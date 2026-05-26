@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -6,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.card import Card
 from app.models.user import User
+from app.models.workspace import WorkspaceMember
 from app.schemas.card import CardResponse
 from app.schemas.rag import (
     CardSummary,
@@ -24,6 +27,23 @@ from app.utils.rate_limit import rag_rate_limit
 router = APIRouter()
 
 
+async def _resolve_workspace_ids(
+    workspace_id: str | None, user: User, db: AsyncSession
+) -> list[uuid.UUID]:
+    """Resolve workspace_id to a list of UUIDs. None = all user workspaces."""
+    if workspace_id:
+        ws_id = parse_uuid(workspace_id)
+        await get_workspace_membership(ws_id, user, db)
+        return [ws_id]
+    result = await db.execute(
+        select(WorkspaceMember.workspace_id).where(WorkspaceMember.user_id == user.id)
+    )
+    ws_ids = [row[0] for row in result.all()]
+    if not ws_ids:
+        raise HTTPException(status_code=400, detail="你还没有加入任何空间")
+    return ws_ids
+
+
 @router.post("/ask", response_model=RAGResponse)
 async def rag_ask(
     req: RAGRequest,
@@ -32,9 +52,9 @@ async def rag_ask(
     _: None = Depends(rag_rate_limit),
 ):
     """RAG knowledge Q&A: retrieve relevant cards, then generate answer."""
-    await get_workspace_membership(req.workspace_id, user, db)
+    ws_ids = await _resolve_workspace_ids(req.workspace_id, user, db)
     result = await rag_service.ask(
-        db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
+        db, req.question, ws_ids, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
         history=req.history or None,
     )
     source_cards = [
@@ -82,12 +102,12 @@ async def ask_stream(
     """Streaming RAG Q&A (SSE). Sends text chunks, then sources JSON, then [DONE]."""
     import json as _json
 
-    await get_workspace_membership(req.workspace_id, user, db)
+    ws_ids = await _resolve_workspace_ids(req.workspace_id, user, db)
 
     async def event_generator():
         sources = []
         async for chunk in rag_service.ask_stream(
-            db, req.question, req.workspace_id, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
+            db, req.question, ws_ids, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
             history=req.history or None,
         ):
             if isinstance(chunk, dict):

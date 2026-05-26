@@ -42,6 +42,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
+  const [globalRag, setGlobalRag] = useState(false);
   const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number>>(new Set());
 
   const { data: workspace } = useSWR(
@@ -248,7 +249,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist, webSearch);
     } else {
       abortRef.current = ragApi.askStream(
-        question, workspaceId, onChunk, onDone, onError, cardId, 5, webSearch, hist,
+        question, globalRag ? undefined : workspaceId, onChunk, onDone, onError, cardId, 5, webSearch, hist,
       );
     }
   };
@@ -295,6 +296,21 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             自由对话
           </button>
         </div>
+
+        {mode === "rag" && (
+          <button
+            onClick={() => setGlobalRag(!globalRag)}
+            className={`ml-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition ${
+              globalRag
+                ? "bg-primary/10 text-primary-dark"
+                : "text-text-secondary hover:bg-gray-100"
+            }`}
+            title={globalRag ? "搜索所有空间" : "搜索当前空间"}
+          >
+            <Globe size={10} />
+            {globalRag ? "全部空间" : "当前空间"}
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-1">
           <button

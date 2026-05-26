@@ -49,6 +49,7 @@ function RAGContent() {
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
+  const [globalRag, setGlobalRag] = useState(false);
   const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number>>(new Set());
 
   const { data: workspace } = useSWR(
@@ -57,7 +58,7 @@ function RAGContent() {
   );
   const canPrecipitate = workspace?.member_role === "owner";
 
-  const ragDisabled = mode === "rag" && !workspaceId;
+  const ragDisabled = mode === "rag" && !workspaceId && !globalRag;
 
   const handlePrecipitateBlock = async (blockText: string) => {
     if (!workspaceId) {
@@ -252,16 +253,16 @@ function RAGContent() {
     if (mode === "chat") {
       abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist, webSearch);
     } else {
-      if (!workspaceId) {
+      if (!workspaceId && !globalRag) {
         setMessages((prev) => [
           ...prev.slice(0, -1),
-          { role: "assistant", content: "请先从空间页面进入 AI 问答。" },
+          { role: "assistant", content: "请先从空间页面进入 AI 问答，或开启「全部空间」模式。" },
         ]);
         setIsStreaming(false);
         return;
       }
       abortRef.current = ragApi.askStream(
-        question, workspaceId, onChunk, onDone, onError, cardId, 5, webSearch, hist,
+        question, globalRag ? undefined : workspaceId, onChunk, onDone, onError, cardId, 5, webSearch, hist,
       );
     }
   };
@@ -322,6 +323,21 @@ function RAGContent() {
             自由对话
           </button>
         </div>
+
+        {mode === "rag" && (
+          <button
+            onClick={() => setGlobalRag(!globalRag)}
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition ${
+              globalRag
+                ? "bg-primary/10 text-primary-dark"
+                : "text-text-secondary hover:bg-gray-100"
+            }`}
+            title={globalRag ? "搜索所有空间" : "搜索当前空间"}
+          >
+            <Globe size={10} />
+            {globalRag ? "全部空间" : "当前空间"}
+          </button>
+        )}
 
         <button
           onClick={() => setShowHistory(!showHistory)}

@@ -348,7 +348,7 @@ export const ragApi = {
     }),
   askStream: (
     question: string,
-    workspaceId: string,
+    workspaceId: string | undefined,
     onChunk: (text: string) => void,
     onDone: () => void,
     onError?: (err: Error) => void,
@@ -359,7 +359,7 @@ export const ragApi = {
   ) =>
     streamRequest(
       "/api/rag/ask/stream",
-      { question, workspace_id: workspaceId, card_id: cardId, top_k: topK, web_search: webSearch, history },
+      { question, workspace_id: workspaceId || null, card_id: cardId, top_k: topK, web_search: webSearch, history },
       onChunk,
       onDone,
       onError,

@@ -5,7 +5,7 @@ from app.schemas.card import CardResponse
 
 class RAGRequest(BaseModel):
     question: str
-    workspace_id: str
+    workspace_id: str | None = None  # None = search all user workspaces
     card_id: str | None = None  # Optional: use a specific card as context center
     top_k: int = 5
     web_search: bool = False  # Enable web search for supplementary context

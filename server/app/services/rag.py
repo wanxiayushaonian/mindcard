@@ -45,7 +45,7 @@ class RAGService:
         self,
         db: AsyncSession,
         question: str,
-        workspace_id: str,
+        workspace_ids: list | None = None,
         card_id: str | None = None,
         top_k: int = 5,
         web_search: bool = False,
@@ -56,7 +56,7 @@ class RAGService:
         if card_id:
             context_cards = await self._find_similar_cards(db, card_id, limit=top_k)
         else:
-            scored = await search_service.hybrid_search(db, question, workspace_id, limit=top_k)
+            scored = await search_service.hybrid_search(db, question, workspace_ids, limit=top_k)
             context_cards = [sc.card for sc in scored]
 
         if not context_cards:
@@ -260,7 +260,7 @@ Respond in JSON format:
         self,
         db: AsyncSession,
         question: str,
-        workspace_id: str,
+        workspace_ids: list | None = None,
         card_id: str | None = None,
         top_k: int = 5,
         web_search: bool = False,
@@ -271,7 +271,7 @@ Respond in JSON format:
         if card_id:
             context_cards = await self._find_similar_cards(db, card_id, limit=top_k)
         else:
-            scored = await search_service.hybrid_search(db, question, workspace_id, limit=top_k)
+            scored = await search_service.hybrid_search(db, question, workspace_ids, limit=top_k)
             context_cards = [sc.card for sc in scored]
 
         if not context_cards:
