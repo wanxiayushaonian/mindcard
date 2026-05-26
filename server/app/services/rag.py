@@ -216,7 +216,7 @@ Respond in JSON format:
         # Optional web search
         user_message = message
         if web_search:
-            search_results = web_search_service.search(message, max_results=5)
+            search_results = web_search_service.search(message, max_results=8)
             if search_results:
                 user_message = message + "\n\n" + web_search_service.format_results(search_results)
 
@@ -234,7 +234,7 @@ Respond in JSON format:
         # Optional web search - yield results immediately
         user_message = message
         if web_search:
-            search_results = web_search_service.search(message, max_results=5)
+            search_results = web_search_service.search(message, max_results=8)
             if search_results:
                 user_message = message + "\n\n" + web_search_service.format_results(search_results)
                 # Yield web search results immediately for frontend display
