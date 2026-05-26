@@ -203,6 +203,7 @@ export interface Card {
   content: string;
   keywords: string[];
   color: string;
+  emotion_tag: string;
   is_favorite: boolean;
   is_temp: boolean;
   created_at: string;
@@ -214,6 +215,7 @@ export interface CardFilters {
   order?: "asc" | "desc";
   is_favorite?: boolean;
   is_temp?: boolean;
+  emotion_tag?: string;
   keyword?: string;
 }
 
@@ -254,6 +256,7 @@ export const cardApi = {
     content: string;
     keywords?: string[];
     color?: string;
+    emotion_tag?: string;
   }) =>
     request<Card>("/api/cards/", {
       method: "POST",
@@ -306,20 +309,20 @@ export interface SearchResult {
 }
 
 export const searchApi = {
-  semantic: (query: string, workspaceId: string, limit = 20) =>
+  semantic: (query: string, workspaceId?: string, limit = 20, sortBy = "relevance") =>
     request<{ results: SearchResult[]; total: number }>("/api/search/semantic", {
       method: "POST",
-      body: JSON.stringify({ query, workspace_id: workspaceId, limit }),
+      body: JSON.stringify({ query, workspace_id: workspaceId || null, limit, sort_by: sortBy }),
     }),
-  fulltext: (query: string, workspaceId: string, limit = 20) =>
+  fulltext: (query: string, workspaceId?: string, limit = 20, sortBy = "relevance") =>
     request<{ results: SearchResult[]; total: number }>("/api/search/fulltext", {
       method: "POST",
-      body: JSON.stringify({ query, workspace_id: workspaceId, limit }),
+      body: JSON.stringify({ query, workspace_id: workspaceId || null, limit, sort_by: sortBy }),
     }),
-  hybrid: (query: string, workspaceId: string, limit = 20) =>
+  hybrid: (query: string, workspaceId?: string, limit = 20, sortBy = "relevance") =>
     request<{ results: SearchResult[]; total: number }>("/api/search/hybrid", {
       method: "POST",
-      body: JSON.stringify({ query, workspace_id: workspaceId, limit }),
+      body: JSON.stringify({ query, workspace_id: workspaceId || null, limit, sort_by: sortBy }),
     }),
 };
 

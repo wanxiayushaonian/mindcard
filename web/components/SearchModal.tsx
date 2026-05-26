@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { searchApi, type SearchResult } from "@/lib/api";
-import { Search, X, ArrowRight } from "lucide-react";
+import { Search, X, ArrowRight, Globe } from "lucide-react";
 
 type SearchMode = "semantic" | "fulltext" | "hybrid";
+type SortBy = "relevance" | "created_at";
 
 function HighlightText({ text, query }: { text: string; query: string }) {
   if (!query.trim()) return <>{text}</>;
@@ -34,8 +35,13 @@ export function SearchModal({
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("hybrid");
+  const [sortBy, setSortBy] = useState<SortBy>("relevance");
+  const [global, setGlobal] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -45,13 +51,13 @@ export function SearchModal({
   useEffect(() => {
     inputRef.current?.focus();
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, []);
 
-  const doSearch = async (q: string, m: SearchMode) => {
+  const doSearch = async (q: string, m: SearchMode, s: SortBy, g: boolean) => {
     if (!q.trim()) {
       setResults([]);
       setSearched(false);
@@ -62,7 +68,8 @@ export function SearchModal({
     setSearched(true);
     try {
       const searchFn = { semantic: searchApi.semantic, fulltext: searchApi.fulltext, hybrid: searchApi.hybrid }[m];
-      const res = await searchFn(q, workspaceId);
+      const wsId = g ? undefined : workspaceId;
+      const res = await searchFn(q, wsId, 20, s);
       setResults(res.results);
     } catch (e: any) {
       setResults([]);
@@ -79,17 +86,17 @@ export function SearchModal({
       return;
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSearch(query, mode), 400);
+    debounceRef.current = setTimeout(() => doSearch(query, mode, sortBy, global), 400);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query, mode]);
+  }, [query, mode, sortBy, global]);
 
-  const handleSelect = (cardId: string) => {
-    onClose();
-    router.push(`/workspaces/${workspaceId}/card/${cardId}`);
+  const handleSelect = (cardId: string, cardWorkspaceId: string) => {
+    onCloseRef.current();
+    router.push(`/workspaces/${cardWorkspaceId}/card/${cardId}`);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onClick={() => onCloseRef.current()}>
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
       <div
         className="relative w-full max-w-2xl rounded-2xl bg-surface shadow-2xl"
@@ -103,10 +110,10 @@ export function SearchModal({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") doSearch(query, mode);
-              if (e.key === "Escape") onClose();
+              if (e.key === "Enter") doSearch(query, mode, sortBy, global);
+              if (e.key === "Escape") onCloseRef.current();
             }}
-            placeholder="搜索灵感卡片..."
+            placeholder={global ? "搜索所有空间..." : "搜索当前空间..."}
             className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-secondary"
           />
           {query && (
@@ -114,26 +121,64 @@ export function SearchModal({
               <X size={16} />
             </button>
           )}
-          <button onClick={onClose} className="shrink-0 text-xs text-text-secondary hover:text-text">
+          <button onClick={() => onCloseRef.current()} className="shrink-0 text-xs text-text-secondary hover:text-text">
             ESC
           </button>
         </div>
 
-        {/* Mode tabs */}
-        <div className="flex gap-1 border-b border-border px-4 py-2">
-          {(["hybrid", "semantic", "fulltext"] as SearchMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`rounded-md px-2.5 py-1 text-xs transition ${
-                mode === m
-                  ? "bg-primary text-white"
-                  : "text-text-secondary hover:bg-gray-100"
-              }`}
-            >
-              {{ hybrid: "混合", semantic: "语义", fulltext: "全文" }[m]}
-            </button>
-          ))}
+        {/* Controls bar */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+          {/* Mode tabs */}
+          <div className="flex gap-1">
+            {(["hybrid", "semantic", "fulltext"] as SearchMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`rounded-md px-2.5 py-1 text-xs transition ${
+                  mode === m
+                    ? "bg-primary text-white"
+                    : "text-text-secondary hover:bg-gray-100"
+                }`}
+              >
+                {{ hybrid: "混合", semantic: "语义", fulltext: "全文" }[m]}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-4 w-px bg-border" />
+
+          {/* Sort toggle */}
+          <div className="flex gap-1">
+            {([["relevance", "相关度"], ["created_at", "时间"]] as [SortBy, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setSortBy(val)}
+                className={`rounded-md px-2 py-1 text-xs transition ${
+                  sortBy === val
+                    ? "bg-primary/10 text-primary-dark"
+                    : "text-text-secondary hover:bg-gray-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-4 w-px bg-border" />
+
+          {/* Global toggle */}
+          <button
+            onClick={() => setGlobal(!global)}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs transition ${
+              global
+                ? "bg-primary/10 text-primary-dark"
+                : "text-text-secondary hover:bg-gray-100"
+            }`}
+          >
+            <Globe size={12} />
+            {global ? "全部空间" : "当前空间"}
+          </button>
+
           {loading && <span className="ml-auto text-xs text-text-secondary">搜索中...</span>}
         </div>
 
@@ -157,7 +202,7 @@ export function SearchModal({
           {results.map(({ card, score }) => (
             <div
               key={card.id}
-              onClick={() => handleSelect(card.id)}
+              onClick={() => handleSelect(card.id, card.workspace_id)}
               className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 transition hover:bg-gray-50"
             >
               <div className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: card.color }} />

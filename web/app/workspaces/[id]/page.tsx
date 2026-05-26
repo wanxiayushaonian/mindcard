@@ -81,6 +81,7 @@ export default function WorkspacePage() {
   const [content, setContent] = useState("");
   const [keywords, setKeywords] = useState("");
   const [color, setColor] = useState("#B8D4E3");
+  const [emotionTag, setEmotionTag] = useState("");
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
@@ -99,11 +100,13 @@ export default function WorkspacePage() {
         content: content.trim(),
         keywords: kw,
         color,
+        emotion_tag: emotionTag.trim(),
       });
       setTitle("");
       setContent("");
       setKeywords("");
       setColor("#B8D4E3");
+      setEmotionTag("");
       setShowCreate(false);
       mutate(`cards-${workspaceId}-${filterKey}`);
     } catch (e: any) {
@@ -257,6 +260,27 @@ export default function WorkspacePage() {
               </button>
             );
           })}
+          <div className="h-5 w-px bg-border" />
+          {["开心", "焦虑", "平静", "兴奋", "困惑", "感动"].map((emo) => (
+            <button
+              key={emo}
+              onClick={() => {
+                setFilters((prev) => {
+                  const next = { ...prev };
+                  if (next.emotion_tag === emo) delete next.emotion_tag;
+                  else next.emotion_tag = emo;
+                  return next;
+                });
+              }}
+              className={`rounded-full px-3 py-1 text-xs transition ${
+                filters.emotion_tag === emo
+                  ? "bg-primary text-white"
+                  : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+              }`}
+            >
+              {emo}
+            </button>
+          ))}
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -382,6 +406,25 @@ export default function WorkspacePage() {
               placeholder="关键词1, 关键词2, ..."
               className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary"
             />
+          </FormField>
+
+          <FormField label="情绪标签（可选）">
+            <div className="flex flex-wrap gap-1.5">
+              {["开心", "焦虑", "平静", "兴奋", "困惑", "感动", "沮丧", "期待"].map((emo) => (
+                <button
+                  key={emo}
+                  type="button"
+                  onClick={() => setEmotionTag(emotionTag === emo ? "" : emo)}
+                  className={`rounded-full px-3 py-1 text-xs transition ${
+                    emotionTag === emo
+                      ? "bg-primary text-white"
+                      : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+                  }`}
+                >
+                  {emo}
+                </button>
+              ))}
+            </div>
           </FormField>
 
           <FormField label="配色">

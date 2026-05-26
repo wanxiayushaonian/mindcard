@@ -17,11 +17,18 @@ class ScoredCard:
     score: float
 
 
+def _ws_filter(workspace_ids: list[uuid.UUID] | None):
+    """Return a workspace filter clause, or empty list for no filter."""
+    if not workspace_ids:
+        return []
+    return [Card.workspace_id.in_(workspace_ids)]
+
+
 class SearchService:
     """Hybrid search: vector similarity + full-text search with RRF fusion."""
 
     async def vector_search(
-        self, db: AsyncSession, query: str, workspace_id: str, limit: int = 20
+        self, db: AsyncSession, query: str, workspace_ids: list[uuid.UUID] | None = None, limit: int = 20
     ) -> list[ScoredCard]:
         """Semantic search using pgvector cosine distance."""
         try:
@@ -30,20 +37,14 @@ class SearchService:
             logger.warning("Embedding failed, skipping vector search: %s", e)
             return []
 
-        ws_uuid = uuid.UUID(workspace_id)
+        stmt = select(Card)
+        for f in _ws_filter(workspace_ids):
+            stmt = stmt.where(f)
+        stmt = stmt.order_by(Card.embedding.cosine_distance(query_embedding)).limit(limit)
 
-        # pgvector cosine distance: 0 = identical, 2 = opposite
-        # cosine similarity = 1 - cosine_distance
-        stmt = (
-            select(Card)
-            .where(Card.workspace_id == ws_uuid)
-            .order_by(Card.embedding.cosine_distance(query_embedding))
-            .limit(limit)
-        )
         result = await db.execute(stmt)
         cards = result.scalars().all()
 
-        # Approximate similarity score (cosine_distance returns 0-2, we want 0-1)
         scored = []
         for card in cards:
             if card.embedding is not None:
@@ -57,22 +58,17 @@ class SearchService:
     _fts_extension_available: bool | None = None  # Cache extension check
 
     async def fulltext_search(
-        self, db: AsyncSession, query: str, workspace_id: str, limit: int = 20
+        self, db: AsyncSession, query: str, workspace_ids: list[uuid.UUID] | None = None, limit: int = 20
     ) -> list[ScoredCard]:
         """Full-text search using PostgreSQL tsvector + ts_rank, with ILIKE fallback."""
-        ws_uuid = uuid.UUID(workspace_id)
-
         # Try tsvector search first (requires zhparser/pg_jieba extension)
         if self._fts_extension_available is not False:
             try:
                 ts_query = func.plainto_tsquery("chinese", query)
-                stmt = (
-                    select(Card, func.ts_rank(Card.fts_vector, ts_query).label("rank"))
-                    .where(Card.workspace_id == ws_uuid)
-                    .where(Card.fts_vector.op("@@")(ts_query))
-                    .order_by(text("rank DESC"))
-                    .limit(limit)
-                )
+                stmt = select(Card, func.ts_rank(Card.fts_vector, ts_query).label("rank"))
+                for f in _ws_filter(workspace_ids):
+                    stmt = stmt.where(f)
+                stmt = stmt.where(Card.fts_vector.op("@@")(ts_query)).order_by(text("rank DESC")).limit(limit)
                 result = await db.execute(stmt)
                 rows = result.all()
                 if self._fts_extension_available is None:
@@ -88,22 +84,20 @@ class SearchService:
 
         # Fallback: simple ILIKE search
         ilike_pattern = f"%{query}%"
-        stmt = (
-            select(Card)
-            .where(Card.workspace_id == ws_uuid)
-            .where(Card.title.ilike(ilike_pattern) | Card.content.ilike(ilike_pattern))
-            .limit(limit)
-        )
+        stmt = select(Card)
+        for f in _ws_filter(workspace_ids):
+            stmt = stmt.where(f)
+        stmt = stmt.where(Card.title.ilike(ilike_pattern) | Card.content.ilike(ilike_pattern)).limit(limit)
         result = await db.execute(stmt)
         cards = result.scalars().all()
         return [ScoredCard(card=c, score=0.5) for c in cards]
 
     async def hybrid_search(
-        self, db: AsyncSession, query: str, workspace_id: str, limit: int = 20
+        self, db: AsyncSession, query: str, workspace_ids: list[uuid.UUID] | None = None, limit: int = 20
     ) -> list[ScoredCard]:
         """Hybrid search with Reciprocal Rank Fusion (RRF)."""
-        vector_results = await self.vector_search(db, query, workspace_id, limit=limit * 2)
-        fts_results = await self.fulltext_search(db, query, workspace_id, limit=limit * 2)
+        vector_results = await self.vector_search(db, query, workspace_ids, limit=limit * 2)
+        fts_results = await self.fulltext_search(db, query, workspace_ids, limit=limit * 2)
 
         # RRF: score = sum(1 / (k + rank_i)) for each result list
         k = 60  # RRF constant

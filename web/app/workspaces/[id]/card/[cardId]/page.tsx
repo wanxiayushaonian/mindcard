@@ -48,6 +48,7 @@ export default function CardDetailPage() {
   const [editContent, setEditContent] = useState("");
   const [editKeywords, setEditKeywords] = useState("");
   const [editColor, setEditColor] = useState("#B8D4E3");
+  const [editEmotionTag, setEditEmotionTag] = useState("");
   const [saving, setSaving] = useState(false);
   const [addedRelations, setAddedRelations] = useState<Set<string>>(new Set());
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; action: () => void } | null>(null);
@@ -76,6 +77,7 @@ export default function CardDetailPage() {
     setEditContent(card.content);
     setEditKeywords(card.keywords.join(", "));
     setEditColor(card.color);
+    setEditEmotionTag(card.emotion_tag || "");
     setEditing(true);
   };
 
@@ -93,6 +95,7 @@ export default function CardDetailPage() {
         content: editContent.trim(),
         keywords: kw,
         color: editColor,
+        emotion_tag: editEmotionTag.trim(),
       });
       setEditing(false);
       mutate(`card-${cardId}`);
@@ -209,13 +212,16 @@ export default function CardDetailPage() {
         className="mb-6 rounded-card border border-border bg-surface p-6 shadow-sm"
         style={{ borderLeft: `6px solid ${card.color}` }}
       >
-        {card.keywords.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-1">
-            {card.keywords.map((kw) => (
-              <TagChip key={kw} label={kw} color={card.color} />
-            ))}
-          </div>
-        )}
+        <div className="mb-3 flex flex-wrap items-center gap-1">
+          {card.keywords.map((kw) => (
+            <TagChip key={kw} label={kw} color={card.color} />
+          ))}
+          {card.emotion_tag && (
+            <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-text-secondary">
+              {card.emotion_tag}
+            </span>
+          )}
+        </div>
         {card.title && <h1 className="mb-2 text-xl font-bold text-text">{card.title}</h1>}
         <MarkdownContent content={card.content} />
         <div className="mt-4 flex gap-4 text-xs text-text-secondary">
@@ -421,6 +427,25 @@ export default function CardDetailPage() {
               onChange={(e) => setEditKeywords(e.target.value)}
               className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-primary"
             />
+          </FormField>
+
+          <FormField label="情绪标签">
+            <div className="flex flex-wrap gap-1.5">
+              {["开心", "焦虑", "平静", "兴奋", "困惑", "感动", "沮丧", "期待"].map((emo) => (
+                <button
+                  key={emo}
+                  type="button"
+                  onClick={() => setEditEmotionTag(editEmotionTag === emo ? "" : emo)}
+                  className={`rounded-full px-3 py-1 text-xs transition ${
+                    editEmotionTag === emo
+                      ? "bg-primary text-white"
+                      : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+                  }`}
+                >
+                  {emo}
+                </button>
+              ))}
+            </div>
           </FormField>
 
           <FormField label="配色">
