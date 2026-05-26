@@ -54,23 +54,49 @@ class SearchService:
             scored.append(ScoredCard(card=card, score=score))
         return scored
 
+    _fts_extension_available: bool | None = None  # Cache extension check
+
     async def fulltext_search(
         self, db: AsyncSession, query: str, workspace_id: str, limit: int = 20
     ) -> list[ScoredCard]:
-        """Full-text search using PostgreSQL tsvector + ts_rank."""
+        """Full-text search using PostgreSQL tsvector + ts_rank, with ILIKE fallback."""
         ws_uuid = uuid.UUID(workspace_id)
-        ts_query = func.plainto_tsquery("chinese", query)
 
+        # Try tsvector search first (requires zhparser/pg_jieba extension)
+        if self._fts_extension_available is not False:
+            try:
+                ts_query = func.plainto_tsquery("chinese", query)
+                stmt = (
+                    select(Card, func.ts_rank(Card.fts_vector, ts_query).label("rank"))
+                    .where(Card.workspace_id == ws_uuid)
+                    .where(Card.fts_vector.op("@@")(ts_query))
+                    .order_by(text("rank DESC"))
+                    .limit(limit)
+                )
+                result = await db.execute(stmt)
+                rows = result.all()
+                if self._fts_extension_available is None:
+                    self._fts_extension_available = True
+                return [ScoredCard(card=row[0], score=float(row[1])) for row in rows]
+            except Exception as e:
+                if self._fts_extension_available is None:
+                    logger.warning(
+                        "Chinese full-text search unavailable (missing zhparser/pg_jieba extension?), "
+                        "falling back to ILIKE. Error: %s", e
+                    )
+                self._fts_extension_available = False
+
+        # Fallback: simple ILIKE search
+        ilike_pattern = f"%{query}%"
         stmt = (
-            select(Card, func.ts_rank(Card.fts_vector, ts_query).label("rank"))
+            select(Card)
             .where(Card.workspace_id == ws_uuid)
-            .where(Card.fts_vector.op("@@")(ts_query))
-            .order_by(text("rank DESC"))
+            .where(Card.title.ilike(ilike_pattern) | Card.content.ilike(ilike_pattern))
             .limit(limit)
         )
         result = await db.execute(stmt)
-        rows = result.all()
-        return [ScoredCard(card=row[0], score=float(row[1])) for row in rows]
+        cards = result.scalars().all()
+        return [ScoredCard(card=c, score=0.5) for c in cards]
 
     async def hybrid_search(
         self, db: AsyncSession, query: str, workspace_id: str, limit: int = 20
