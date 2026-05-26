@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import useSWR from "swr";
 import * as d3 from "d3";
 import { cardApi, type Card } from "@/lib/api";
+import { MarkdownContent } from "@/components/MarkdownContent";
 
 const MIN_RADIUS = 12;
 const MAX_RADIUS = 20;
@@ -338,9 +339,12 @@ export default function NetworkPage() {
     // Click on node — show tooltip
     node.on("click", (event, d) => {
       event.stopPropagation();
-      const transform = d3.zoomTransform(svgRef.current!);
-      const sx = transform.applyX(d.x!);
-      const sy = transform.applyY(d.y!);
+      const svgEl = svgRef.current!;
+      const container = svgEl.parentElement!;
+      const containerRect = container.getBoundingClientRect();
+      const transform = d3.zoomTransform(svgEl);
+      const sx = transform.applyX(d.x!) - containerRect.left;
+      const sy = transform.applyY(d.y!) - containerRect.top;
       setSelectedNode(d);
       setTooltipPos({ x: sx, y: sy });
     });
@@ -439,8 +443,8 @@ export default function NetworkPage() {
           ref={tooltipRef}
           className="absolute z-20 w-64 rounded-xl border border-border bg-surface p-4 shadow-lg"
           style={{
-            left: Math.min(tooltipPos.x, window.innerWidth - 280),
-            top: tooltipPos.y - 20,
+            left: tooltipPos.x,
+            top: tooltipPos.y - 12,
             transform: "translate(-50%, -100%)",
           }}
           onClick={(e) => e.stopPropagation()}
@@ -456,9 +460,9 @@ export default function NetworkPage() {
               </span>
             ))}
           </div>
-          <p className="mb-2 text-sm leading-relaxed text-text line-clamp-4">
-            {selectedNode.card.content}
-          </p>
+          <div className="mb-2 max-h-40 overflow-y-auto text-sm">
+            <MarkdownContent content={selectedNode.card.content} />
+          </div>
           {getSharedKeywords(selectedNode.id).length > 0 && (
             <p className="mb-2 text-xs text-text-secondary">
               关联关键词: {getSharedKeywords(selectedNode.id).join(", ")}
