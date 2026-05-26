@@ -10,7 +10,7 @@ class CardCreate(BaseModel):
     title: str = Field("", max_length=128)
     content: str = Field(..., min_length=1, max_length=50000)
     keywords: list[str] = Field(default=[], max_length=5)
-    color: str = Field("#B8D4E3", max_length=16)
+    color: str = Field("#B8D4E3", max_length=16, pattern=r"^#[0-9A-Fa-f]{6}$")
     emotion_tag: str = Field("", max_length=32)
     is_favorite: bool = False
     is_temp: bool = True
@@ -20,7 +20,7 @@ class CardUpdate(BaseModel):
     title: str | None = Field(None, max_length=128)
     content: str | None = Field(None, max_length=50000)
     keywords: list[str] | None = Field(None, max_length=5)
-    color: str | None = Field(None, max_length=16)
+    color: str | None = Field(None, max_length=16, pattern=r"^#[0-9A-Fa-f]{6}$")
     emotion_tag: str | None = Field(None, max_length=32)
     is_favorite: bool | None = None
     is_temp: bool | None = None

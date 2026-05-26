@@ -235,13 +235,14 @@ export const cardApi = {
     return request<CardListResponse>(`/api/cards/?${params}`);
   },
   /** Fetch all cards by auto-paginating (for graph views etc). */
-  listAll: async (workspaceId: string, filters?: CardFilters): Promise<Card[]> => {
+  listAll: async (workspaceId: string, filters?: CardFilters, onProgress?: (loaded: number) => void): Promise<Card[]> => {
     const all: Card[] = [];
     let cursor: string | undefined;
     do {
       const res = await cardApi.list(workspaceId, { ...filters, limit: 100, cursor });
       all.push(...res.items);
       cursor = res.next_cursor ?? undefined;
+      onProgress?.(all.length);
     } while (cursor);
     return all;
   },

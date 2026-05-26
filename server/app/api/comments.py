@@ -34,6 +34,8 @@ class CommentResponse(BaseModel):
 @router.get("/{card_id}/comments", response_model=list[CommentResponse])
 async def list_comments(
     card_id: str,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -46,6 +48,8 @@ async def list_comments(
         .outerjoin(UserModel, Comment.author_id == UserModel.id)
         .where(Comment.card_id == parse_uuid(card_id))
         .order_by(Comment.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     rows = result.all()
     return [

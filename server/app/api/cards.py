@@ -20,7 +20,7 @@ router = APIRouter()
 async def _generate_embedding(card: Card):
     """Generate and update embedding for a card (runs in background)."""
     try:
-        text = embedding_service.card_to_text(card.title, card.content, card.keywords)
+        text = embedding_service.card_to_text(card.title, card.content, card.keywords, card.emotion_tag)
         embedding = await embedding_service.embed(text)
         from app.database import async_session
 

@@ -59,7 +59,7 @@ class EmbeddingService:
         return [e.tolist() for e in embeddings]
 
     @staticmethod
-    def card_to_text(title: str, content: str, keywords: list[str]) -> str:
+    def card_to_text(title: str, content: str, keywords: list[str], emotion_tag: str = "") -> str:
         """Convert card fields to a single text for embedding."""
         parts = []
         if title:
@@ -67,6 +67,8 @@ class EmbeddingService:
         parts.append(content)
         if keywords:
             parts.append(" ".join(keywords))
+        if emotion_tag:
+            parts.append(emotion_tag)
         return " ".join(parts)
 
 

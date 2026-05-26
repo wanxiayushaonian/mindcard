@@ -7,6 +7,24 @@ import { Search, X, ArrowRight } from "lucide-react";
 
 type SearchMode = "semantic" | "fulltext" | "hybrid";
 
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <>{text}</>;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className="bg-yellow-200 text-inherit">{part}</mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 export function SearchModal({
   workspaceId,
   onClose,
@@ -145,10 +163,10 @@ export function SearchModal({
               <div className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: card.color }} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  {card.title && <span className="text-sm font-medium text-text">{card.title}</span>}
+                  {card.title && <span className="text-sm font-medium text-text"><HighlightText text={card.title} query={query} /></span>}
                   <span className="text-xs text-text-secondary">{(score * 100).toFixed(0)}%</span>
                 </div>
-                <p className="mt-0.5 line-clamp-2 text-xs text-text-secondary">{card.content}</p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-text-secondary"><HighlightText text={card.content} query={query} /></p>
                 {card.keywords.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {card.keywords.slice(0, 3).map((kw) => (

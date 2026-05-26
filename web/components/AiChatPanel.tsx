@@ -13,6 +13,7 @@ type ChatMode = "rag" | "chat";
 interface Message {
   role: "user" | "assistant";
   content: string;
+  status?: "done" | "error";
   sources?: RAGResponse["source_cards"];
   webSearchResults?: WebSearchResult[];
 }
@@ -210,6 +211,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     };
 
     const onDone = () => {
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { ...updated[updated.length - 1], status: "done" };
+        return updated;
+      });
       setIsStreaming(false);
       abortRef.current = null;
       if (currentChatId && streamContentRef.current) {
@@ -225,14 +231,12 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         updated[updated.length - 1] = {
           ...last,
           content: last.content || "抱歉，处理问题时出错了。请稍后重试。",
+          status: "error",
         };
         return updated;
       });
       setIsStreaming(false);
       abortRef.current = null;
-      if (currentChatId) {
-        saveMessage(currentChatId, "assistant", streamContentRef.current || "抱歉，处理问题时出错了。");
-      }
     };
 
     const hist = messages
@@ -400,11 +404,16 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                         <span className="animate-pulse">{msg.content}</span>
                       </div>
                     ) : (
-                      <MarkdownContent
-                        content={msg.content || " "}
-                        streaming={isStreaming && i === messages.length - 1}
-                        onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
-                      />
+                      <>
+                        <MarkdownContent
+                          content={msg.content || " "}
+                          streaming={isStreaming && i === messages.length - 1}
+                          onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
+                        />
+                        {msg.status === "error" && (
+                          <p className="mt-1 text-xs text-amber-600">回答中断，内容可能不完整</p>
+                        )}
+                      </>
                     )
                   ) : (
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>

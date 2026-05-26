@@ -104,12 +104,12 @@ async def segment_content(req: TextRequest, user: User = Depends(get_current_use
     )
 
     # Parse JSON from response
+    import re
+
     json_str = raw.strip()
-    if json_str.startswith("```"):
-        json_str = json_str.split("```")[1]
-        if json_str.startswith("json"):
-            json_str = json_str[4:]
-        json_str = json_str.strip()
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", json_str, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        json_str = fence_match.group(1).strip()
 
     try:
         data = json.loads(json_str)

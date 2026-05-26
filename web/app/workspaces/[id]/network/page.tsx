@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import useSWR from "swr";
 import * as d3 from "d3";
 import { cardApi, type Card } from "@/lib/api";
-import { LoadingState } from "@/components/LoadingState";
 
 const MIN_RADIUS = 12;
 const MAX_RADIUS = 20;
@@ -38,10 +37,17 @@ export default function NetworkPage() {
   const tooltipRef = useRef<HTMLDivElement>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphEdge> | null>(null);
 
-  const { data: cards, isLoading } = useSWR(
-    workspaceId ? `cards-${workspaceId}` : null,
-    () => cardApi.listAll(workspaceId)
-  );
+  const [cards, setCards] = useState<Card[] | null>(null);
+  const [cardLoadProgress, setCardLoadProgress] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    setIsLoading(true);
+    cardApi.listAll(workspaceId, undefined, (loaded) => setCardLoadProgress(loaded))
+      .then((c) => { setCards(c); setIsLoading(false); })
+      .catch(() => setIsLoading(false));
+  }, [workspaceId]);
 
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
@@ -371,7 +377,16 @@ export default function NetworkPage() {
   }, [nodes, edges, visibleIds, highlightId]);
 
   if (isLoading || relationsLoading) {
-    return <LoadingState />;
+    return (
+      <div className="flex h-[calc(100vh-56px)] flex-col items-center justify-center gap-3 text-text-secondary">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <p className="text-sm">
+          {isLoading
+            ? `正在加载卡片${cardLoadProgress > 0 ? `（已加载 ${cardLoadProgress} 张）` : "..."}`
+            : "正在加载关联数据..."}
+        </p>
+      </div>
+    );
   }
 
   return (

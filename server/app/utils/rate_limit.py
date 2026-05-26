@@ -22,6 +22,9 @@ class SlidingWindowRateLimiter:
         cutoff = now - self.window_seconds
         while window and window[0] <= cutoff:
             window.pop(0)
+        if not window:
+            del self._windows[key]
+            window = self._windows[key]
         if len(window) >= self.max_requests:
             return False
         window.append(now)

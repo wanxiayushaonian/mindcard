@@ -32,7 +32,7 @@ export default function CardDetailPage() {
     cardId ? `related-${cardId}` : null,
     () => cardApi.getRelated(cardId)
   );
-  const { data: similarCards } = useSWR(
+  const { data: similarCards, isLoading: similarLoading } = useSWR(
     cardId ? `similar-${cardId}` : null,
     () => ragApi.similar(cardId, 5)
   );
@@ -261,9 +261,15 @@ export default function CardDetailPage() {
       )}
 
       {/* AI Similar cards */}
-      {similarCards && similarCards.length > 0 && (
-        <section className="mb-6">
-          <h2 className="mb-3 text-sm font-semibold text-text-secondary">AI 推荐关联</h2>
+      <section className="mb-6">
+        <h2 className="mb-3 text-sm font-semibold text-text-secondary">AI 推荐关联</h2>
+        {similarLoading ? (
+          <div className="flex flex-col gap-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-16 animate-pulse rounded-card border border-border bg-gray-100" />
+            ))}
+          </div>
+        ) : similarCards && similarCards.length > 0 ? (
           <div className="flex flex-col gap-3">
             {similarCards.map((sc) => (
               <div
@@ -299,8 +305,8 @@ export default function CardDetailPage() {
               </div>
             ))}
           </div>
-        </section>
-      )}
+        ) : null}
+      </section>
 
       {/* Comments */}
       <section>
