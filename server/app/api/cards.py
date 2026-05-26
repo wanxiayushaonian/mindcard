@@ -1,15 +1,17 @@
 from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.card import Card, CardRelation
 from app.models.user import User
-from app.schemas.card import CardCreate, CardRelationCreate, CardResponse, CardUpdate
+from app.schemas.card import CardCreate, CardListResponse, CardRelationCreate, CardResponse, CardUpdate
 from app.services.embedding import embedding_service
 from app.utils.auth import get_current_user, get_workspace_membership, require_owner
+from app.utils.cursor import decode_cursor, encode_cursor
 from app.utils.helpers import parse_uuid
 
 router = APIRouter()
@@ -33,11 +35,11 @@ async def _generate_embedding(card: Card):
         logging.getLogger(__name__).warning("Embedding generation failed for card %s: %s", card.id, e)
 
 
-@router.get("/", response_model=list[CardResponse])
+@router.get("/", response_model=CardListResponse)
 async def list_cards(
     workspace_id: str,
-    skip: int = 0,
-    limit: int = 50,
+    cursor: str | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
     sort_by: str = "created_at",
     order: str = "desc",
     is_favorite: bool | None = None,
@@ -58,10 +60,44 @@ async def list_cards(
         query = query.where(Card.emotion_tag == emotion_tag)
     if keyword:
         query = query.where(Card.keywords.any(keyword))
+
     sort_col = {"created_at": Card.created_at, "updated_at": Card.updated_at, "title": Card.title}.get(sort_by, Card.created_at)
-    query = query.order_by(sort_col.desc() if order == "desc" else sort_col.asc())
-    result = await db.execute(query.offset(skip).limit(limit))
-    return result.scalars().all()
+    desc = order == "desc"
+
+    if cursor:
+        val_str, id_str = decode_cursor(cursor)
+        cursor_id = UUID(id_str)
+        # Parse value based on sort column type
+        if sort_by in ("created_at", "updated_at"):
+            from datetime import datetime as dt
+
+            cursor_val = dt.fromisoformat(val_str)
+        else:
+            cursor_val = val_str
+
+        if desc:
+            query = query.where(tuple_(sort_col, Card.id) < (cursor_val, cursor_id))
+        else:
+            query = query.where(tuple_(sort_col, Card.id) > (cursor_val, cursor_id))
+
+    # Deterministic ordering: sort_col + id tiebreaker
+    if desc:
+        query = query.order_by(sort_col.desc(), Card.id.desc())
+    else:
+        query = query.order_by(sort_col.asc(), Card.id.asc())
+
+    # Fetch one extra to detect has-more
+    result = await db.execute(query.limit(limit + 1))
+    rows = list(result.scalars().all())
+
+    next_cursor = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last = rows[-1]
+        sort_val = getattr(last, sort_by)
+        next_cursor = encode_cursor(sort_val, last.id)
+
+    return CardListResponse(items=rows, next_cursor=next_cursor)
 
 
 @router.post("/", response_model=CardResponse)

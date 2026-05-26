@@ -217,15 +217,33 @@ export interface CardFilters {
   keyword?: string;
 }
 
+export interface CardListResponse {
+  items: Card[];
+  next_cursor: string | null;
+}
+
 export const cardApi = {
-  list: (workspaceId: string, skip = 0, limit = 50, filters?: CardFilters) => {
-    const params = new URLSearchParams({ workspace_id: workspaceId, skip: String(skip), limit: String(limit) });
-    if (filters) {
-      Object.entries(filters).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  list: (workspaceId: string, opts?: { cursor?: string; limit?: number } & CardFilters): Promise<CardListResponse> => {
+    const params = new URLSearchParams({ workspace_id: workspaceId });
+    if (opts?.cursor) params.set("cursor", opts.cursor);
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts) {
+      Object.entries(opts).forEach(([k, v]) => {
+        if (k !== "cursor" && k !== "limit" && v !== undefined && v !== null && v !== "") params.set(k, String(v));
       });
     }
-    return request<Card[]>(`/api/cards/?${params}`);
+    return request<CardListResponse>(`/api/cards/?${params}`);
+  },
+  /** Fetch all cards by auto-paginating (for graph views etc). */
+  listAll: async (workspaceId: string, filters?: CardFilters): Promise<Card[]> => {
+    const all: Card[] = [];
+    let cursor: string | undefined;
+    do {
+      const res = await cardApi.list(workspaceId, { ...filters, limit: 100, cursor });
+      all.push(...res.items);
+      cursor = res.next_cursor ?? undefined;
+    } while (cursor);
+    return all;
   },
   get: (id: string) => request<Card>(`/api/cards/${id}`),
   create: (data: {

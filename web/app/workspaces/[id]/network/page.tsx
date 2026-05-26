@@ -40,7 +40,7 @@ export default function NetworkPage() {
 
   const { data: cards, isLoading } = useSWR(
     workspaceId ? `cards-${workspaceId}` : null,
-    () => cardApi.list(workspaceId)
+    () => cardApi.listAll(workspaceId)
   );
 
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());

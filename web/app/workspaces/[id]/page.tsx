@@ -24,22 +24,22 @@ export default function WorkspacePage() {
   const [filters, setFilters] = useState<CardFilters>({ sort_by: "created_at", order: "desc" });
   const filterKey = JSON.stringify(filters);
 
-  const { data: cards, isLoading, error, mutate: revalidate } = useSWR(
+  const { data: listResp, isLoading, error, mutate: revalidate } = useSWR(
     workspaceId ? `cards-${workspaceId}-${filterKey}` : null,
-    () => cardApi.list(workspaceId, 0, PAGE_SIZE + 1, filters)
+    () => cardApi.list(workspaceId, { limit: PAGE_SIZE, ...filters })
   );
 
   const [allCards, setAllCards] = useState<Card[] | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
 
   // Sync SWR data to local state
   useEffect(() => {
-    if (cards) {
-      setAllCards(cards.slice(0, PAGE_SIZE));
-      setHasMore(cards.length > PAGE_SIZE);
+    if (listResp) {
+      setAllCards(listResp.items);
+      setNextCursor(listResp.next_cursor);
     }
-  }, [cards]);
+  }, [listResp]);
 
   // Refresh card list when a card is precipitated from AI chat panel
   useEffect(() => {
@@ -49,12 +49,12 @@ export default function WorkspacePage() {
   }, [revalidate]);
 
   const handleLoadMore = async () => {
-    if (!allCards || loadingMore) return;
+    if (!allCards || loadingMore || !nextCursor) return;
     setLoadingMore(true);
     try {
-      const more = await cardApi.list(workspaceId, allCards.length, PAGE_SIZE + 1, filters);
-      setAllCards((prev) => [...(prev || []), ...more.slice(0, PAGE_SIZE)]);
-      setHasMore(more.length > PAGE_SIZE);
+      const resp = await cardApi.list(workspaceId, { cursor: nextCursor, limit: PAGE_SIZE, ...filters });
+      setAllCards((prev) => [...(prev || []), ...resp.items]);
+      setNextCursor(resp.next_cursor);
     } catch (e: any) {
       toast("加载失败: " + e.message, "error");
     } finally {
@@ -183,7 +183,7 @@ export default function WorkspacePage() {
         ))}
       </div>
 
-      {allCards && allCards.length > 0 && hasMore && (
+      {allCards && allCards.length > 0 && nextCursor && (
         <div className="mt-6 flex justify-center">
           <button
             onClick={handleLoadMore}

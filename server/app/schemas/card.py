@@ -43,6 +43,11 @@ class CardResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CardListResponse(BaseModel):
+    items: list[CardResponse]
+    next_cursor: str | None
+
+
 class CardRelationCreate(BaseModel):
     related_card_id: str
     relation_type: str = "manual"
