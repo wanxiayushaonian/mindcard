@@ -15,7 +15,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { TagChip } from "@/components/TagChip";
-import { Star, Pencil, Pin, PinOff, Trash2, X, MessageSquare } from "lucide-react";
+import { Star, Pencil, Pin, PinOff, Trash2, X, MessageSquare, Download } from "lucide-react";
 
 export default function CardDetailPage() {
   const params = useParams();
@@ -166,6 +166,19 @@ export default function CardDetailPage() {
     });
   };
 
+  const handleExport = () => {
+    if (!card) return;
+    const parts = [`# ${card.title || "未命名卡片"}`, "", card.content];
+    if (card.keywords.length > 0) parts.push("", `关键词: ${card.keywords.join(", ")}`);
+    const blob = new Blob([parts.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${card.title || "卡片"}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleAddRelation = async (relatedCardId: string) => {
     try {
       await cardApi.addRelation(cardId, relatedCardId);
@@ -218,6 +231,7 @@ export default function CardDetailPage() {
         <ActionButton icon={<Star size={20} fill={card.is_favorite ? "currentColor" : "none"} />} label={card.is_favorite ? "已收藏" : "收藏"} onClick={handleToggleFavorite} />
         <ActionButton icon={<Pencil size={20} />} label="编辑" onClick={startEdit} disabled={!canEdit} />
         <ActionButton icon={card.is_temp ? <PinOff size={20} /> : <Pin size={20} />} label={card.is_temp ? "永久保存" : "移至临时"} onClick={handleToggleTemp} />
+        <ActionButton icon={<Download size={20} />} label="导出" onClick={handleExport} />
         <ActionButton icon={<Trash2 size={20} />} label="删除" onClick={handleDelete} disabled={!canEdit} />
       </div>
 

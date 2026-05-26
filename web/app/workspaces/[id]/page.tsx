@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cardApi, type Card, type CardFilters } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
@@ -12,7 +12,7 @@ import { AiActionButtons } from "@/components/AiActionButtons";
 import { CardItem } from "@/components/CardItem";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { Plus } from "lucide-react";
+import { Plus, Upload, Package } from "lucide-react";
 
 const PAGE_SIZE = 20;
 
@@ -99,6 +99,101 @@ export default function WorkspacePage() {
     }
   };
 
+  // --- Import / Export ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importPreview, setImportPreview] = useState<{ title: string; content: string }[] | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  function parseMarkdownFiles(text: string, filename: string): { title: string; content: string }[] {
+    // Strip YAML frontmatter
+    const body = text.replace(/^---[\s\S]*?---\n?/, "").trim();
+    if (!body) return [];
+    // Split by ## headings
+    const sections = body.split(/\n(?=## )/);
+    if (sections.length <= 1) {
+      // No ## headings — single card, use filename as title
+      return [{ title: filename.replace(/\.md$/i, ""), content: body }];
+    }
+    return sections
+      .map((s) => {
+        const match = s.match(/^## (.+)\n([\s\S]*)/);
+        if (match) return { title: match[1].trim(), content: match[2].trim() };
+        return { title: "", content: s.trim() };
+      })
+      .filter((s) => s.content);
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const allParsed: { title: string; content: string }[] = [];
+    for (const file of Array.from(files)) {
+      const text = await file.text();
+      allParsed.push(...parseMarkdownFiles(text, file.name));
+    }
+    if (allParsed.length === 0) {
+      toast("未解析到有效内容", "error");
+      return;
+    }
+    setImportPreview(allParsed);
+    // Reset file input so the same file can be re-selected
+    e.target.value = "";
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importPreview || importing) return;
+    setImporting(true);
+    let success = 0;
+    for (let i = 0; i < importPreview.length; i++) {
+      const item = importPreview[i];
+      toast(`正在导入 (${i + 1}/${importPreview.length})...`, "info");
+      try {
+        await cardApi.create({
+          local_id: "card_" + Date.now() + "_" + i,
+          workspace_id: workspaceId,
+          title: item.title,
+          content: item.content,
+        });
+        success++;
+      } catch {
+        // Continue with remaining cards
+      }
+    }
+    toast(`导入完成：${success}/${importPreview.length} 张卡片`, "success");
+    setImportPreview(null);
+    setImporting(false);
+    mutate(`cards-${workspaceId}-${filterKey}`);
+  };
+
+  const handleBatchExport = async () => {
+    toast("正在导出...", "info");
+    try {
+      const JSZip = (await import("jszip")).default;
+      const cards = await cardApi.listAll(workspaceId, filters);
+      const zip = new JSZip();
+      const nameCount = new Map<string, number>();
+      cards.forEach((card) => {
+        let name = (card.title || "未命名").replace(/[\\/:*?"<>|]/g, "_");
+        const count = nameCount.get(name) || 0;
+        nameCount.set(name, count + 1);
+        if (count > 0) name += `_${count}`;
+        const parts = [`# ${card.title || "未命名卡片"}`, "", card.content];
+        if (card.keywords.length > 0) parts.push("", `关键词: ${card.keywords.join(", ")}`);
+        zip.file(`${name}.md`, parts.join("\n"));
+      });
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mindcard-export-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast(`导出完成：${cards.length} 张卡片`, "success");
+    } catch (e: any) {
+      toast("导出失败: " + e.message, "error");
+    }
+  };
+
   if (isLoading) return <LoadingState />;
   if (error) return <ErrorState message={error.message} onRetry={revalidate} />;
 
@@ -164,6 +259,26 @@ export default function WorkspacePage() {
             placeholder="关键词筛选"
             className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs text-text outline-none placeholder:text-text-secondary"
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".md,.markdown"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-secondary transition hover:bg-gray-50"
+          >
+            <Upload size={14} /> 导入
+          </button>
+          <button
+            onClick={handleBatchExport}
+            className="flex items-center gap-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-secondary transition hover:bg-gray-50"
+          >
+            <Package size={14} /> 导出
+          </button>
           <button
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-dark"
@@ -252,6 +367,30 @@ export default function WorkspacePage() {
           <FormField label="配色">
             <ColorPicker value={color} onChange={setColor} />
           </FormField>
+        </Modal>
+      )}
+
+      {/* Import preview modal */}
+      {importPreview && (
+        <Modal
+          title="导入预览"
+          onClose={() => setImportPreview(null)}
+          onConfirm={handleConfirmImport}
+          confirmText={`导入 ${importPreview.length} 张卡片`}
+          loading={importing}
+          size="lg"
+        >
+          <p className="mb-3 text-sm text-text-secondary">
+            解析到 {importPreview.length} 张卡片，确认导入？
+          </p>
+          <div className="max-h-60 space-y-2 overflow-y-auto">
+            {importPreview.map((item, i) => (
+              <div key={i} className="rounded-lg border border-border bg-gray-50 px-3 py-2">
+                <p className="text-sm font-medium text-text">{item.title || "未命名"}</p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-text-secondary">{item.content}</p>
+              </div>
+            ))}
+          </div>
         </Modal>
       )}
     </div>
