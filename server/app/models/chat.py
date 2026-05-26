@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -36,4 +36,5 @@ class ChatMessage(Base):
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)  # 'user' | 'assistant'
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    web_search_results: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

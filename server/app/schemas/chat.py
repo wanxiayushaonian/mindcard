@@ -12,9 +12,16 @@ class ChatCreate(BaseModel):
     title: str = ""
 
 
+class WebSearchResult(BaseModel):
+    title: str
+    snippet: str
+    url: str
+
+
 class ChatMessageCreate(BaseModel):
     role: str  # 'user' | 'assistant'
     content: str
+    web_search_results: list[WebSearchResult] | None = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -22,6 +29,7 @@ class ChatMessageResponse(BaseModel):
     chat_id: uuid.UUID
     role: str
     content: str
+    web_search_results: list[WebSearchResult] | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

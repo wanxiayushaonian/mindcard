@@ -70,6 +70,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         detail.messages.map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
+          webSearchResults: m.web_search_results || undefined,
         }))
       );
       setShowHistory(false);
@@ -89,9 +90,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setIsStreaming(false);
   }, []);
 
-  const saveMessage = async (cid: string, role: string, content: string) => {
+  const saveMessage = async (cid: string, role: string, content: string, webSearchResults?: WebSearchResult[]) => {
     try {
-      await chatApi.addMessage(cid, role, content);
+      await chatApi.addMessage(cid, role, content, webSearchResults);
     } catch (e) {
       console.error("Failed to save message:", e);
     }
@@ -205,7 +206,13 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       setIsStreaming(false);
       abortRef.current = null;
       if (currentChatId && streamContentRef.current) {
-        saveMessage(currentChatId, "assistant", streamContentRef.current);
+        // Get web search results from the last assistant message
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          const wsResults = lastMsg?.webSearchResults;
+          saveMessage(currentChatId!, "assistant", streamContentRef.current, wsResults);
+          return prev;
+        });
       }
     };
 

@@ -198,6 +198,7 @@ async def add_message(
         chat_id=chat.id,
         role=req.role,
         content=req.content,
+        web_search_results=[r.model_dump() for r in req.web_search_results] if req.web_search_results else None,
     )
     db.add(msg)
     await db.flush()

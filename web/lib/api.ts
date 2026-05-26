@@ -388,6 +388,7 @@ export interface ChatMessage {
   chat_id: string;
   role: string;
   content: string;
+  web_search_results?: WebSearchResult[];
   created_at: string;
 }
 
@@ -408,10 +409,10 @@ export const chatApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  addMessage: (chatId: string, role: string, content: string) =>
+  addMessage: (chatId: string, role: string, content: string, webSearchResults?: WebSearchResult[]) =>
     request<ChatMessage>(`/api/chats/${chatId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, content }),
+      body: JSON.stringify({ role, content, web_search_results: webSearchResults }),
     }),
   delete: (chatId: string) =>
     request<{ ok: boolean }>(`/api/chats/${chatId}`, { method: "DELETE" }),
