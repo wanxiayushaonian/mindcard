@@ -13,7 +13,7 @@ import { AiActionButtons } from "@/components/AiActionButtons";
 import { CardItem } from "@/components/CardItem";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { Plus, Upload, Package } from "lucide-react";
+import { Plus, Upload, Package, Search } from "lucide-react";
 
 const PAGE_SIZE = 20;
 
@@ -227,8 +227,9 @@ export default function WorkspacePage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+      {/* Row 1: status filters + create button */}
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex gap-1.5">
           {[
             { label: "全部", value: undefined },
             { label: "收藏", value: "favorite" },
@@ -260,76 +261,87 @@ export default function WorkspacePage() {
               </button>
             );
           })}
-          <div className="h-5 w-px bg-border" />
-          {["开心", "焦虑", "平静", "兴奋", "困惑", "感动"].map((emo) => (
-            <button
-              key={emo}
-              onClick={() => {
-                setFilters((prev) => {
-                  const next = { ...prev };
-                  if (next.emotion_tag === emo) delete next.emotion_tag;
-                  else next.emotion_tag = emo;
-                  return next;
-                });
-              }}
-              className={`rounded-full px-3 py-1 text-xs transition ${
-                filters.emotion_tag === emo
-                  ? "bg-primary text-white"
-                  : "bg-gray-100 text-text-secondary hover:bg-gray-200"
-              }`}
-            >
-              {emo}
-            </button>
-          ))}
         </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={`${filters.sort_by}-${filters.order}`}
-            onChange={(e) => {
-              const [sort_by, order] = e.target.value.split("-") as [string, string];
-              setFilters({ ...filters, sort_by: sort_by as CardFilters["sort_by"], order: order as CardFilters["order"] });
-            }}
-            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text outline-none"
-          >
-            <option value="created_at-desc">最新创建</option>
-            <option value="updated_at-desc">最近更新</option>
-            <option value="title-asc">标题 A-Z</option>
-            <option value="title-desc">标题 Z-A</option>
-          </select>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-1 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-dark"
+        >
+          <Plus size={16} /> 新建卡片
+        </button>
+      </div>
+
+      {/* Row 2: search, sort, data ops */}
+      <div className="mb-3 flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
           <input
             type="text"
             value={keywordInput}
             onChange={(e) => setKeywordInput(e.target.value)}
-            placeholder="关键词筛选"
-            className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs text-text outline-none placeholder:text-text-secondary"
+            placeholder="按关键词筛选..."
+            className="w-full rounded-lg border border-border bg-surface py-1.5 pl-8 pr-3 text-xs text-text outline-none placeholder:text-text-secondary focus:border-primary/40"
           />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".md,.markdown"
-            multiple
-            className="hidden"
-            onChange={handleFileSelect}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-secondary transition hover:bg-gray-50"
-          >
-            <Upload size={14} /> 导入
-          </button>
-          <button
-            onClick={handleBatchExport}
-            className="flex items-center gap-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text-secondary transition hover:bg-gray-50"
-          >
-            <Package size={14} /> 导出
-          </button>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-dark"
-          >
-            <Plus size={16} /> 新建卡片
-          </button>
         </div>
+        <select
+          value={`${filters.sort_by}-${filters.order}`}
+          onChange={(e) => {
+            const [sort_by, order] = e.target.value.split("-") as [string, string];
+            setFilters({ ...filters, sort_by: sort_by as CardFilters["sort_by"], order: order as CardFilters["order"] });
+          }}
+          className="rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none"
+        >
+          <option value="created_at-desc">最新创建</option>
+          <option value="updated_at-desc">最近更新</option>
+          <option value="title-asc">标题 A-Z</option>
+          <option value="title-desc">标题 Z-A</option>
+        </select>
+        <div className="h-4 w-px bg-border" />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".md,.markdown"
+          multiple
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          title="导入 Markdown 文件"
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-text-secondary transition hover:bg-gray-100"
+        >
+          <Upload size={14} />
+        </button>
+        <button
+          onClick={handleBatchExport}
+          title="批量导出为 ZIP"
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-text-secondary transition hover:bg-gray-100"
+        >
+          <Package size={14} />
+        </button>
+      </div>
+
+      {/* Row 3: emotion tag filters */}
+      <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
+        {["开心", "焦虑", "平静", "兴奋", "困惑", "感动"].map((emo) => (
+          <button
+            key={emo}
+            onClick={() => {
+              setFilters((prev) => {
+                const next = { ...prev };
+                if (next.emotion_tag === emo) delete next.emotion_tag;
+                else next.emotion_tag = emo;
+                return next;
+              });
+            }}
+            className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] transition ${
+              filters.emotion_tag === emo
+                ? "bg-primary text-white"
+                : "bg-gray-50 text-text-secondary hover:bg-gray-100 border border-border"
+            }`}
+          >
+            {emo}
+          </button>
+        ))}
       </div>
 
       <div className="columns-2 gap-4 sm:columns-3">
