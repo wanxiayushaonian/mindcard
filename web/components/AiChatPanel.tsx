@@ -168,13 +168,14 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         try {
           const parsed = JSON.parse(text);
           if (parsed.type === "web_search_results" && parsed.results) {
-            // Show web search results immediately
+            // Show web search results immediately and reset content
+            streamContentRef.current = "";
             setMessages((prev) => {
               const updated = [...prev];
               updated[updated.length - 1] = {
                 ...updated[updated.length - 1],
                 webSearchResults: parsed.results,
-                content: "", // Clear "正在搜索网页..." hint
+                content: "",
               };
               return updated;
             });
