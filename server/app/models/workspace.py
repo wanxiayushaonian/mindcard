@@ -30,5 +30,5 @@ class WorkspaceMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
-    role: Mapped[str] = mapped_column(String(16), default="editor")  # 'owner' | 'editor'
+    role: Mapped[str] = mapped_column(String(16), default="editor")  # 'owner' | 'admin' | 'editor' | 'viewer' | 'pending'
     joined_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

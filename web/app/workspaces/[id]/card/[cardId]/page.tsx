@@ -53,10 +53,16 @@ export default function CardDetailPage() {
   const [addedRelations, setAddedRelations] = useState<Set<string>>(new Set());
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; action: () => void } | null>(null);
 
-  // Permission: owner can do everything, creator can edit/delete own cards
-  const isOwner = workspace?.member_role === "owner";
+  // Permission: owner/admin can do everything, editor can edit own cards, viewer/pending are read-only
+  const role = workspace?.member_role;
+  const isOwner = role === "owner";
+  const isAdmin = role === "admin";
+  const isEditor = role === "editor";
+  const isViewer = role === "viewer";
+  const isPending = role === "pending";
   const isCreator = user && card && card.creator_id === user.id;
-  const canEdit = isOwner || isCreator;
+  const canEditContent = isOwner || isAdmin || (isEditor && isCreator);
+  const canCreate = isOwner || isAdmin || isEditor;
 
   const relatedIds = new Set([
     ...(relatedCards?.map((c) => c.id) || []),
@@ -64,8 +70,8 @@ export default function CardDetailPage() {
   ]);
 
   const requireEditPermission = () => {
-    if (!canEdit) {
-      toast("仅空间创建者或卡片创建者可执行此操作", "error");
+    if (!canEditContent) {
+      toast("没有编辑权限", "error");
       return false;
     }
     return true;
@@ -232,13 +238,20 @@ export default function CardDetailPage() {
         </div>
       </div>
 
+      {/* Pending banner */}
+      {isPending && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          你正在等待管理员分配权限，目前仅可浏览卡片。
+        </div>
+      )}
+
       {/* Action bar */}
       <div className="mb-6 flex justify-around rounded-card border border-border bg-surface p-4 shadow-sm">
-        <ActionButton icon={<Star size={20} fill={card.is_favorite ? "currentColor" : "none"} />} label={card.is_favorite ? "已收藏" : "收藏"} onClick={handleToggleFavorite} />
-        <ActionButton icon={<Pencil size={20} />} label="编辑" onClick={startEdit} disabled={!canEdit} />
-        <ActionButton icon={card.is_temp ? <PinOff size={20} /> : <Pin size={20} />} label={card.is_temp ? "永久保存" : "移至临时"} onClick={handleToggleTemp} />
+        <ActionButton icon={<Star size={20} fill={card.is_favorite ? "currentColor" : "none"} />} label={card.is_favorite ? "已收藏" : "收藏"} onClick={handleToggleFavorite} disabled={!canCreate} />
+        <ActionButton icon={<Pencil size={20} />} label="编辑" onClick={startEdit} disabled={!canEditContent} />
+        <ActionButton icon={card.is_temp ? <PinOff size={20} /> : <Pin size={20} />} label={card.is_temp ? "永久保存" : "移至临时"} onClick={handleToggleTemp} disabled={!canCreate} />
         <ActionButton icon={<Download size={20} />} label="导出" onClick={handleExport} />
-        <ActionButton icon={<Trash2 size={20} />} label="删除" onClick={handleDelete} disabled={!canEdit} />
+        <ActionButton icon={<Trash2 size={20} />} label="删除" onClick={handleDelete} disabled={!canEditContent} />
       </div>
 
       {/* Related cards */}
@@ -254,7 +267,7 @@ export default function CardDetailPage() {
                 className="relative flex-shrink-0 rounded-card border border-border bg-surface p-3 shadow-sm"
                 style={{ borderLeft: `3px solid ${rc.color}`, width: 200 }}
               >
-                {canEdit && (
+                {canCreate && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRemoveRelation(rc.id); }}
                     className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full text-xs text-text-secondary hover:bg-red-50 hover:text-danger"
@@ -309,18 +322,18 @@ export default function CardDetailPage() {
                   >
                     查看
                   </button>
-                  {!relatedIds.has(sc.id) ? (
+                  {canCreate && !relatedIds.has(sc.id) ? (
                     <button
                       onClick={() => handleAddRelation(sc.id)}
                       className="rounded-lg bg-primary/10 px-3 py-1 text-xs text-primary-dark"
                     >
                       关联
                     </button>
-                  ) : (
+                  ) : relatedIds.has(sc.id) ? (
                     <span className="rounded-lg bg-green-50 px-3 py-1 text-center text-xs text-green-600">
                       已关联
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -337,7 +350,7 @@ export default function CardDetailPage() {
         {comments && comments.length > 0 && (
           <div className="mb-4 flex flex-col gap-3">
             {comments.map((c) => {
-              const canDeleteComment = isOwner || (user && c.author_id === user.id);
+              const canDeleteComment = isOwner || isAdmin || (user && c.author_id === user.id);
               return (
                 <div key={c.id} className="rounded-lg border border-border bg-gray-50 p-3">
                   <div className="mb-1 flex items-center justify-between">
@@ -367,22 +380,26 @@ export default function CardDetailPage() {
           <p className="mb-4 text-center text-sm text-text-secondary">暂无评论</p>
         )}
 
-        <div className="flex gap-2">
-          <input
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAddComment()}
-            placeholder="写评论..."
-            className="flex-1 rounded-2xl bg-gray-100 px-4 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
-          />
-          <button
-            onClick={handleAddComment}
-            disabled={!commentText.trim()}
-            className="rounded-2xl bg-primary px-4 py-2 text-sm text-white disabled:bg-gray-300"
-          >
-            发送
-          </button>
-        </div>
+        {canCreate ? (
+          <div className="flex gap-2">
+            <input
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAddComment()}
+              placeholder="写评论..."
+              className="flex-1 rounded-2xl bg-gray-100 px-4 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <button
+              onClick={handleAddComment}
+              disabled={!commentText.trim()}
+              className="rounded-2xl bg-primary px-4 py-2 text-sm text-white disabled:bg-gray-300"
+            >
+              发送
+            </button>
+          </div>
+        ) : (
+          <p className="text-center text-xs text-text-secondary">仅编辑者及以上权限可发表评论</p>
+        )}
       </section>
 
       {/* Edit card modal */}

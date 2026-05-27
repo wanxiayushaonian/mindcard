@@ -1,8 +1,9 @@
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
+from app.models.api_key import ApiKey
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 
@@ -98,4 +100,46 @@ async def get_workspace_membership(
 def require_owner(membership: WorkspaceMember) -> None:
     """Check that the membership role is 'owner', else raise 403."""
     if membership.role != "owner":
-        raise HTTPException(status_code=403, detail="仅空间管理员可执行此操作")
+        raise HTTPException(status_code=403, detail="仅空间创建者可执行此操作")
+
+
+def require_role(membership: WorkspaceMember, *roles: str) -> None:
+    """Check that membership.role is one of the given roles, else raise 403."""
+    if membership.role not in roles:
+        raise HTTPException(status_code=403, detail=f"需要以下角色之一: {', '.join(roles)}")
+
+
+def can_edit_card(membership: WorkspaceMember, card: object, user: User) -> bool:
+    """Check if user can edit/delete a card's content."""
+    if membership.role in ("owner", "admin"):
+        return True
+    if membership.role == "editor" and card.creator_id == user.id:
+        return True
+    return False
+
+
+def _hash_api_key(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+async def get_current_user_from_api_key(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Authenticate via X-API-Key header. Returns the associated User."""
+    key_hash = _hash_api_key(x_api_key)
+    result = await db.execute(
+        select(ApiKey).where(ApiKey.key_hash == key_hash)
+    )
+    api_key = result.scalar_one_or_none()
+    if not api_key or not api_key.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key 无效或已吊销")
+
+    # Update last_used_at
+    api_key.last_used_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    user = await db.get(User, api_key.user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+    return user

@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
 import { useState, useEffect, useRef } from "react";
-import { cardApi, type Card, type CardFilters } from "@/lib/api";
+import { cardApi, workspaceApi, type Card, type CardFilters } from "@/lib/api";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
@@ -21,6 +21,13 @@ export default function WorkspacePage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
+
+  const { data: workspace } = useSWR(
+    workspaceId ? `workspace-${workspaceId}` : null,
+    () => workspaceApi.get(workspaceId)
+  );
+  const role = workspace?.member_role;
+  const canCreate = role === "owner" || role === "admin" || role === "editor";
 
   const [filters, setFilters] = useState<CardFilters>({ sort_by: "created_at", order: "desc" });
   const filterKey = JSON.stringify(filters);
@@ -262,12 +269,14 @@ export default function WorkspacePage() {
             );
           })}
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-dark"
-        >
-          <Plus size={16} /> 新建卡片
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-dark"
+          >
+            <Plus size={16} /> 新建卡片
+          </button>
+        )}
       </div>
 
       {/* Row 2: search, sort, data ops */}
@@ -295,29 +304,33 @@ export default function WorkspacePage() {
           <option value="title-asc">标题 A-Z</option>
           <option value="title-desc">标题 Z-A</option>
         </select>
-        <div className="h-4 w-px bg-border" />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".md,.markdown"
-          multiple
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          title="导入 Markdown 文件"
-          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-text-secondary transition hover:bg-gray-100"
-        >
-          <Upload size={14} />
-        </button>
-        <button
-          onClick={handleBatchExport}
-          title="批量导出为 ZIP"
-          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-text-secondary transition hover:bg-gray-100"
-        >
-          <Package size={14} />
-        </button>
+        {canCreate && (
+          <>
+            <div className="h-4 w-px bg-border" />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".md,.markdown"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="导入 Markdown 文件"
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-text-secondary transition hover:bg-gray-100"
+            >
+              <Upload size={14} />
+            </button>
+            <button
+              onClick={handleBatchExport}
+              title="批量导出为 ZIP"
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-text-secondary transition hover:bg-gray-100"
+            >
+              <Package size={14} />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Row 3: emotion tag filters */}
@@ -344,6 +357,13 @@ export default function WorkspacePage() {
         ))}
       </div>
 
+      {/* Pending role banner */}
+      {role === "pending" && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          你正在等待管理员分配权限，目前仅可浏览卡片。
+        </div>
+      )}
+
       <div className="columns-2 gap-4 sm:columns-3">
         {allCards?.map((card) => (
           <CardItem
@@ -369,7 +389,7 @@ export default function WorkspacePage() {
       {allCards?.length === 0 && (
         <div className="py-20 text-center text-text-secondary">
           <p className="text-lg">还没有灵感卡片</p>
-          <p className="mt-2 text-sm">点击上方按钮创建第一张卡片</p>
+          {canCreate && <p className="mt-2 text-sm">点击上方按钮创建第一张卡片</p>}
         </div>
       )}
 

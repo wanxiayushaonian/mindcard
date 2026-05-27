@@ -189,6 +189,11 @@ export const workspaceApi = {
     ),
   removeMember: (workspaceId: string, userId: string) =>
     request<{ ok: boolean }>(`/api/workspaces/${workspaceId}/members/${userId}`, { method: "DELETE" }),
+  updateMemberRole: (workspaceId: string, userId: string, role: string) =>
+    request<{ ok: boolean; role: string }>(`/api/workspaces/${workspaceId}/members/${userId}/role`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
+    }),
   leave: (workspaceId: string) =>
     request<{ ok: boolean }>(`/api/workspaces/${workspaceId}/leave`, { method: "POST" }),
 };
@@ -468,4 +473,62 @@ export const aiApi = {
       method: "POST",
       body: JSON.stringify({ content }),
     }),
+};
+
+// --- Notifications ---
+export interface Notification {
+  id: string;
+  type: string;
+  content: string;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export const notificationApi = {
+  list: (limit = 50) => request<Notification[]>(`/api/notifications/?limit=${limit}`),
+  unreadCount: () => request<{ count: number }>("/api/notifications/unread-count"),
+  markRead: (id: string) => request<{ ok: boolean }>(`/api/notifications/${id}/read`, { method: "POST" }),
+  markAllRead: () => request<{ ok: boolean }>("/api/notifications/read-all", { method: "POST" }),
+};
+
+// --- Activities ---
+export interface Activity {
+  id: string;
+  actor_nickname: string;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  metadata: Record<string, string> | null;
+  created_at: string;
+}
+
+export const activityApi = {
+  list: (workspaceId: string, limit = 50) =>
+    request<Activity[]>(`/api/activities/${workspaceId}?limit=${limit}`),
+};
+
+// --- API Keys ---
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  key_prefix: string;
+  is_active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export interface ApiKeyCreated extends ApiKeyInfo {
+  key: string; // full key, only returned on creation
+}
+
+export const apiKeyApi = {
+  list: () => request<ApiKeyInfo[]>("/api/settings/api-keys/"),
+  create: (name: string) =>
+    request<ApiKeyCreated>("/api/settings/api-keys/", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  revoke: (id: string) =>
+    request<{ ok: boolean }>(`/api/settings/api-keys/${id}`, { method: "DELETE" }),
 };

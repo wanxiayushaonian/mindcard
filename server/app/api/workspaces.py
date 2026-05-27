@@ -8,14 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.utils.activity import create_activity
 from app.schemas.workspace import (
     JoinWorkspaceRequest,
+    MemberRoleUpdate,
     WorkspaceCreate,
     WorkspaceMemberResponse,
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-from app.utils.auth import get_current_user, get_workspace_membership, require_owner
+from app.utils.auth import get_current_user, get_workspace_membership, require_owner, require_role
 from app.utils.helpers import parse_uuid
 
 router = APIRouter()
@@ -148,10 +150,10 @@ async def generate_invite_code(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Generate a 6-char invite code. Only workspace owner can do this."""
+    """Generate a 6-char invite code. Owner or admin can do this."""
     ws_id = parse_uuid(workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
-    require_owner(membership)
+    require_role(membership, "owner", "admin")
     ws = await db.get(Workspace, ws_id)
 
     chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -185,8 +187,13 @@ async def join_workspace(
     if existing.scalar_one_or_none():
         return {"ok": True, "workspace_id": str(ws.id), "message": "Already a member"}
 
-    member = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="editor")
+    member = WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="pending")
     db.add(member)
+    await create_activity(
+        db, workspace_id=ws.id, actor_id=user.id,
+        action="member.joined", target_type="member",
+        metadata={"nickname": user.nickname or ""},
+    )
     await db.commit()
     return {"ok": True, "workspace_id": str(ws.id), "workspace_name": ws.name}
 
@@ -198,16 +205,28 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Remove a member from workspace. Only owner can do this."""
+    """Remove a member from workspace. Owner or admin can do this."""
     ws_id = parse_uuid(workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
-    require_owner(membership)
+    require_role(membership, "owner", "admin")
     if str(user.id) == user_id:
         raise HTTPException(status_code=400, detail="Cannot remove yourself")
 
     target = await db.get(WorkspaceMember, (ws_id, parse_uuid(user_id)))
     if not target:
         raise HTTPException(status_code=404, detail="成员不存在")
+    # Admin cannot remove owner
+    if membership.role == "admin" and target.role == "owner":
+        raise HTTPException(status_code=403, detail="无法移除空间创建者")
+
+    # Get target nickname for activity log
+    from app.models.user import User as UserModel
+    target_user = await db.get(UserModel, parse_uuid(user_id))
+    await create_activity(
+        db, workspace_id=ws_id, actor_id=user.id,
+        action="member.left", target_type="member",
+        metadata={"nickname": target_user.nickname or "", "removed_by": user.nickname or ""},
+    )
 
     await db.delete(target)
     await db.commit()
@@ -225,6 +244,56 @@ async def leave_workspace(
     membership = await get_workspace_membership(ws_id, user, db)
     if membership.role == "owner":
         raise HTTPException(status_code=400, detail="空间创建者无法退出自己的空间")
+    await create_activity(
+        db, workspace_id=ws_id, actor_id=user.id,
+        action="member.left", target_type="member",
+        metadata={"nickname": user.nickname or ""},
+    )
     await db.delete(membership)
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/{workspace_id}/members/{user_id}/role")
+async def update_member_role(
+    workspace_id: str,
+    user_id: str,
+    req: MemberRoleUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Change a member's role. Owner can set any role; admin can set editor/viewer."""
+    ws_id = parse_uuid(workspace_id)
+    membership = await get_workspace_membership(ws_id, user, db)
+    require_role(membership, "owner", "admin")
+
+    target = await db.get(WorkspaceMember, (ws_id, parse_uuid(user_id)))
+    if not target:
+        raise HTTPException(status_code=404, detail="成员不存在")
+    if target.role == "owner":
+        raise HTTPException(status_code=400, detail="无法修改创建者的角色")
+
+    # Admin cannot promote to admin or change another admin
+    if membership.role == "admin":
+        if req.role == "admin":
+            raise HTTPException(status_code=403, detail="只有创建者可以设置管理员角色")
+        if target.role == "admin":
+            raise HTTPException(status_code=403, detail="只有创建者可以修改管理员角色")
+
+    # Get target nickname for activity log
+    from app.models.user import User as UserModel
+    target_user = await db.get(UserModel, parse_uuid(user_id))
+    await create_activity(
+        db, workspace_id=ws_id, actor_id=user.id,
+        action="member.role_changed", target_type="member",
+        target_id=user_id,
+        metadata={
+            "nickname": target_user.nickname or "",
+            "old_role": target.role,
+            "new_role": req.role,
+        },
+    )
+
+    target.role = req.role
+    await db.commit()
+    return {"ok": True, "role": req.role}

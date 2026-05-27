@@ -77,15 +77,15 @@ async def generate_title(req: TextRequest, user: User = Depends(get_current_user
 async def extract_keywords(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
     """提取关键词。"""
     raw = await llm_service.complete_simple(
-        "从以下内容中提取3-5个核心关键字。每个关键字2-4个字，用逗号分隔，不要加序号、解释或其他符号。",
+        "从以下内容中提取3-5个核心关键字。每个关键字2-6个字，用逗号分隔，不要加序号、解释或其他符号。",
         req.content,
-        max_tokens=48,
+        max_tokens=64,
     )
     keywords = []
-    for kw in raw.split(","):
-        kw = re.sub(r'["""\'\'《》【】「」]', '', kw.strip())
-        if len(kw) > 6:
-            kw = kw[:6]
+    for kw in re.split(r'[,，、]', raw):
+        kw = re.sub(r'["""\'\'《》【】「」\s]', '', kw.strip())
+        if len(kw) > 10:
+            kw = kw[:10]
         if kw:
             keywords.append(kw)
     return KeywordsResponse(keywords=keywords[:5])

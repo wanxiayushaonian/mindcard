@@ -10,7 +10,8 @@ from app.models.card import Card, CardRelation
 from app.models.user import User
 from app.schemas.card import CardCreate, CardListResponse, CardRelationCreate, CardResponse, CardUpdate
 from app.services.embedding import embedding_service
-from app.utils.auth import get_current_user, get_workspace_membership, require_owner
+from app.utils.activity import create_activity
+from app.utils.auth import can_edit_card, get_current_user, get_workspace_membership, require_role
 from app.utils.cursor import decode_cursor, encode_cursor
 from app.utils.helpers import parse_uuid
 
@@ -107,11 +108,17 @@ async def create_card(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    await get_workspace_membership(req.workspace_id, user, db)
+    membership = await get_workspace_membership(req.workspace_id, user, db)
+    require_role(membership, "owner", "admin", "editor")
     card = Card(**req.model_dump(), creator_id=user.id)
     db.add(card)
     await db.flush()
     background_tasks.add_task(_generate_embedding, card)
+    await create_activity(
+        db, workspace_id=req.workspace_id, actor_id=user.id,
+        action="card.created", target_type="card", target_id=str(card.id),
+        metadata={"card_title": card.title or ""},
+    )
     await db.commit()
     await db.refresh(card)
     return card
@@ -143,9 +150,11 @@ async def update_card(
         raise HTTPException(status_code=404, detail="卡片不存在")
     membership = await get_workspace_membership(card.workspace_id, user, db)
     update_data = req.model_dump(exclude_unset=True)
-    # is_favorite / is_temp are personal actions, any member can toggle
+    # is_favorite / is_temp are personal actions, any member except pending/viewer can toggle
     personal_only = set(update_data.keys()) <= {"is_favorite", "is_temp"}
-    if not personal_only and membership.role != "owner" and card.creator_id != user.id:
+    if personal_only:
+        require_role(membership, "owner", "admin", "editor")
+    elif not can_edit_card(membership, card, user):
         raise HTTPException(status_code=403, detail="只能编辑自己创建的卡片")
     content_changed = "content" in update_data or "title" in update_data or "keywords" in update_data
     for field, value in update_data.items():
@@ -168,7 +177,7 @@ async def delete_card(
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
     membership = await get_workspace_membership(card.workspace_id, user, db)
-    if membership.role != "owner" and card.creator_id != user.id:
+    if not can_edit_card(membership, card, user):
         raise HTTPException(status_code=403, detail="只能删除自己创建的卡片")
     await db.delete(card)
     await db.commit()
@@ -185,7 +194,8 @@ async def add_relation(
     card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
-    await get_workspace_membership(card.workspace_id, user, db)
+    membership = await get_workspace_membership(card.workspace_id, user, db)
+    require_role(membership, "owner", "admin", "editor")
 
     from sqlalchemy import select as sa_select
 
@@ -206,6 +216,11 @@ async def add_relation(
         score=req.score,
     )
     db.add(rel)
+    await create_activity(
+        db, workspace_id=card.workspace_id, actor_id=user.id,
+        action="card.related", target_type="card", target_id=card_id,
+        metadata={"card_title": card.title or "", "related_card_id": req.related_card_id},
+    )
     await db.commit()
     return {"ok": True}
 
@@ -238,7 +253,8 @@ async def remove_relation(
     card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
-    await get_workspace_membership(card.workspace_id, user, db)
+    membership = await get_workspace_membership(card.workspace_id, user, db)
+    require_role(membership, "owner", "admin", "editor")
     result = await db.execute(
         select(CardRelation).where(
             CardRelation.card_id == parse_uuid(card_id),

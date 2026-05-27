@@ -133,6 +133,13 @@ export default function WorkspacesPage() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <button
+            onClick={() => router.push("/settings/api-keys")}
+            className="rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
+            title="API Key 设置"
+          >
+            <Settings size={16} />
+          </button>
+          <button
             onClick={() => router.push("/profile")}
             className="rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
           >
@@ -178,9 +185,32 @@ export default function WorkspacesPage() {
               <WorkspaceIcon icon={ws.icon} size={32} />
             </div>
             <h3 className="font-semibold text-text">{ws.name}</h3>
-            <p className="mt-1 text-xs text-text-secondary">
-              {new Date(ws.created_at).toLocaleDateString("zh-CN")}
-            </p>
+            <div className="mt-1 flex items-center gap-2">
+              <p className="text-xs text-text-secondary">
+                {new Date(ws.created_at).toLocaleDateString("zh-CN")}
+              </p>
+              {ws.member_role && ws.member_role !== "owner" && (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                    ws.member_role === "admin"
+                      ? "bg-blue-100 text-blue-700"
+                      : ws.member_role === "editor"
+                        ? "bg-gray-200 text-text-secondary"
+                        : ws.member_role === "viewer"
+                          ? "bg-gray-100 text-gray-500"
+                          : "bg-amber-100 text-amber-700"
+                  }`}
+                >
+                  {ws.member_role === "admin"
+                    ? "管理员"
+                    : ws.member_role === "editor"
+                      ? "编辑者"
+                      : ws.member_role === "viewer"
+                        ? "浏览者"
+                        : "待审批"}
+                </span>
+              )}
+            </div>
           </div>
         ))}
 

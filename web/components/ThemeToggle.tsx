@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Sun, Moon } from "lucide-react";
 
 export function ThemeToggle() {
   const [dark, setDark] = useState(false);
@@ -26,7 +27,7 @@ export function ThemeToggle() {
       className="flex h-8 w-8 items-center justify-center rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
       title={dark ? "切换到浅色模式" : "切换到深色模式"}
     >
-      {dark ? "☀" : "🌙"}
+      {dark ? <Sun size={16} /> : <Moon size={16} />}
     </button>
   );
 }

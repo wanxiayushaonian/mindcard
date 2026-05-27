@@ -39,3 +39,7 @@ class WorkspaceMemberResponse(BaseModel):
     nickname: str
     role: str
     joined_at: datetime
+
+
+class MemberRoleUpdate(BaseModel):
+    role: str = Field(..., pattern=r"^(admin|editor|viewer)$")

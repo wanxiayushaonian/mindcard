@@ -12,9 +12,10 @@ import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/Breadcrumb";
-import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network } from "lucide-react";
+import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network, Activity } from "lucide-react";
 import { SearchModal } from "@/components/SearchModal";
 import { AiChatPanel } from "@/components/AiChatPanel";
+import { NotificationBell } from "@/components/NotificationBell";
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -79,6 +80,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       : []),
     { label: "洞察", href: `/workspaces/${workspaceId}/insights`, highlight: false, icon: <Lightbulb size={14} /> },
     { label: "网络", href: `/workspaces/${workspaceId}/network`, highlight: false, icon: <Network size={14} /> },
+    { label: "动态", href: `/workspaces/${workspaceId}/activities`, highlight: false, icon: <Activity size={14} /> },
   ];
 
   const navigate = (href: string) => {
@@ -108,6 +110,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               <Search size={14} />
               <span className="hidden lg:inline">⌘K</span>
             </button>
+            <NotificationBell workspaceId={workspaceId} />
             {workspace?.member_role === "owner" && (
               <button
                 onClick={() => setShowEdit(true)}
@@ -146,13 +149,16 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             ))}
           </div>
 
-          {/* Right: hamburger (visible on mobile only) */}
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary hover:bg-gray-100 md:hidden"
-          >
-            {menuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
+          {/* Right: mobile nav */}
+          <div className="flex items-center gap-1 md:hidden">
+            <NotificationBell workspaceId={workspaceId} />
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary hover:bg-gray-100"
+            >
+              {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          </div>
         </div>
 
         {/* Mobile dropdown menu */}
@@ -233,7 +239,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         <MembersPanel
           workspaceId={workspaceId}
           onClose={() => setShowMembers(false)}
-          isOwner={workspace?.member_role === "owner"}
+          myRole={workspace?.member_role || null}
         />
       )}
 
@@ -303,14 +309,30 @@ function EditWorkspaceModal({
   );
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  owner: "创建者",
+  admin: "管理员",
+  editor: "编辑者",
+  viewer: "浏览者",
+  pending: "待审批",
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  owner: "bg-primary/10 text-primary-dark",
+  admin: "bg-blue-100 text-blue-700",
+  editor: "bg-gray-200 text-text-secondary",
+  viewer: "bg-gray-100 text-gray-500",
+  pending: "bg-amber-100 text-amber-700",
+};
+
 function MembersPanel({
   workspaceId,
   onClose,
-  isOwner,
+  myRole,
 }: {
   workspaceId: string;
   onClose: () => void;
-  isOwner: boolean;
+  myRole: string | null;
 }) {
   const { data: currentUser } = useSWR("me", () => authApi.me());
   const { data: members, isLoading, mutate: revalidateMembers } = useSWR(
@@ -319,6 +341,16 @@ function MembersPanel({
   );
 
   const [removeTarget, setRemoveTarget] = useState<{ userId: string; nickname: string } | null>(null);
+  const canManage = myRole === "owner" || myRole === "admin";
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    try {
+      await workspaceApi.updateMemberRole(workspaceId, userId, newRole);
+      revalidateMembers();
+    } catch (e: any) {
+      toast("修改失败: " + e.message, "error");
+    }
+  };
 
   const handleRemove = (userId: string, nickname: string) => {
     setRemoveTarget({ userId, nickname });
@@ -350,26 +382,38 @@ function MembersPanel({
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary-dark">
                   {m.nickname?.charAt(0) || "?"}
                 </div>
-                <span className="text-sm font-medium text-text">
-                  {m.nickname || "未知用户"}
-                </span>
-                {currentUser && m.user_id === currentUser.id && (
-                  <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-white">
-                    我
-                  </span>
-                )}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text">
+                      {m.nickname || "未知用户"}
+                    </span>
+                    {currentUser && m.user_id === currentUser.id && (
+                      <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-white">
+                        我
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                    m.role === "owner"
-                      ? "bg-primary/10 text-primary-dark"
-                      : "bg-gray-200 text-text-secondary"
-                  }`}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${ROLE_COLORS[m.role] || ROLE_COLORS.editor}`}
                 >
-                  {m.role === "owner" ? "创建者" : "编辑者"}
+                  {ROLE_LABELS[m.role] || m.role}
                 </span>
-                {isOwner && m.role !== "owner" && (
+                {/* Role selector: owner can change anyone (except owner), admin can change editor/viewer/pending */}
+                {canManage && m.role !== "owner" && !(myRole === "admin" && m.role === "admin") && (
+                  <select
+                    value={m.role}
+                    onChange={(e) => handleRoleChange(m.user_id, e.target.value)}
+                    className="rounded-lg border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] text-text-secondary outline-none focus:border-primary"
+                  >
+                    {myRole === "owner" && <option value="admin">管理员</option>}
+                    <option value="editor">编辑者</option>
+                    <option value="viewer">浏览者</option>
+                  </select>
+                )}
+                {canManage && m.role !== "owner" && !(myRole === "admin" && m.role === "admin") && (
                   <button
                     onClick={() => handleRemove(m.user_id, m.nickname)}
                     className="rounded-full px-2 py-0.5 text-[10px] text-red-400 hover:bg-red-50 hover:text-red-600"

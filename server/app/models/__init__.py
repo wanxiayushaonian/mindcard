@@ -3,6 +3,9 @@ from .workspace import Workspace, WorkspaceMember
 from .card import Card, CardRelation
 from .chat import AiChat, ChatMessage
 from .comment import Comment
+from .notification import Notification
+from .activity import ActivityLog
+from .api_key import ApiKey
 
 __all__ = [
     "User",
@@ -13,4 +16,7 @@ __all__ = [
     "AiChat",
     "ChatMessage",
     "Comment",
+    "Notification",
+    "ActivityLog",
+    "ApiKey",
 ]

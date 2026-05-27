@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MindCard Clipper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <div class="header">
+      <span class="logo">🧠</span>
+      <span class="title">保存到 MindCard</span>
+    </div>
+
+    <!-- No API Key warning -->
+    <div id="no-key-warning" class="warning" style="display:none;">
+      <p>请先配置 API Key</p>
+      <button id="open-options" class="btn-link">前往设置 →</button>
+    </div>
+
+    <!-- Main form -->
+    <div id="main-form" style="display:none;">
+      <div class="field">
+        <label>标题</label>
+        <input type="text" id="title" placeholder="留空则 AI 自动生成" />
+      </div>
+
+      <div class="field">
+        <label>内容预览</label>
+        <textarea id="content" rows="4" placeholder="选中的文字..."></textarea>
+      </div>
+
+      <div class="field">
+        <label>工作区</label>
+        <select id="workspace">
+          <option value="">加载中...</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>关键词（逗号分隔）</label>
+        <input type="text" id="keywords" placeholder="自动生成或手动输入" />
+      </div>
+
+      <div class="meta" id="meta"></div>
+
+      <div class="actions">
+        <button id="cancel" class="btn btn-secondary">取消</button>
+        <button id="save" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+
+    <!-- Success state -->
+    <div id="success" class="success" style="display:none;">
+      <p>✓ 保存成功</p>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
