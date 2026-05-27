@@ -17,6 +17,7 @@
   --color-gray-200: #E5E7EB;
   --color-gray-300: #D1D5DB;
   --color-gray-400: #9CA3AF;
+  --cjk-line-height: 1.8;
 }
 
 .dark {
@@ -56,4 +57,46 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-gray-400);
+}
+
+/* Range slider — hide native track, only show thumb */
+.slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+  height: 14px;
+  margin: 0;
+}
+.slider-thumb::-webkit-slider-runnable-track {
+  height: 0;
+  background: transparent;
+}
+.slider-thumb::-moz-range-track {
+  height: 0;
+  background: transparent;
+  border: none;
+}
+.slider-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  pointer-events: auto;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  margin-top: -7px; /* center on track */
+}
+.slider-thumb::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  pointer-events: auto;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }

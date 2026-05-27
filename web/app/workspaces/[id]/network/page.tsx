@@ -4,7 +4,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import useSWR from "swr";
 import * as d3 from "d3";
-import { cardApi, type Card } from "@/lib/api";
+import { cardApi, topicApi, type Card, type Topic } from "@/lib/api";
 import { MarkdownContent } from "@/components/MarkdownContent";
 
 const MIN_RADIUS = 12;
@@ -19,6 +19,7 @@ interface GraphNode extends d3.SimulationNodeDatum {
   isFavorite: boolean;
   radius: number;
   degree: number;
+  topicId?: string;
 }
 
 interface GraphEdge extends d3.SimulationLinkDatum<GraphNode> {
@@ -37,6 +38,10 @@ export default function NetworkPage() {
   const svgRef = useRef<SVGSVGElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphEdge> | null>(null);
+  const linkRef = useRef<d3.Selection<d3.BaseType, GraphEdge, SVGGElement, unknown> | null>(null);
+  const nodeRef = useRef<d3.Selection<d3.BaseType, GraphNode, SVGGElement, unknown> | null>(null);
+  const topicCircleRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
+  const topicLabelRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
 
   const [cards, setCards] = useState<Card[] | null>(null);
   const [cardLoadProgress, setCardLoadProgress] = useState(0);
@@ -53,6 +58,24 @@ export default function NetworkPage() {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const [timeRange, setTimeRange] = useState<[number, number]>([0, 0]); // [start, end] timestamps, 0 = no filter
+  const [sliderMode, setSliderMode] = useState<"all" | "time" | "event">("all");
+  const [eventEnd, setEventEnd] = useState(0); // 1-based index, 0 = show all
+  const [isPlaying, setIsPlaying] = useState(false);
+  const playTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup playback on unmount
+  useEffect(() => {
+    return () => {
+      if (playTimerRef.current) clearInterval(playTimerRef.current);
+    };
+  }, []);
+
+  // Fetch topics
+  const { data: topics } = useSWR(
+    cards ? `topics-${workspaceId}` : null,
+    () => topicApi.list(workspaceId)
+  );
 
   // Fetch relations for all cards
   const { data: relationsMap, isLoading: relationsLoading } = useSWR(
@@ -71,6 +94,14 @@ export default function NetworkPage() {
       return Object.fromEntries(entries) as Record<string, string[]>;
     }
   );
+
+  // Build topic map: card_id -> topic
+  const topicMap = useMemo(() => {
+    if (!topics) return new Map<string, Topic>();
+    const map = new Map<string, Topic>();
+    topics.forEach((t) => t.card_ids.forEach((cid) => map.set(cid, t)));
+    return map;
+  }, [topics]);
 
   // Build graph data
   const { nodes, edges, topKeywords } = useMemo(() => {
@@ -93,6 +124,7 @@ export default function NetworkPage() {
         isFavorite: card.is_favorite,
         radius: MIN_RADIUS,
         degree: 0,
+        topicId: topicMap.get(card.id)?.id,
       });
     });
 
@@ -155,7 +187,7 @@ export default function NetworkPage() {
       edges: [...edgeMap.values()],
       topKeywords: sortedKws,
     };
-  }, [cards, relationsMap]);
+  }, [cards, relationsMap, topicMap]);
 
   // Toggle keyword selection
   const toggleTag = (kw: string) => {
@@ -167,20 +199,48 @@ export default function NetworkPage() {
     });
   };
 
-  // Compute visible node IDs based on keyword filter
-  const visibleIds = useMemo(() => {
-    if (selectedTags.size === 0) return new Set(nodes.map((n) => n.id));
-    const matchingIds = new Set(nodes.filter((n) => n.keywords.some((kw) => selectedTags.has(kw))).map((n) => n.id));
-    // Expand to neighbors
-    const neighborIds = new Set(matchingIds);
-    edges.forEach((e) => {
-      const srcId = typeof e.source === "string" ? e.source : (e.source as GraphNode).id;
-      const tgtId = typeof e.target === "string" ? e.target : (e.target as GraphNode).id;
-      if (matchingIds.has(srcId)) neighborIds.add(tgtId);
-      if (matchingIds.has(tgtId)) neighborIds.add(srcId);
-    });
-    return neighborIds;
-  }, [nodes, edges, selectedTags]);
+  // Compute visible node IDs based on keyword filter + slider mode
+  const { visibleIds } = useMemo(() => {
+    // Keyword filter
+    let keywordFiltered: Set<string>;
+    if (selectedTags.size === 0) {
+      keywordFiltered = new Set(nodes.map((n) => n.id));
+    } else {
+      const matchingIds = new Set(nodes.filter((n) => n.keywords.some((kw) => selectedTags.has(kw))).map((n) => n.id));
+      keywordFiltered = new Set(matchingIds);
+      edges.forEach((e) => {
+        const srcId = typeof e.source === "string" ? e.source : (e.source as GraphNode).id;
+        const tgtId = typeof e.target === "string" ? e.target : (e.target as GraphNode).id;
+        if (matchingIds.has(srcId)) keywordFiltered.add(tgtId);
+        if (matchingIds.has(tgtId)) keywordFiltered.add(srcId);
+      });
+    }
+
+    // Slider filter
+    if (sliderMode === "all") {
+      return { visibleIds: keywordFiltered };
+    }
+
+    if (sliderMode === "time") {
+      const timeActive = timeRange[0] > 0 || timeRange[1] > 0;
+      if (!timeActive) return { visibleIds: keywordFiltered };
+      const visible = new Set([...keywordFiltered].filter((id) => {
+        const n = nodes.find((nn) => nn.id === id);
+        if (!n) return false;
+        const ts = new Date(n.card.created_at).getTime();
+        if (timeRange[0] > 0 && ts < timeRange[0]) return false;
+        if (timeRange[1] > 0 && ts > timeRange[1]) return false;
+        return true;
+      }));
+      return { visibleIds: visible };
+    }
+
+    // Event mode
+    if (eventEnd === 0) return { visibleIds: keywordFiltered };
+    const sorted = [...nodes].sort((a, b) => new Date(a.card.created_at).getTime() - new Date(b.card.created_at).getTime());
+    const eventVisible = new Set(sorted.slice(0, eventEnd).map((n) => n.id));
+    return { visibleIds: new Set([...keywordFiltered].filter((id) => eventVisible.has(id))) };
+  }, [nodes, edges, selectedTags, timeRange, sliderMode, eventEnd]);
 
   // Shared keywords for tooltip
   const getSharedKeywords = useCallback(
@@ -239,10 +299,77 @@ export default function NetworkPage() {
       .velocityDecay(0.15)
       .stop();
 
+    // Build topic data for circles
+    const topicData = new Map<string, { id: string; name: string; nodeIds: string[]; color: string; active: boolean }>();
+    if (topics) {
+      topics.forEach((t) => {
+        const nodeIds = t.card_ids.filter((cid) => nodes.some((n) => n.id === cid));
+        if (nodeIds.length >= 2) {
+          const colorCounts = new Map<string, number>();
+          nodeIds.forEach((cid) => {
+            const n = nodes.find((nn) => nn.id === cid);
+            if (n) colorCounts.set(n.color, (colorCounts.get(n.color) || 0) + 1);
+          });
+          const dominantColor = [...colorCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "#94B4C8";
+          const recentThreshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
+          const active = nodeIds.some((cid) => {
+            const n = nodes.find((nn) => nn.id === cid);
+            return n && new Date(n.card.created_at).getTime() > recentThreshold;
+          });
+          topicData.set(t.id, { id: t.id, name: t.name, nodeIds, color: dominantColor, active });
+        }
+      });
+    }
+
+    // Custom force: repel non-member nodes from topic circles
+    const memberSetByTopic = new Map<string, Set<string>>();
+    topicData.forEach((td) => memberSetByTopic.set(td.id, new Set(td.nodeIds)));
+    const allMemberIds = new Set([...topicData.values()].flatMap((td) => td.nodeIds));
+
+    function topicRepelForce(alpha: number) {
+      const PAD = 35; // extra padding beyond circle radius
+      for (const node of nodes) {
+        if (!node.x || !node.y) continue;
+        let fx = 0, fy = 0;
+        topicData.forEach((td) => {
+          if (memberSetByTopic.get(td.id)!.has(node.id)) return;
+          const memberNodes = td.nodeIds
+            .map((nid) => nodes.find((n) => n.id === nid))
+            .filter((n): n is GraphNode => !!n && n.x !== undefined && n.y !== undefined);
+          if (memberNodes.length < 2) return;
+          const cx = memberNodes.reduce((s, n) => s + n.x!, 0) / memberNodes.length;
+          const cy = memberNodes.reduce((s, n) => s + n.y!, 0) / memberNodes.length;
+          const maxDist = Math.max(...memberNodes.map((n) => Math.hypot(n.x! - cx, n.y! - cy)));
+          const radius = Math.max(maxDist + 30, 60) + PAD;
+          const dx = node.x! - cx;
+          const dy = node.y! - cy;
+          const dist = Math.hypot(dx, dy);
+          if (dist < radius && dist > 0.1) {
+            // Push node outside the circle
+            const overlap = radius - dist;
+            const strength = 0.3 * alpha * (overlap / radius);
+            fx += (dx / dist) * overlap * strength;
+            fy += (dy / dist) * overlap * strength;
+          }
+        });
+        node.vx = (node.vx || 0) + fx;
+        node.vy = (node.vy || 0) + fy;
+      }
+    }
+
+    // Add repel force to simulation
+    simulation.force("topicRepel", topicRepelForce);
+
     // Pre-tick
     for (let i = 0; i < 200; i++) simulation.tick();
 
     simulationRef.current = simulation;
+
+    // Draw topic circles (behind edges)
+    const topicCircleGroup = g.append("g").attr("class", "topics");
+    const topicLabelGroup = g.append("g").attr("class", "topic-labels");
+    topicCircleRef.current = topicCircleGroup;
+    topicLabelRef.current = topicLabelGroup;
 
     // Draw edges
     const edgeGroup = g.append("g").attr("class", "edges");
@@ -256,12 +383,8 @@ export default function NetworkPage() {
       .attr("x1", (d) => (d.source as GraphNode).x!)
       .attr("y1", (d) => (d.source as GraphNode).y!)
       .attr("x2", (d) => (d.target as GraphNode).x!)
-      .attr("y2", (d) => (d.target as GraphNode).y!)
-      .style("display", (d) => {
-        const srcId = (d.source as GraphNode).id;
-        const tgtId = (d.target as GraphNode).id;
-        return visibleIds.has(srcId) && visibleIds.has(tgtId) ? "block" : "none";
-      });
+      .attr("y2", (d) => (d.target as GraphNode).y!);
+    linkRef.current = link;
 
     // Draw nodes
     const nodeGroup = g.append("g").attr("class", "nodes");
@@ -269,8 +392,8 @@ export default function NetworkPage() {
       .selectAll("g")
       .data(nodes)
       .join("g")
-      .style("display", (d) => (visibleIds.has(d.id) ? "block" : "none"))
       .style("cursor", "pointer");
+    nodeRef.current = node;
 
     // Highlight glow
     node
@@ -363,6 +486,57 @@ export default function NetworkPage() {
         .attr("x2", (d) => (d.target as GraphNode).x!)
         .attr("y2", (d) => (d.target as GraphNode).y!);
       node.attr("transform", (d) => `translate(${d.x},${d.y})`);
+
+      // Update topic circles
+      const topicEntries = [...topicData.values()];
+      topicCircleGroup
+        .selectAll("circle")
+        .data(topicEntries, (d: any) => d.id)
+        .join("circle")
+        .each(function (d) {
+          const memberNodes = d.nodeIds
+            .map((nid) => nodes.find((n) => n.id === nid))
+            .filter((n): n is GraphNode => !!n && n.x !== undefined && n.y !== undefined);
+          if (memberNodes.length < 2) return;
+          const cx = memberNodes.reduce((s, n) => s + n.x!, 0) / memberNodes.length;
+          const cy = memberNodes.reduce((s, n) => s + n.y!, 0) / memberNodes.length;
+          const maxDist = Math.max(...memberNodes.map((n) => Math.hypot(n.x! - cx, n.y! - cy)));
+          const radius = Math.max(maxDist + 30, 60);
+          d3.select(this)
+            .attr("cx", cx)
+            .attr("cy", cy)
+            .attr("r", radius)
+            .attr("fill", d.color)
+            .attr("fill-opacity", d.active ? 0.10 : 0.03)
+            .attr("stroke", d.color)
+            .attr("stroke-opacity", d.active ? 0.3 : 0.1)
+            .attr("stroke-dasharray", "6,3")
+            .attr("stroke-width", 1.5);
+        });
+
+      topicLabelGroup
+        .selectAll("text")
+        .data(topicEntries, (d: any) => d.id)
+        .join("text")
+        .each(function (d) {
+          const memberNodes = d.nodeIds
+            .map((nid) => nodes.find((n) => n.id === nid))
+            .filter((n): n is GraphNode => !!n && n.x !== undefined && n.y !== undefined);
+          if (memberNodes.length < 2) return;
+          const cx = memberNodes.reduce((s, n) => s + n.x!, 0) / memberNodes.length;
+          const cy = memberNodes.reduce((s, n) => s + n.y!, 0) / memberNodes.length;
+          const maxDist = Math.max(...memberNodes.map((n) => Math.hypot(n.x! - cx, n.y! - cy)));
+          const radius = Math.max(maxDist + 30, 60);
+          d3.select(this)
+            .attr("x", cx)
+            .attr("y", cy - radius - 6)
+            .attr("text-anchor", "middle")
+            .attr("font-size", "11px")
+            .attr("font-weight", "500")
+            .attr("fill", d.color)
+            .attr("opacity", d.active ? 0.8 : 0.4)
+            .text(d.name);
+        });
     });
 
     // Slow alpha decay loop
@@ -378,7 +552,38 @@ export default function NetworkPage() {
     return () => {
       simulation.stop();
     };
-  }, [nodes, edges, visibleIds, highlightId]);
+  }, [nodes, edges, highlightId, topics]);
+
+  // Update visibility without re-creating SVG (preserves zoom)
+  useEffect(() => {
+    const link = linkRef.current;
+    const node = nodeRef.current;
+    if (!link || !node) return;
+
+    link.style("display", (d) => {
+      const srcId = (d.source as GraphNode).id;
+      const tgtId = (d.target as GraphNode).id;
+      return visibleIds.has(srcId) && visibleIds.has(tgtId) ? "block" : "none";
+    });
+
+    node.each(function (d) {
+      const g = d3.select(this);
+      const isVisible = visibleIds.has(d.id);
+      g.style("display", isVisible ? "block" : "none");
+    });
+
+    // Update topic circle visibility
+    const topicCircleGroup = topicCircleRef.current;
+    const topicLabelGroup = topicLabelRef.current;
+    if (topicCircleGroup) {
+      topicCircleGroup.selectAll("circle")
+        .style("display", (d: any) => (d.nodeIds.some((id: string) => visibleIds.has(id)) ? null : "none"));
+    }
+    if (topicLabelGroup) {
+      topicLabelGroup.selectAll("text")
+        .style("display", (d: any) => (d.nodeIds.some((id: string) => visibleIds.has(id)) ? null : "none"));
+    }
+  }, [visibleIds]);
 
   if (isLoading || relationsLoading) {
     return (
@@ -420,19 +625,179 @@ export default function NetworkPage() {
             {kw}
           </button>
         ))}
+        <button
+          onClick={async () => {
+            try {
+              await topicApi.rebuild(workspaceId);
+              window.location.reload();
+            } catch (e: any) {
+              alert("重建失败: " + e.message);
+            }
+          }}
+          className="flex-shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs text-text-secondary hover:bg-gray-200"
+          title="重建话题聚类"
+        >
+          重建话题
+        </button>
       </div>
 
       {/* Legend */}
-      <div className="absolute bottom-4 left-4 z-10 rounded-xl border border-border bg-surface/90 p-3 text-xs shadow-sm backdrop-blur-sm">
+      <div className="absolute bottom-14 left-4 z-10 rounded-xl border border-border bg-surface/90 p-3 text-xs shadow-sm backdrop-blur-sm">
         <div className="mb-1 flex items-center gap-2">
           <span className="inline-block h-0.5 w-4 bg-[rgba(148,180,200,0.5)]" />
           <span className="text-text-secondary">手动关联</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="mb-1 flex items-center gap-2">
           <span className="inline-block h-0.5 w-4 border-t border-dashed border-[rgba(184,169,212,0.6)]" />
           <span className="text-text-secondary">关键词关联</span>
         </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-3 w-3 rounded-full border border-dashed border-[rgba(148,180,200,0.5)] bg-[rgba(148,180,200,0.1)]" />
+          <span className="text-text-secondary">话题聚类</span>
+        </div>
       </div>
+
+      {/* Timeline slider */}
+      {cards && cards.length > 1 && (() => {
+        const sorted = [...nodes].sort((a, b) => new Date(a.card.created_at).getTime() - new Date(b.card.created_at).getTime());
+        const totalEvents = sorted.length;
+
+        // Time mode helpers
+        const timestamps = cards.map((c) => new Date(c.created_at).getTime());
+        const minTs = Math.min(...timestamps);
+        const maxTs = Math.max(...timestamps);
+        const step = 86400000;
+        const alignedMin = Math.floor(minTs / step) * step;
+        const alignedMax = Math.ceil(maxTs / step) * step;
+        const fmtDate = (ts: number) => {
+          const d = new Date(ts);
+          return `${d.getMonth() + 1}/${d.getDate()}`;
+        };
+
+        const stopPlayback = () => {
+          if (playTimerRef.current) clearInterval(playTimerRef.current);
+          playTimerRef.current = null;
+          setIsPlaying(false);
+        };
+
+        const startPlayback = () => {
+          setIsPlaying(true);
+          if (sliderMode === "time") {
+            const start = timeRange[0] || alignedMin;
+            setTimeRange([start, start]);
+            playTimerRef.current = setInterval(() => {
+              setTimeRange((prev) => {
+                const s = prev[0] || alignedMin;
+                const next = prev[1] + step;
+                if (next >= alignedMax) {
+                  stopPlayback();
+                  return [s, 0];
+                }
+                return [s, next];
+              });
+            }, 200);
+          } else {
+            // Event mode
+            setSliderMode("event");
+            setEventEnd(1);
+            playTimerRef.current = setInterval(() => {
+              setEventEnd((prev) => {
+                const next = prev + 1;
+                if (next > totalEvents) {
+                  stopPlayback();
+                  return 0;
+                }
+                return next;
+              });
+            }, 250);
+          }
+        };
+
+        return (
+          <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2.5 rounded-xl border border-border bg-surface/90 px-3.5 py-2 text-xs shadow-sm backdrop-blur-sm">
+            {/* Mode toggle */}
+            <div className="flex rounded-md border border-border overflow-hidden">
+              {(["all", "time", "event"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => {
+                    stopPlayback();
+                    setSliderMode(m);
+                    if (m === "all") {
+                      setTimeRange([0, 0]);
+                      setEventEnd(0);
+                    }
+                  }}
+                  className={`px-2 py-0.5 text-[10px] transition-colors ${
+                    sliderMode === m ? "bg-primary text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
+                  }`}
+                >
+                  {m === "all" ? "全部" : m === "time" ? "时间" : "事件"}
+                </button>
+              ))}
+            </div>
+
+            {/* Slider track */}
+            {sliderMode === "time" && (() => {
+              const startVal = timeRange[0] || alignedMin;
+              const endVal = timeRange[1] || alignedMax;
+              const range = alignedMax - alignedMin;
+              return (
+                <>
+                  <span className="text-text-secondary whitespace-nowrap">{fmtDate(startVal)}</span>
+                  <div className="relative h-1 w-44">
+                    <div className="absolute inset-0 rounded bg-gray-200" />
+                    <div className="absolute inset-y-0 rounded bg-primary" style={{ left: `${((startVal - alignedMin) / range) * 100}%`, width: `${((endVal - startVal) / range) * 100}%` }} />
+                    <input type="range" min={alignedMin} max={alignedMax} step={step} value={startVal}
+                      onChange={(e) => { stopPlayback(); const v = Number(e.target.value); setTimeRange([v, Math.max(v, endVal)]); }}
+                      style={{ zIndex: 3 }} className="slider-thumb absolute left-0 top-1/2 w-full -translate-y-1/2" />
+                    <input type="range" min={alignedMin} max={alignedMax} step={step} value={endVal}
+                      onChange={(e) => { stopPlayback(); const v = Number(e.target.value); setTimeRange([Math.min(v, startVal), v]); }}
+                      style={{ zIndex: 4 }} className="slider-thumb absolute left-0 top-1/2 w-full -translate-y-1/2" />
+                  </div>
+                  <span className="text-text-secondary whitespace-nowrap">{fmtDate(endVal)}</span>
+                </>
+              );
+            })()}
+
+            {sliderMode === "event" && (() => {
+              const endVal = eventEnd || totalEvents;
+              return (
+                <>
+                  <span className="text-text-secondary whitespace-nowrap w-12 text-right">第 {endVal}</span>
+                  <div className="relative h-1 w-44">
+                    <div className="absolute inset-0 rounded bg-gray-200" />
+                    <div className="absolute inset-y-0 rounded bg-primary" style={{ width: `${(endVal / totalEvents) * 100}%` }} />
+                    <input type="range" min={1} max={totalEvents} step={1} value={endVal}
+                      onChange={(e) => { stopPlayback(); setEventEnd(Number(e.target.value)); }}
+                      className="slider-thumb absolute left-0 top-1/2 w-full -translate-y-1/2" />
+                  </div>
+                  <span className="text-text-secondary whitespace-nowrap">/ {totalEvents} 张</span>
+                </>
+              );
+            })()}
+
+            {/* Play/Stop */}
+            <button onClick={isPlaying ? stopPlayback : startPlayback}
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30"
+              title={isPlaying ? "停止" : "播放"}>
+              {isPlaying ? (
+                <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="1" width="3" height="8" rx="0.5" fill="currentColor"/><rect x="6" y="1" width="3" height="8" rx="0.5" fill="currentColor"/></svg>
+              ) : (
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 1l7 4-7 4V1z" fill="currentColor"/></svg>
+              )}
+            </button>
+
+            {/* Reset */}
+            {(sliderMode !== "all") && !isPlaying && (
+              <button onClick={() => { setSliderMode("all"); setTimeRange([0, 0]); setEventEnd(0); }}
+                className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-text-secondary hover:bg-gray-200">
+                重置
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* SVG canvas */}
       <svg ref={svgRef} className="h-full w-full" />

@@ -29,6 +29,19 @@ import "katex/dist/katex.min.css";
 function fixMarkdown(text: string): string {
   let s = text.replace(/\\n/g, "\n");
 
+  // Strip leading whitespace that would cause indented-code-block rendering.
+  // In standard Markdown, 4+ leading spaces = code block. AI output often
+  // indents prose uniformly, which should be rendered as normal text.
+  const rawLines = s.split("\n");
+  const indented = rawLines.filter((l) => /^\s{4,}\S/.test(l));
+  // If most lines have 4+ space indent, it's likely AI-formatted prose, not code
+  if (indented.length >= 2 && indented.length >= rawLines.filter((l) => l.trim().length > 0).length * 0.6) {
+    const minIndent = Math.min(...indented.map((l) => l.match(/^(\s*)/)?.[1]?.length ?? 0));
+    s = rawLines
+      .map((l) => (/^\s{4,}\S/.test(l) ? l.slice(minIndent) : l))
+      .join("\n");
+  }
+
   // Step 0: Handle || as table row separator
   const parts = s.split("||");
   if (parts.length > 1) {
@@ -92,10 +105,11 @@ function fixMarkdown(text: string): string {
       continue;
     }
 
-    // Split inline "-xxx" after Chinese punctuation into new list items
+    // Split inline "-xxx" after punctuation/brackets into new list items
     // e.g., "发言。-阶段一" → "发言。\n- 阶段一"
+    // e.g., "内容）-当对话" → "内容）\n- 当对话"
     let processed = line.replace(
-      /([。！？；：])(-)([^\s])/g,
+      /([。！？；：）】」》)\]}>])(-)([^\s])/g,
       "$1\n- $3"
     );
     // Split inline "-xxx：yyy" glued to Chinese text (no preceding punctuation)
@@ -308,7 +322,7 @@ const remarkPlugins = [remarkBreaks, remarkGfm, remarkMath];
 const rehypePlugins = [rehypeKatex];
 
 const PROSE_CLASSES =
-  "prose prose-sm max-w-none break-words prose-headings:font-semibold prose-headings:mb-1.5 prose-headings:mt-2.5 prose-h1:text-base prose-h2:text-[15px] prose-h3:text-sm prose-p:my-1.5 prose-p:text-[13px] prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-li:text-[13px] prose-hr:my-3 prose-pre:bg-transparent prose-pre:p-0 prose-code:text-primary-dark prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-blockquote:border-l-primary prose-blockquote:pl-3 prose-blockquote:italic prose-table:text-[13px] prose-th:px-2.5 prose-th:py-1.5 prose-th:font-semibold prose-td:px-2.5 prose-td:py-1.5 prose-code:before:content-none prose-code:after:content-none";
+  "prose prose-sm max-w-none break-words dark:prose-invert prose-headings:font-semibold prose-headings:mb-2 prose-headings:mt-4 prose-headings:tracking-tight prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-hr:my-6 prose-pre:bg-transparent prose-pre:p-0 prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-blockquote:border-l-2 prose-blockquote:pl-3 prose-blockquote:not-italic prose-table:my-3 prose-th:text-left prose-th:font-medium";
 
 interface MarkdownRendererProps {
   source: string;
@@ -404,7 +418,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
         }
         return (
           <code
-            className={`rounded bg-gray-100 px-1 py-0.5 font-mono text-[0.85em] ${cls || ""}`}
+            className={`rounded bg-gray-100 dark:bg-gray-800 px-1 py-0.5 font-mono text-[0.85em] ${cls || ""}`}
             {...props}
           >
             {kids}
@@ -418,7 +432,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
           return <>{markdownChildren}</>;
         }
         return (
-          <pre className="my-3 overflow-x-auto rounded-lg border border-border bg-gray-50 p-3 font-mono text-[0.8125rem] leading-snug whitespace-pre">
+          <pre className="my-3 overflow-x-auto rounded-lg border border-border bg-gray-50 dark:bg-gray-900 p-3 font-mono text-[0.8125rem] leading-snug whitespace-pre">
             {markdownChildren}
           </pre>
         );
@@ -441,7 +455,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
   );
 
   return (
-    <div ref={containerRef} className={`relative ${PROSE_CLASSES}`}>
+    <div ref={containerRef} className={`relative ${PROSE_CLASSES}`} style={{ lineHeight: "var(--cjk-line-height)" }}>
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}

@@ -335,6 +335,16 @@ export default function WorkspacePage() {
 
       {/* Row 3: emotion tag filters */}
       <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
+        <button
+          onClick={() => setFilters((prev) => { const next = { ...prev }; delete next.emotion_tag; return next; })}
+          className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] transition ${
+            !filters.emotion_tag
+              ? "bg-primary text-white"
+              : "bg-gray-50 text-text-secondary hover:bg-gray-100 border border-border"
+          }`}
+        >
+          全部
+        </button>
         {["开心", "焦虑", "平静", "兴奋", "困惑", "感动"].map((emo) => (
           <button
             key={emo}

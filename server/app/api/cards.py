@@ -18,22 +18,29 @@ from app.utils.helpers import parse_uuid
 router = APIRouter()
 
 
-async def _generate_embedding(card: Card):
+async def _generate_embedding(card_id: UUID):
     """Generate and update embedding for a card (runs in background)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
     try:
-        text = embedding_service.card_to_text(card.title, card.content, card.keywords, card.emotion_tag)
-        embedding = await embedding_service.embed(text)
         from app.database import async_session
 
         async with async_session() as db:
-            db_card = await db.get(Card, card.id)
-            if db_card:
-                db_card.embedding = embedding
-                await db.commit()
+            db_card = await db.get(Card, card_id)
+            if not db_card:
+                logger.warning("Card %s not found for embedding generation", card_id)
+                return
+            text = embedding_service.card_to_text(db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag)
+            embedding = await embedding_service.embed(text)
+            db_card.embedding = embedding
+            await db.commit()
+            # Assign to topic
+            from app.services.topic import topic_service
+            await topic_service.assign_card_to_topic(db, db_card)
+            await db.commit()
     except Exception as e:
-        import logging
-
-        logging.getLogger(__name__).warning("Embedding generation failed for card %s: %s", card.id, e)
+        logger.warning("Embedding generation failed for card %s: %s", card_id, e)
 
 
 @router.get("/", response_model=CardListResponse)
@@ -113,7 +120,7 @@ async def create_card(
     card = Card(**req.model_dump(), creator_id=user.id)
     db.add(card)
     await db.flush()
-    background_tasks.add_task(_generate_embedding, card)
+    background_tasks.add_task(_generate_embedding, card.id)
     await create_activity(
         db, workspace_id=req.workspace_id, actor_id=user.id,
         action="card.created", target_type="card", target_id=str(card.id),
@@ -161,7 +168,7 @@ async def update_card(
         setattr(card, field, value)
     card.updated_at = datetime.now(timezone.utc)
     if content_changed:
-        background_tasks.add_task(_generate_embedding, card)
+        background_tasks.add_task(_generate_embedding, card.id)
     await db.commit()
     await db.refresh(card)
     return card

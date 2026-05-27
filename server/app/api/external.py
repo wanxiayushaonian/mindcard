@@ -72,25 +72,25 @@ class ExternalCardCreate(BaseModel):
     source_url: str = Field("", max_length=1024)
 
 
-async def _generate_embedding(card: Card):
+async def _generate_embedding(card_id: uuid.UUID):
     """Generate and update embedding for a card (runs in background)."""
     try:
-        logger.info("Starting embedding generation for card %s", card.id)
-        from app.services.embedding import embedding_service
-        text = embedding_service.card_to_text(card.title, card.content, card.keywords, card.emotion_tag)
-        embedding = await embedding_service.embed(text)
+        logger.info("Starting embedding generation for card %s", card_id)
         from app.database import async_session
+        from app.services.embedding import embedding_service
 
         async with async_session() as db:
-            db_card = await db.get(Card, card.id)
-            if db_card:
-                db_card.embedding = embedding
-                await db.commit()
-                logger.info("Embedding saved for card %s (dim=%d)", card.id, len(embedding))
-            else:
-                logger.warning("Card %s not found when saving embedding", card.id)
+            db_card = await db.get(Card, card_id)
+            if not db_card:
+                logger.warning("Card %s not found for embedding generation", card_id)
+                return
+            text = embedding_service.card_to_text(db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag)
+            embedding = await embedding_service.embed(text)
+            db_card.embedding = embedding
+            await db.commit()
+            logger.info("Embedding saved for card %s (dim=%d)", card_id, len(embedding))
     except Exception as e:
-        logger.error("Embedding generation failed for card %s: %s", card.id, e, exc_info=True)
+        logger.error("Embedding generation failed for card %s: %s", card_id, e, exc_info=True)
 
 
 @router.get("/workspaces")
@@ -172,7 +172,7 @@ async def create_card(
     db.add(card)
     await db.flush()
     logger.info("Card created (id=%s), scheduling embedding generation", card.id)
-    background_tasks.add_task(_generate_embedding, card)
+    background_tasks.add_task(_generate_embedding, card.id)
     await create_activity(
         db, workspace_id=ws_id, actor_id=user.id,
         action="card.created", target_type="card", target_id=str(card.id),

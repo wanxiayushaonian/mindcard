@@ -6,6 +6,7 @@ from .comment import Comment
 from .notification import Notification
 from .activity import ActivityLog
 from .api_key import ApiKey
+from .topic import Topic, TopicCard
 
 __all__ = [
     "User",
@@ -19,4 +20,6 @@ __all__ = [
     "Notification",
     "ActivityLog",
     "ApiKey",
+    "Topic",
+    "TopicCard",
 ]

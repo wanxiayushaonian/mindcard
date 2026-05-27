@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { searchApi, type SearchResult } from "@/lib/api";
+import { MarkdownContent } from "@/components/MarkdownContent";
 
 type SearchMode = "semantic" | "fulltext" | "hybrid";
 
@@ -128,7 +129,9 @@ export default function SearchPage() {
                 </span>
               </div>
               {card.title && <h3 className="mb-1 font-semibold text-text">{card.title}</h3>}
-              <p className="line-clamp-3 text-sm text-text">{card.content}</p>
+              <div className="mt-1 line-clamp-3 overflow-hidden [&_img]:hidden [&_*]:!text-sm [&_*]:!leading-relaxed">
+                <MarkdownContent content={card.content} />
+              </div>
             </div>
           ))}
         </div>

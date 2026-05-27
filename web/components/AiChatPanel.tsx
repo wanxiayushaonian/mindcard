@@ -109,6 +109,13 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       toast("请从空间页面进入以使用沉淀功能", "error");
       return;
     }
+    // Strip leading whitespace that would render as code blocks
+    const lines = blockText.split("\n");
+    const indented = lines.filter((l) => /^\s{4,}\S/.test(l));
+    if (indented.length >= 2 && indented.length >= lines.filter((l) => l.trim().length > 0).length * 0.6) {
+      const minIndent = Math.min(...indented.map((l) => l.match(/^(\s*)/)?.[1]?.length ?? 0));
+      blockText = lines.map((l) => (/^\s{4,}\S/.test(l) ? l.slice(minIndent) : l)).join("\n");
+    }
     const key = blockText.slice(0, 50);
     if (precipitatedBlocks.has(key)) return;
     setPrecipitatingBlock(key);

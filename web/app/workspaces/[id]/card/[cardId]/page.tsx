@@ -280,7 +280,9 @@ export default function CardDetailPage() {
                   onClick={() => router.push(`/workspaces/${workspaceId}/card/${rc.id}`)}
                   className="cursor-pointer"
                 >
-                  <p className="line-clamp-3 text-sm text-text">{rc.content}</p>
+                   <div className="line-clamp-3 overflow-hidden [&_img]:hidden [&_*]:!text-sm [&_*]:!leading-relaxed">
+                     <MarkdownContent content={rc.content} />
+                   </div>
                   {rc.keywords[0] && (
                     <span className="mt-2 inline-block text-xs" style={{ color: rc.color }}>
                       {rc.keywords[0]}
@@ -310,7 +312,9 @@ export default function CardDetailPage() {
                 className="flex items-center gap-3 rounded-card border border-border bg-surface p-3 shadow-sm"
               >
                 <div className="flex-1 border-l-2 pl-3" style={{ borderColor: sc.color }}>
-                  <p className="line-clamp-2 text-sm text-text">{sc.content}</p>
+                   <div className="line-clamp-2 overflow-hidden [&_img]:hidden [&_*]:!text-sm [&_*]:!leading-relaxed">
+                     <MarkdownContent content={sc.content} />
+                   </div>
                   <span className="text-xs" style={{ color: sc.color }}>
                     {sc.keywords[0] || ""}
                   </span>

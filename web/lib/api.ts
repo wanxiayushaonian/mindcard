@@ -532,3 +532,21 @@ export const apiKeyApi = {
   revoke: (id: string) =>
     request<{ ok: boolean }>(`/api/settings/api-keys/${id}`, { method: "DELETE" }),
 };
+
+// --- Topics ---
+export interface Topic {
+  id: string;
+  workspace_id: string;
+  name: string;
+  card_count: number;
+  card_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export const topicApi = {
+  list: (workspaceId: string) =>
+    request<{ topics: Topic[] }>(`/api/topics/?workspace_id=${workspaceId}`).then((r) => r.topics),
+  rebuild: (workspaceId: string) =>
+    request<{ ok: boolean }>(`/api/topics/rebuild?workspace_id=${workspaceId}`, { method: "POST" }),
+};
