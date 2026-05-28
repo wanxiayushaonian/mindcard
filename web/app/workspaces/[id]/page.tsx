@@ -2,8 +2,8 @@
 
 import { useParams, useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
-import { useState, useEffect, useRef } from "react";
-import { cardApi, workspaceApi, type Card, type CardFilters } from "@/lib/api";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { cardApi, workspaceApi, topicApi, type Card, type CardFilters, type Topic } from "@/lib/api";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
@@ -13,7 +13,22 @@ import { AiActionButtons } from "@/components/AiActionButtons";
 import { CardItem } from "@/components/CardItem";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { Plus, Upload, Package, Search } from "lucide-react";
+import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { Plus, Upload, Package, Search, Sparkles } from "lucide-react";
+
+// Stable topic colors derived from topic ID
+const TOPIC_COLORS = [
+  "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#f97316",
+  "#eab308", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6",
+];
+
+function topicColor(topicId: string): string {
+  let hash = 0;
+  for (let i = 0; i < topicId.length; i++) {
+    hash = ((hash << 5) - hash + topicId.charCodeAt(i)) | 0;
+  }
+  return TOPIC_COLORS[Math.abs(hash) % TOPIC_COLORS.length];
+}
 
 const PAGE_SIZE = 20;
 
@@ -28,6 +43,34 @@ export default function WorkspacePage() {
   );
   const role = workspace?.member_role;
   const canCreate = role === "owner" || role === "admin" || role === "editor";
+
+  // Fetch topics for visual indicators and context menu
+  const { data: topics } = useSWR(
+    workspaceId ? `topics-${workspaceId}` : null,
+    () => topicApi.list(workspaceId),
+    { revalidateOnFocus: false }
+  );
+
+  // Build card_id -> topic mapping
+  const cardTopicMap = useMemo(() => {
+    const map = new Map<string, Topic>();
+    if (!topics) return map;
+    for (const topic of topics) {
+      for (const cid of topic.card_ids) {
+        map.set(cid, topic);
+      }
+    }
+    return map;
+  }, [topics]);
+
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; card: Card } | null>(null);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, card: Card) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, card });
+  }, []);
 
   const [filters, setFilters] = useState<CardFilters>({ sort_by: "created_at", order: "desc" });
   const filterKey = JSON.stringify(filters);
@@ -375,13 +418,19 @@ export default function WorkspacePage() {
       )}
 
       <div className="columns-2 gap-4 sm:columns-3">
-        {allCards?.map((card) => (
-          <CardItem
-            key={card.id}
-            card={card}
-            onClick={() => router.push(`/workspaces/${workspaceId}/card/${card.id}`)}
-          />
-        ))}
+        {allCards?.map((card) => {
+          const topic = cardTopicMap.get(card.id);
+          return (
+            <CardItem
+              key={card.id}
+              card={card}
+              onClick={() => router.push(`/workspaces/${workspaceId}/card/${card.id}`)}
+              topicName={topic?.name}
+              topicColor={topic ? topicColor(topic.id) : undefined}
+              onContextMenu={(e) => handleContextMenu(e, card)}
+            />
+          );
+        })}
       </div>
 
       {allCards && allCards.length > 0 && nextCursor && (
@@ -509,6 +558,33 @@ export default function WorkspacePage() {
           </div>
         </Modal>
       )}
+
+      {/* Context menu for cards */}
+      {ctxMenu && (() => {
+        const topic = cardTopicMap.get(ctxMenu.card.id);
+        const menuItems: ContextMenuItem[] = [];
+        if (topic) {
+          menuItems.push({
+            label: "话题梳理",
+            icon: <Sparkles size={14} />,
+            onClick: () => {
+              router.push(`/workspaces/${workspaceId}/synthesis?topic_id=${topic.id}`);
+            },
+          });
+        }
+        menuItems.push({
+          label: "查看详情",
+          onClick: () => router.push(`/workspaces/${workspaceId}/card/${ctxMenu.card.id}`),
+        });
+        return (
+          <ContextMenu
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            items={menuItems}
+            onClose={() => setCtxMenu(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

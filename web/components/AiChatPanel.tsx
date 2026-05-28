@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { ragApi, chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type WebSearchResult, type ChatSession } from "@/lib/api";
+import { ragApi, chatApi, aiApi, cardApi, workspaceApi, settingsApi, type RAGResponse, type WebSearchResult, type ChatSession } from "@/lib/api";
+import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -284,7 +285,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   return (
     <div className="flex h-full w-1/2 flex-shrink-0 flex-col border-l border-border bg-bg animate-slide-in">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-sm">
+      <div className="relative z-20 flex items-center gap-2 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-sm">
         <div className="flex rounded-full bg-gray-100 p-0.5">
           <button
             onClick={() => switchMode("rag")}
@@ -318,6 +319,8 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             {globalRag ? "全部空间" : "当前空间"}
           </button>
         )}
+
+        <ModelSelector compact />
 
         <div className="ml-auto flex items-center gap-1">
           <button

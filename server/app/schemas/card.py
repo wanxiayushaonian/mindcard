@@ -14,6 +14,7 @@ class CardCreate(BaseModel):
     emotion_tag: str = Field("", max_length=32)
     is_favorite: bool = False
     is_temp: bool = True
+    parent_card_ids: list[str] = Field(default=[])
 
 
 class CardUpdate(BaseModel):
@@ -37,6 +38,7 @@ class CardResponse(BaseModel):
     emotion_tag: str
     is_favorite: bool
     is_temp: bool
+    parent_card_ids: list[str] = []
     created_at: datetime
     updated_at: datetime | None
 

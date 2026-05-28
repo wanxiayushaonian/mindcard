@@ -211,6 +211,7 @@ export interface Card {
   emotion_tag: string;
   is_favorite: boolean;
   is_temp: boolean;
+  parent_card_ids: string[];
   created_at: string;
   updated_at: string | null;
 }
@@ -262,6 +263,7 @@ export const cardApi = {
     keywords?: string[];
     color?: string;
     emotion_tag?: string;
+    parent_card_ids?: string[];
   }) =>
     request<Card>("/api/cards/", {
       method: "POST",
@@ -549,4 +551,51 @@ export const topicApi = {
     request<{ topics: Topic[] }>(`/api/topics/?workspace_id=${workspaceId}`).then((r) => r.topics),
   rebuild: (workspaceId: string) =>
     request<{ ok: boolean }>(`/api/topics/rebuild?workspace_id=${workspaceId}`, { method: "POST" }),
+  synthesize: (
+    topicId: string,
+    mode: string,
+    onChunk: (text: string) => void,
+    onDone: () => void,
+    onError?: (err: Error) => void,
+    cardIds?: string[],
+  ) =>
+    streamRequest(
+      "/api/topics/synthesize",
+      { topic_id: topicId, mode, card_ids: cardIds ?? [] },
+      onChunk,
+      onDone,
+      onError,
+    ),
+};
+
+// --- LLM Provider Settings ---
+export interface LLMProvider {
+  name: string;
+  label: string;
+  models: string[];
+  default_model: string;
+  configured: boolean;
+  backend: string;
+}
+
+export interface CurrentProvider {
+  provider: string;
+  model: string;
+  backend: string;
+}
+
+export interface ModelsResponse {
+  models: string[];
+  source: "remote" | "static";
+}
+
+export const settingsApi = {
+  listProviders: () => request<LLMProvider[]>("/api/settings/providers"),
+  getCurrent: () => request<CurrentProvider>("/api/settings/current"),
+  listModels: (provider: string) => request<ModelsResponse>(`/api/settings/models/${provider}`),
+  switchProvider: (provider: string, model?: string) =>
+    request<{ ok: boolean; provider: string; model: string | null }>("/api/settings/provider", {
+      method: "PUT",
+      body: JSON.stringify({ provider, model }),
+    }),
 };

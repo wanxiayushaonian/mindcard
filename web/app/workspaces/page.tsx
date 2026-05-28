@@ -133,9 +133,9 @@ export default function WorkspacesPage() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <button
-            onClick={() => router.push("/settings/api-keys")}
+            onClick={() => router.push("/settings/models")}
             className="rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
-            title="API Key 设置"
+            title="模型设置"
           >
             <Settings size={16} />
           </button>

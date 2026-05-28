@@ -28,11 +28,25 @@ mindcard-workspace/
 - 沉淀功能：选中 AI 回答内容一键创建卡片
 - Web 搜索增强（可选）
 
+### 多模型支持
+- 支持 6 种 AI 提供商：DeepSeek、OpenAI、Claude/Anthropic、Gemini、Moonshot、自定义（OpenAI 兼容）
+- 对话面板顶部可实时切换模型
+- 设置页面管理已配置的提供商和模型列表
+- 动态模型列表：自动从 API 拉取可用模型
+- 统一 Provider/Registry/Factory 架构，消费者代码零改动
+
 ### 话题聚类
 - 基于 pgvector 的增量语义聚类
 - 网络图上用热力圈可视化话题
 - 自适应阈值（基于工作区内卡片相似度分布）
 - 支持全量重建
+
+### 话题梳理
+- 右键聚类卡片触发"话题梳理"，进入 Typora 风格编辑器
+- 左侧源卡片列表，右侧 textarea + Markdown 预览切换
+- 4 种 AI 整理模式：自由组织、时间线、论点-论据、对比分类
+- SSE 流式输出，实时查看整理进度
+- 保存为新卡片，自动关联源卡片（`parent_card_ids`）
 
 ### 关联网络图
 - D3 力导向图，展示卡片之间的关联关系
@@ -53,31 +67,68 @@ mindcard-workspace/
 
 ## 快速开始
 
-### 小程序
-用微信开发者工具打开 `miniapp/` 目录。
+### 环境要求
+
+| 依赖 | 版本 |
+|------|------|
+| Python | 3.12+ |
+| Node.js | 18+ |
+| PostgreSQL | 15+（需 pgvector 扩展） |
+| uv | 最新版（Python 包管理） |
 
 ### 后端
+
 ```bash
 cd server
-cp .env.example .env  # 填入 API Key
-docker compose up -d   # PostgreSQL + Redis
+
+# 1. 安装依赖
 uv sync
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env，填入至少一个 AI 提供商的 API Key：
+#   DEEPSEEK_API_KEY=sk-xxx      (DeepSeek)
+#   OPENAI_API_KEY=sk-xxx        (OpenAI)
+#   ANTHROPIC_API_KEY=sk-ant-xxx (Claude / Anthropic 兼容)
+#   GEMINI_API_KEY=xxx           (Gemini)
+#   MOONSHOT_API_KEY=sk-xxx      (Moonshot)
+#   CUSTOM_API_KEY=xxx           (自定义 OpenAI 兼容)
+
+# 3. 启动数据库
+docker compose up -d   # PostgreSQL（含 pgvector 扩展）
+
+# 4. 数据库迁移
 uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
+
+# 5. 启动服务
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+API 文档：http://localhost:8000/docs
 
 ### Web 端
+
 ```bash
 cd web
+
+# 1. 安装依赖
 npm install
+
+# 2. 启动开发服务器
 npm run dev
 ```
+
 访问 http://localhost:3000
 
+### 小程序
+
+用微信开发者工具打开 `miniapp/` 目录。
+
 ### 浏览器扩展
-1. 打开 `extensions/mindcard-clipper/manifest.chrome.json`，确认配置
-2. Chrome 打开 `chrome://extensions/`，开启开发者模式
-3. 加载已解压的扩展程序，选择 `extensions/mindcard-clipper/` 目录
+
+1. Chrome 打开 `chrome://extensions/`，开启开发者模式
+2. 加载已解压的扩展程序，选择 `extensions/mindcard-clipper/` 目录
+3. 在扩展选项中配置后端地址和 API Key
 
 ## 技术栈
 
@@ -86,7 +137,25 @@ npm run dev
 | 小程序 | 微信小程序 + Skyline + 云开发 |
 | 后端 | FastAPI + SQLAlchemy + PostgreSQL + pgvector |
 | 搜索 | BGE-M3 向量搜索 + PostgreSQL 全文搜索 + RRF 融合 |
-| RAG | DeepSeek API |
+| AI 提供商 | DeepSeek / OpenAI / Claude / Gemini / Moonshot（httpx 直连，无 SDK 依赖） |
 | Web | Next.js 14 + Tailwind CSS + SWR + D3.js |
 | Markdown | react-markdown + remark-gfm + remark-math + rehype-katex |
 | 浏览器扩展 | Chrome Extension Manifest V3 |
+
+## AI 提供商配置
+
+在 `server/.env` 中配置对应环境变量即可启用：
+
+| 提供商 | 环境变量 | 默认模型 |
+|--------|----------|----------|
+| DeepSeek | `DEEPSEEK_API_KEY` | deepseek-chat |
+| OpenAI | `OPENAI_API_KEY` | gpt-4o |
+| Claude / Anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-4-20250514 |
+| Gemini | `GEMINI_API_KEY` | gemini-2.5-flash |
+| Moonshot | `MOONSHOT_API_KEY` | moonshot-v1-8k |
+| 自定义 (OpenAI 兼容) | `CUSTOM_API_KEY` + `CUSTOM_BASE_URL` + `CUSTOM_MODEL` | - |
+
+可选配置：
+- `DEFAULT_LLM_PROVIDER` — 默认使用的提供商（默认 deepseek）
+- `DEFAULT_LLM_MODEL` — 默认使用的模型（空则使用提供商默认模型）
+- 各提供商的 `*_BASE_URL` — 自定义 API 地址（代理 / 私有部署）

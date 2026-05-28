@@ -450,6 +450,28 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
           </a>
         );
       },
+      img({ src, alt, ...props }) {
+        return (
+          <span className="block my-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={alt || ""}
+              loading="lazy"
+              className="max-w-full h-auto rounded-md border border-border"
+              onError={(e) => {
+                const target = e.currentTarget;
+                target.style.display = "none";
+                const span = document.createElement("span");
+                span.className = "text-xs text-text-secondary italic";
+                span.textContent = `[图片加载失败: ${alt || src}]`;
+                target.parentNode?.insertBefore(span, target);
+              }}
+              {...props}
+            />
+          </span>
+        );
+      },
     }),
     [highlightCode],
   );

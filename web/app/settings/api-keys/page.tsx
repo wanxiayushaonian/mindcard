@@ -7,7 +7,6 @@ import { toast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LoadingState } from "@/components/LoadingState";
 import { Copy, Trash2, Plus, Key, ExternalLink } from "lucide-react";
-import Link from "next/link";
 
 export default function ApiKeysPage() {
   const { data: keys, isLoading, error, mutate: revalidate } = useSWR(
@@ -54,12 +53,7 @@ export default function ApiKeysPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <div className="mb-2 flex items-center gap-2">
-        <Link href="/workspaces" className="text-xs text-text-secondary hover:text-primary">
-          ← 返回空间
-        </Link>
-      </div>
+    <div className="mx-auto max-w-2xl px-6 py-8">
       <h1 className="mb-1 text-xl font-bold text-text">API Key 管理</h1>
       <p className="mb-6 text-sm text-text-secondary">
         生成 API Key 用于浏览器插件等外部工具调用 MindCard 接口。

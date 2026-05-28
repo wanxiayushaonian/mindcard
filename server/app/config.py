@@ -23,9 +23,32 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-base-zh-v1.5"
     embedding_dim: int = 768
 
-    # LLM (DeepSeek)
+    # LLM — DeepSeek (default)
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
+
+    # LLM — OpenAI
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com"
+
+    # LLM — Anthropic (Claude)
+    anthropic_api_key: str = ""
+    anthropic_base_url: str = "https://api.anthropic.com"
+
+    # LLM — Gemini
+    gemini_api_key: str = ""
+
+    # LLM — Moonshot
+    moonshot_api_key: str = ""
+
+    # LLM — Custom (OpenAI-compatible endpoint)
+    custom_api_key: str = ""
+    custom_base_url: str = ""
+    custom_model: str = ""
+
+    # LLM defaults
+    default_llm_provider: str = "deepseek"
+    default_llm_model: str = ""  # empty = provider's default model
 
     # CORS
     cors_origins: str = "*"

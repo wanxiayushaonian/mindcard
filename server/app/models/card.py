@@ -27,6 +27,7 @@ class Card(Base):
     emotion_tag: Mapped[str] = mapped_column(String(32), default="")
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     is_temp: Mapped[bool] = mapped_column(Boolean, default=True)
+    parent_card_ids: Mapped[list[str]] = mapped_column(ARRAY(UUID(as_uuid=True)), default=list)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
     fts_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

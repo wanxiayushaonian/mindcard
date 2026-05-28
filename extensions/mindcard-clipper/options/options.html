@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MindCard Clipper 设置</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    h1 {
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 24px;
+    }
+    .field {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: #333;
+    }
+    .hint {
+      font-size: 11px;
+      color: #999;
+      margin-top: 4px;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus { border-color: #5B8DEF; }
+    .btn {
+      padding: 8px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #5B8DEF; color: #fff; }
+    .btn-secondary { background: #f0f0f0; color: #666; margin-left: 8px; }
+    .save-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 24px;
+    }
+    .status {
+      font-size: 12px;
+      color: #27ae60;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .status.show { opacity: 1; }
+    a { color: #5B8DEF; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>MindCard Clipper 设置</h1>
+    <p class="subtitle">配置连接信息以使用浏览器插件保存内容到 MindCard</p>
+
+    <div class="field">
+      <label>API Key</label>
+      <input type="text" id="apiKey" placeholder="mc_xxxxxxxxxxxxxxxx..." />
+      <p class="hint">
+        在 MindCard 的 <a href="#" id="link-to-keys">API Key 管理</a> 页面生成
+      </p>
+    </div>
+
+    <div class="field">
+      <label>API 地址</label>
+      <input type="text" id="apiBase" placeholder="http://localhost:8000" />
+      <p class="hint">MindCard 服务器地址，本地开发默认 http://localhost:8000</p>
+    </div>
+
+    <div class="field">
+      <label>默认工作区</label>
+      <select id="defaultWorkspace">
+        <option value="">保存后自动加载</option>
+      </select>
+      <p class="hint">新卡片默认保存到此工作区（可在保存弹窗中修改）</p>
+    </div>
+
+    <div class="save-bar">
+      <button id="save" class="btn btn-primary">保存设置</button>
+      <span id="status" class="status">已保存 ✓</span>
+    </div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

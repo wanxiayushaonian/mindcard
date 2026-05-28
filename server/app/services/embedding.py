@@ -26,6 +26,10 @@ class EmbeddingService:
             if self._model is not None:
                 return
             try:
+                # Clear stale proxy env vars so requests/hf_hub don't try SOCKS
+                for var in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+                    os.environ.pop(var, None)
+
                 from sentence_transformers import SentenceTransformer
                 from app.config import settings
 

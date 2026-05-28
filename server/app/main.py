@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import activities, ai, api_keys, auth, cards, chat, comments, external, notifications, rag, search, topics, workspaces
+from app.api import settings as settings_router
 from app.config import settings
 
 
@@ -42,6 +43,7 @@ app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(activities.router, prefix="/api/activities", tags=["activities"])
 app.include_router(api_keys.router, prefix="/api/settings/api-keys", tags=["api-keys"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(external.router, prefix="/api/external", tags=["external"])
 app.include_router(topics.router, prefix="/api/topics", tags=["topics"])
 
