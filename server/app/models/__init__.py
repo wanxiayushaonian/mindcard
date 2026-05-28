@@ -7,6 +7,7 @@ from .notification import Notification
 from .activity import ActivityLog
 from .api_key import ApiKey
 from .topic import Topic, TopicCard
+from .topology import TreeNode, NodeCard, NodeRef
 
 __all__ = [
     "User",
@@ -22,4 +23,7 @@ __all__ = [
     "ApiKey",
     "Topic",
     "TopicCard",
+    "TreeNode",
+    "NodeCard",
+    "NodeRef",
 ]

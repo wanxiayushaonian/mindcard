@@ -409,8 +409,11 @@ export interface ChatSession {
   mode: string;
   workspace_id: string | null;
   card_id: string | null;
+  parent_chat_id: string | null;
   title: string;
   created_at: string;
+  message_count?: number;
+  last_message?: string;
 }
 
 export interface ChatMessage {
@@ -434,7 +437,7 @@ export const chatApi = {
     return request<ChatSession[]>(`/api/chats/?${params.toString()}`);
   },
   get: (chatId: string) => request<ChatDetail>(`/api/chats/${chatId}`),
-  create: (data: { mode: string; workspace_id?: string; card_id?: string; title?: string }) =>
+  create: (data: { mode: string; workspace_id?: string; card_id?: string; parent_chat_id?: string; title?: string }) =>
     request<ChatDetail>("/api/chats/", {
       method: "POST",
       body: JSON.stringify(data),
@@ -598,4 +601,62 @@ export const settingsApi = {
       method: "PUT",
       body: JSON.stringify({ provider, model }),
     }),
+};
+
+// --- Topology Tree ---
+export interface TreeNode {
+  id: string;
+  workspace_id: string;
+  parent_id: string | null;
+  node_type: "root" | "branch" | "leaf";
+  title: string;
+  description: string;
+  summary: string;
+  status: "active" | "completed" | "archived";
+  sort_order: number;
+  card_ids: string[];
+  card_count: number;
+  child_ids: string[];
+  ref_ids: string[];
+  created_at: string;
+  updated_at: string | null;
+  completed_at: string | null;
+}
+
+export const topologyApi = {
+  list: (workspaceId: string) =>
+    request<{ nodes: TreeNode[] }>(`/api/topology/?workspace_id=${workspaceId}`).then((r) => r.nodes),
+  get: (nodeId: string) => request<TreeNode>(`/api/topology/${nodeId}`),
+  create: (data: {
+    workspace_id: string;
+    parent_id?: string;
+    node_type?: string;
+    title?: string;
+    description?: string;
+  }) =>
+    request<TreeNode>("/api/topology/", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (nodeId: string, data: Partial<TreeNode>) =>
+    request<TreeNode>(`/api/topology/${nodeId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  delete: (nodeId: string) =>
+    request<{ ok: boolean }>(`/api/topology/${nodeId}`, { method: "DELETE" }),
+  addCard: (nodeId: string, cardId: string) =>
+    request<TreeNode>(`/api/topology/${nodeId}/cards`, {
+      method: "POST",
+      body: JSON.stringify({ card_id: cardId }),
+    }),
+  removeCard: (nodeId: string, cardId: string) =>
+    request<{ ok: boolean }>(`/api/topology/${nodeId}/cards/${cardId}`, { method: "DELETE" }),
+  createRef: (nodeId: string, targetId: string, refType = "related", reason = "") =>
+    request<TreeNode>(`/api/topology/${nodeId}/refs`, {
+      method: "POST",
+      body: JSON.stringify({ target_node_id: targetId, ref_type: refType, reason }),
+    }),
+  removeRef: (nodeId: string, targetId: string) =>
+    request<{ ok: boolean }>(`/api/topology/${nodeId}/refs/${targetId}`, { method: "DELETE" }),
 };

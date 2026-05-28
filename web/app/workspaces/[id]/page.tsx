@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { cardApi, workspaceApi, topicApi, type Card, type CardFilters, type Topic } from "@/lib/api";
+import { cardApi, workspaceApi, topicApi, topologyApi, aiApi, type Card, type CardFilters, type Topic, type TreeNode } from "@/lib/api";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
@@ -14,7 +14,8 @@ import { CardItem } from "@/components/CardItem";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Plus, Upload, Package, Search, Sparkles } from "lucide-react";
+import { TreeBreadcrumb } from "@/components/TreeBreadcrumb";
+import { Plus, Upload, Package, Search, Sparkles, GitBranch } from "lucide-react";
 
 // Stable topic colors derived from topic ID
 const TOPIC_COLORS = [
@@ -72,6 +73,33 @@ export default function WorkspacePage() {
     setCtxMenu({ x: e.clientX, y: e.clientY, card });
   }, []);
 
+  // Topology tree state
+  const { data: treeNodes } = useSWR(
+    workspaceId ? `topology-${workspaceId}` : null,
+    () => topologyApi.list(workspaceId),
+    { revalidateOnFocus: false }
+  );
+  const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
+  const currentNodeIdRef = useRef<string | null>(null);
+  currentNodeIdRef.current = currentNodeId;
+
+  // Cards associated with current tree node
+  const nodeCardIds = useMemo(() => {
+    if (!currentNodeId || !treeNodes) return null;
+    const node = treeNodes.find((n) => n.id === currentNodeId);
+    return node ? new Set(node.card_ids) : null;
+  }, [currentNodeId, treeNodes]);
+
+  // Card count per node for breadcrumb display
+  const cardCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!treeNodes) return map;
+    for (const node of treeNodes) {
+      map.set(node.id, node.card_count);
+    }
+    return map;
+  }, [treeNodes]);
+
   const [filters, setFilters] = useState<CardFilters>({ sort_by: "created_at", order: "desc" });
   const filterKey = JSON.stringify(filters);
 
@@ -83,6 +111,12 @@ export default function WorkspacePage() {
   const [allCards, setAllCards] = useState<Card[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // Filter displayed cards by current node
+  const displayCards = useMemo(() => {
+    if (!currentNodeId || !nodeCardIds) return allCards;
+    return allCards?.filter((card) => nodeCardIds.has(card.id)) ?? allCards;
+  }, [allCards, currentNodeId, nodeCardIds]);
 
   // Sync SWR data to local state
   useEffect(() => {
@@ -98,6 +132,36 @@ export default function WorkspacePage() {
     window.addEventListener("card-precipitated", handler);
     return () => window.removeEventListener("card-precipitated", handler);
   }, [revalidate]);
+
+  // Handle fork request from AiChatPanel
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent).detail as { prompt: string };
+      if (!detail?.prompt) return;
+      try {
+        const { title } = await aiApi.generateTitle(detail.prompt);
+        const node = await topologyApi.create({
+          workspace_id: workspaceId,
+          parent_id: currentNodeIdRef.current || undefined,
+          title: title || detail.prompt.slice(0, 50),
+        });
+        setCurrentNodeId(node.id);
+        // Optimistically update the topology cache
+        mutate(`topology-${workspaceId}`, (current: TreeNode[] | undefined) => {
+          return current ? [...current, node] : [node];
+        }, { revalidate: true });
+        // Notify AiChatPanel that fork is complete
+        window.dispatchEvent(new CustomEvent("topology-fork-complete", {
+          detail: { nodeId: node.id, title: node.title, prompt: detail.prompt },
+        }));
+        toast("已创建分支: " + (node.title || detail.prompt.slice(0, 30)), "success");
+      } catch (err: any) {
+        toast("创建分支失败: " + err.message, "error");
+      }
+    };
+    window.addEventListener("topology-fork-request", handler);
+    return () => window.removeEventListener("topology-fork-request", handler);
+  }, [workspaceId]);
 
   const handleLoadMore = async () => {
     if (!allCards || loadingMore || !nextCursor) return;
@@ -410,6 +474,18 @@ export default function WorkspacePage() {
         ))}
       </div>
 
+      {/* Topology tree breadcrumb */}
+      {treeNodes && treeNodes.length > 0 && (
+        <div className="mb-3">
+          <TreeBreadcrumb
+            nodes={treeNodes}
+            currentNodeId={currentNodeId}
+            onNavigate={setCurrentNodeId}
+            cardCountMap={cardCountMap}
+          />
+        </div>
+      )}
+
       {/* Pending role banner */}
       {role === "pending" && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
@@ -418,7 +494,7 @@ export default function WorkspacePage() {
       )}
 
       <div className="columns-2 gap-4 sm:columns-3">
-        {allCards?.map((card) => {
+        {displayCards?.map((card) => {
           const topic = cardTopicMap.get(card.id);
           return (
             <CardItem
@@ -433,7 +509,7 @@ export default function WorkspacePage() {
         })}
       </div>
 
-      {allCards && allCards.length > 0 && nextCursor && (
+      {displayCards && displayCards.length > 0 && nextCursor && (
         <div className="mt-6 flex justify-center">
           <button
             onClick={handleLoadMore}
@@ -445,10 +521,10 @@ export default function WorkspacePage() {
         </div>
       )}
 
-      {allCards?.length === 0 && (
+      {displayCards?.length === 0 && (
         <div className="py-20 text-center text-text-secondary">
-          <p className="text-lg">还没有灵感卡片</p>
-          {canCreate && <p className="mt-2 text-sm">点击上方按钮创建第一张卡片</p>}
+          <p className="text-lg">{currentNodeId ? "该节点下还没有卡片" : "还没有灵感卡片"}</p>
+          {canCreate && !currentNodeId && <p className="mt-2 text-sm">点击上方按钮创建第一张卡片</p>}
         </div>
       )}
 
@@ -562,6 +638,7 @@ export default function WorkspacePage() {
       {/* Context menu for cards */}
       {ctxMenu && (() => {
         const topic = cardTopicMap.get(ctxMenu.card.id);
+        const isInCurrentNode = nodeCardIds?.has(ctxMenu.card.id);
         const menuItems: ContextMenuItem[] = [];
         if (topic) {
           menuItems.push({
@@ -569,6 +646,28 @@ export default function WorkspacePage() {
             icon: <Sparkles size={14} />,
             onClick: () => {
               router.push(`/workspaces/${workspaceId}/synthesis?topic_id=${topic.id}`);
+            },
+          });
+        }
+        if (currentNodeId && !isInCurrentNode) {
+          menuItems.push({
+            label: "挂载到当前节点",
+            icon: <GitBranch size={14} />,
+            onClick: async () => {
+              await topologyApi.addCard(currentNodeId, ctxMenu.card.id);
+              mutate(`topology-${workspaceId}`);
+              toast("已挂载到节点", "success");
+            },
+          });
+        }
+        if (currentNodeId && isInCurrentNode) {
+          menuItems.push({
+            label: "从节点移除",
+            icon: <GitBranch size={14} />,
+            onClick: async () => {
+              await topologyApi.removeCard(currentNodeId, ctxMenu.card.id);
+              mutate(`topology-${workspaceId}`);
+              toast("已从节点移除", "success");
             },
           });
         }

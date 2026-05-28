@@ -3,12 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { ragApi, chatApi, aiApi, cardApi, workspaceApi, settingsApi, type RAGResponse, type WebSearchResult, type ChatSession } from "@/lib/api";
+import { ragApi, chatApi, aiApi, cardApi, workspaceApi, settingsApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession } from "@/lib/api";
 import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch } from "lucide-react";
 
 type ChatMode = "rag" | "chat";
 
@@ -41,10 +41,24 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const streamContentRef = useRef("");
   const webSearchResultsRef = useRef<WebSearchResult[] | undefined>(undefined);
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
+  const precipitatedBlocksRef = useRef(precipitatedBlocks);
+  precipitatedBlocksRef.current = precipitatedBlocks;
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
   const [globalRag, setGlobalRag] = useState(false);
   const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number>>(new Set());
+  const [forkMode, setForkMode] = useState(false);
+  const [branches, setBranches] = useState<{ chatId: string | null; messages: Message[]; title: string; nodeId: string; parentChatId: string | null }[]>([]);
+  const [activeBranchIdx, setActiveBranchIdx] = useState<number | null>(null); // null = main
+  const mainChatIdRef = useRef<string | null>(null);
+  const mainMessagesRef = useRef<Message[]>([]);
+  const chatIdRef = useRef<string | null>(null);
+  const messagesRef = useRef<Message[]>([]);
+  const [pendingAutoSend, setPendingAutoSend] = useState<string | null>(null);
+
+  // Keep refs in sync
+  useEffect(() => { chatIdRef.current = chatId; }, [chatId]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   const { data: workspace } = useSWR(
     workspaceId ? `workspace-${workspaceId}` : null,
@@ -68,7 +82,47 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     loadHistory();
   }, [loadHistory]);
 
+  // Listen for fork-complete: save current, create branch, switch, auto-send
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { nodeId: string; title: string; prompt: string };
+      if (!detail) return;
+      // Save current conversation
+      if (activeBranchIdx === null) {
+        mainChatIdRef.current = chatIdRef.current;
+        mainMessagesRef.current = messagesRef.current;
+      } else {
+        setBranches((prev) =>
+          prev.map((b, i) => (i === activeBranchIdx ? { ...b, chatId: chatIdRef.current, messages: messagesRef.current } : b))
+        );
+      }
+      // Create new branch
+      const newBranch = { chatId: null as string | null, messages: [] as Message[], title: detail.title, nodeId: detail.nodeId, parentChatId: chatIdRef.current };
+      setBranches((prev) => [...prev, newBranch]);
+      // Switch to new branch
+      setChatId(null);
+      setMessages([]);
+      setActiveBranchIdx(branches.length);
+      // Auto-send
+      if (detail.prompt) {
+        setPendingAutoSend(detail.prompt);
+      }
+    };
+    window.addEventListener("topology-fork-complete", handler);
+    return () => window.removeEventListener("topology-fork-complete", handler);
+  }, [activeBranchIdx, branches.length]);
+
+  // Auto-send when pending
+  useEffect(() => {
+    if (!pendingAutoSend) return;
+    const prompt = pendingAutoSend;
+    setPendingAutoSend(null);
+    const timer = setTimeout(() => doSend(prompt), 100);
+    return () => clearTimeout(timer);
+  }, [pendingAutoSend]);
+
   const loadChat = async (id: string) => {
+    stopStream();
     try {
       const detail = await chatApi.get(id);
       setChatId(detail.id);
@@ -89,6 +143,50 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setChatId(null);
     setMessages([]);
     setShowHistory(false);
+    setActiveBranchIdx(null);
+    mainChatIdRef.current = null;
+    mainMessagesRef.current = [];
+  };
+
+  const switchToMain = () => {
+    if (activeBranchIdx === null) return;
+    stopStream();
+    // Save current branch
+    setBranches((prev) =>
+      prev.map((b, i) => (i === activeBranchIdx ? { ...b, chatId: chatIdRef.current, messages: messagesRef.current } : b))
+    );
+    // Load main
+    setChatId(mainChatIdRef.current);
+    setMessages(mainMessagesRef.current);
+    setActiveBranchIdx(null);
+  };
+
+  const switchToBranch = (idx: number) => {
+    if (activeBranchIdx === idx) return;
+    stopStream();
+    // Save current
+    if (activeBranchIdx === null) {
+      mainChatIdRef.current = chatIdRef.current;
+      mainMessagesRef.current = messagesRef.current;
+    } else {
+      setBranches((prev) =>
+        prev.map((b, i) => (i === activeBranchIdx ? { ...b, chatId: chatIdRef.current, messages: messagesRef.current } : b))
+      );
+    }
+    // Load target
+    const target = branches[idx];
+    setChatId(target.chatId);
+    setMessages(target.messages);
+    setActiveBranchIdx(idx);
+  };
+
+  const removeBranch = (idx: number) => {
+    setBranches((prev) => prev.filter((_, i) => i !== idx));
+    if (activeBranchIdx === idx) {
+      switchToMain();
+    } else if (activeBranchIdx !== null && activeBranchIdx > idx) {
+      setActiveBranchIdx(activeBranchIdx - 1);
+    }
   };
 
   const stopStream = useCallback(() => {
@@ -105,7 +203,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     }
   };
 
-  const handlePrecipitateBlock = async (blockText: string) => {
+  const handlePrecipitateBlock = useCallback(async (blockText: string) => {
     if (!workspaceId) {
       toast("请从空间页面进入以使用沉淀功能", "error");
       return;
@@ -118,19 +216,32 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       blockText = lines.map((l) => (/^\s{4,}\S/.test(l) ? l.slice(minIndent) : l)).join("\n");
     }
     const key = blockText.slice(0, 50);
-    if (precipitatedBlocks.has(key)) return;
+    if (precipitatedBlocksRef.current.has(key)) return;
     setPrecipitatingBlock(key);
     try {
-      const [titleRes, kwRes] = await Promise.all([
-        aiApi.generateTitle(blockText),
-        aiApi.extractKeywords(blockText),
-      ]);
+      let title = "";
+      let keywords: string[] = [];
+      try {
+        const [titleRes, kwRes] = await Promise.all([
+          aiApi.generateTitle(blockText),
+          aiApi.extractKeywords(blockText),
+        ]);
+        title = titleRes.title || "";
+        keywords = kwRes.keywords || [];
+      } catch {
+        // LLM call failed
+      }
+      // Fallback if API returned empty
+      if (!title) {
+        const firstLine = blockText.split("\n").find((l) => l.trim()) || "";
+        title = firstLine.replace(/^#+\s*/, "").slice(0, 30) || "未命名";
+      }
       await cardApi.create({
         local_id: "card_" + Date.now(),
         workspace_id: workspaceId,
-        title: titleRes.title,
+        title,
         content: blockText,
-        keywords: kwRes.keywords,
+        keywords,
       });
       setPrecipitatedBlocks((prev) => new Set(prev).add(key));
       toast("已沉淀为卡片", "success");
@@ -140,29 +251,28 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     } finally {
       setPrecipitatingBlock(null);
     }
-  };
+  }, [workspaceId]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isStreaming) return;
+  const doSend = async (question: string) => {
+    if (!question.trim() || isStreaming) return;
 
-    const question = input.trim();
-    setInput("");
     setIsStreaming(true);
     streamContentRef.current = "";
     webSearchResultsRef.current = undefined;
 
     setMessages((prev) => [...prev, { role: "user", content: question }]);
-    // Show loading hint when web search is enabled
     const loadingHint = webSearch ? "正在搜索网页..." : "";
     setMessages((prev) => [...prev, { role: "assistant", content: loadingHint }]);
 
     let currentChatId = chatId;
     if (!currentChatId) {
       try {
+        const parentChatId = activeBranchIdx !== null ? branches[activeBranchIdx]?.parentChatId : undefined;
         const chat = await chatApi.create({
           mode,
           workspace_id: workspaceId || undefined,
           card_id: cardId,
+          parent_chat_id: parentChatId || undefined,
           title: question.slice(0, 50),
         });
         currentChatId = chat.id;
@@ -178,12 +288,10 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     }
 
     const onChunk = (text: string) => {
-      // Handle JSON messages
       if (text.startsWith('{')) {
         try {
           const parsed = JSON.parse(text);
           if (parsed.type === "web_search_results" && parsed.results) {
-            // Show web search results immediately and reset content
             streamContentRef.current = "";
             webSearchResultsRef.current = parsed.results;
             setMessages((prev) => {
@@ -193,7 +301,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 webSearchResults: parsed.results,
                 content: "",
               };
-              // Auto-expand search results for this message
               setExpandedSearchResults((s) => new Set(s).add(updated.length - 1));
               return updated;
             });
@@ -262,6 +369,18 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     }
   };
 
+  const handleSend = () => {
+    if (!input.trim() || isStreaming) return;
+    const question = input.trim();
+    setInput("");
+    if (forkMode) {
+      setForkMode(false);
+      window.dispatchEvent(new CustomEvent("topology-fork-request", { detail: { prompt: question } }));
+    } else {
+      doSend(question);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
@@ -322,6 +441,21 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
         <ModelSelector compact />
 
+        {activeBranchIdx !== null && branches[activeBranchIdx] && (
+          <div className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] text-green-700">
+            <GitBranch size={10} />
+            <span className="max-w-[100px] truncate">{branches[activeBranchIdx].title}</span>
+          </div>
+        )}
+
+        {forkMode && (
+          <div className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 animate-pulse">
+            <GitBranch size={10} />
+            分叉模式
+            <button onClick={() => setForkMode(false)} className="ml-0.5 text-amber-400 hover:text-amber-600">×</button>
+          </div>
+        )}
+
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={() => setShowHistory(!showHistory)}
@@ -366,32 +500,71 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               {history.length === 0 && (
                 <p className="px-2 py-4 text-center text-xs text-text-secondary">暂无历史记录</p>
               )}
-              {history.map((chat) => (
-                <div
-                  key={chat.id}
-                  onClick={() => loadChat(chat.id)}
-                  className={`group mb-1 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm transition hover:bg-gray-100 ${
-                    chatId === chat.id ? "bg-primary/10 text-primary-dark" : "text-text"
-                  }`}
-                >
-                  <span
-                    className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                      chat.mode === "rag"
-                        ? "bg-blue-100 text-blue-600"
-                        : "bg-green-100 text-green-600"
-                    }`}
-                  >
-                    {chat.mode === "rag" ? "知识" : "对话"}
-                  </span>
-                  <span className="line-clamp-1 flex-1">{chat.title || "新对话"}</span>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(chat); }}
-                    className="hidden text-text-secondary hover:text-danger group-hover:block"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))}
+              {(() => {
+                // Group: parent chats first, then children under them
+                const parents = history.filter((c) => !c.parent_chat_id);
+                const childrenMap = new Map<string, ChatSession[]>();
+                for (const c of history) {
+                  if (c.parent_chat_id) {
+                    const arr = childrenMap.get(c.parent_chat_id) || [];
+                    arr.push(c);
+                    childrenMap.set(c.parent_chat_id, arr);
+                  }
+                }
+                return parents.map((chat) => {
+                  const children = childrenMap.get(chat.id) || [];
+                  return (
+                    <div key={chat.id}>
+                      <div
+                        onClick={() => loadChat(chat.id)}
+                        className={`group mb-1 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm transition hover:bg-gray-100 ${
+                          chatId === chat.id ? "bg-primary/10 text-primary-dark" : "text-text"
+                        }`}
+                      >
+                        <span
+                          className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            chat.mode === "rag"
+                              ? "bg-blue-100 text-blue-600"
+                              : "bg-green-100 text-green-600"
+                          }`}
+                        >
+                          {chat.mode === "rag" ? "知识" : "对话"}
+                        </span>
+                        <span className="line-clamp-1 flex-1">{chat.title || "新对话"}</span>
+                        {children.length > 0 && (
+                          <span className="flex-shrink-0 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] text-green-600">
+                            {children.length} 分支
+                          </span>
+                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(chat); }}
+                          className="hidden text-text-secondary hover:text-danger group-hover:block"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                      {children.map((child) => (
+                        <div
+                          key={child.id}
+                          onClick={() => loadChat(child.id)}
+                          className={`group mb-1 ml-4 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition hover:bg-gray-100 ${
+                            chatId === child.id ? "bg-green-50 text-green-700" : "text-text-secondary"
+                          }`}
+                        >
+                          <GitBranch size={10} className="shrink-0 text-green-400" />
+                          <span className="line-clamp-1 flex-1">{child.title || "分支"}</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(child); }}
+                            className="hidden text-text-secondary hover:text-danger group-hover:block"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         )}
@@ -527,14 +700,36 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                   }`}
                 />
               </button>
+              <div className="ml-auto">
+                <button
+                  onClick={() => setForkMode(!forkMode)}
+                  className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition ${
+                    forkMode
+                      ? "bg-green-100 text-green-700"
+                      : "text-text-secondary hover:bg-gray-100"
+                  }`}
+                  title="创建知识分支"
+                >
+                  <GitBranch size={10} />
+                  分叉
+                </button>
+              </div>
             </div>
             <div className="flex gap-2">
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                placeholder={mode === "rag" ? "问一个关于灵感的问题..." : "输入问题..."}
-                className="flex-1 rounded-xl bg-gray-100 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder={
+                  forkMode
+                    ? "你想深入了解什么？输入后回车创建分支..."
+                    : mode === "rag"
+                      ? "问一个关于灵感的问题..."
+                      : "输入问题..."
+                }
+                className={`flex-1 rounded-xl bg-gray-100 px-3 py-2 text-sm outline-none focus:ring-2 ${
+                  forkMode ? "focus:ring-green-300" : "focus:ring-primary/30"
+                }`}
                 disabled={isStreaming}
               />
               {isStreaming ? (
@@ -549,14 +744,56 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 <button
                   onClick={handleSend}
                   disabled={!input.trim()}
-                  className="flex items-center justify-center rounded-xl bg-primary px-3 py-2 text-white transition hover:bg-primary-dark disabled:opacity-50"
-                  title="发送"
+                  className={`flex items-center justify-center rounded-xl px-3 py-2 text-white transition disabled:opacity-50 ${
+                    forkMode
+                      ? "bg-green-500 hover:bg-green-600"
+                      : "bg-primary hover:bg-primary-dark"
+                  }`}
+                  title={forkMode ? "创建分支并发送" : "发送"}
                 >
-                  <Send size={14} />
+                  {forkMode ? <GitBranch size={14} /> : <Send size={14} />}
                 </button>
               )}
             </div>
           </div>
+
+          {/* Conversation tabs */}
+          {(branches.length > 0 || activeBranchIdx !== null) && (
+            <div className="flex items-center gap-1 border-t border-border bg-surface/50 px-3 py-1.5">
+              <button
+                onClick={switchToMain}
+                className={`rounded px-2 py-0.5 text-[11px] font-medium transition ${
+                  activeBranchIdx === null
+                    ? "bg-primary text-white"
+                    : "text-text-secondary hover:bg-gray-100"
+                }`}
+              >
+                主
+              </button>
+              {branches.map((b, i) => (
+                <div key={i} className="group relative flex items-center">
+                  <button
+                    onClick={() => switchToBranch(i)}
+                    className={`rounded px-2 py-0.5 text-[11px] transition ${
+                      activeBranchIdx === i
+                        ? "bg-green-500 text-white"
+                        : "text-text-secondary hover:bg-gray-100"
+                    }`}
+                    title={b.title}
+                  >
+                    {i + 1}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeBranch(i); }}
+                    className="absolute -right-1 -top-1 hidden h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-300 text-[8px] text-white hover:bg-red-400 group-hover:flex"
+                    title="关闭分支"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

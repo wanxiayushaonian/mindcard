@@ -337,14 +337,16 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectionState, setSelectionState] = useState<{ text: string; x: number; y: number } | null>(null);
+  const onPrecipitateBlockRef = useRef(onPrecipitateBlock);
+  onPrecipitateBlockRef.current = onPrecipitateBlock;
 
   const handlePrecipitate = useCallback(() => {
-    if (selectionState?.text && onPrecipitateBlock) {
-      onPrecipitateBlock(selectionState.text);
+    if (selectionState?.text && onPrecipitateBlockRef.current) {
+      onPrecipitateBlockRef.current(selectionState.text);
       setSelectionState(null);
       window.getSelection()?.removeAllRanges();
     }
-  }, [selectionState, onPrecipitateBlock]);
+  }, [selectionState]);
 
   useEffect(() => {
     if (!onPrecipitateBlock) return;

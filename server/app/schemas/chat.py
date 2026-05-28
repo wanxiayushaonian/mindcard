@@ -9,6 +9,7 @@ class ChatCreate(BaseModel):
     mode: str = "rag"  # 'rag' | 'chat'
     workspace_id: str | None = None
     card_id: str | None = None
+    parent_chat_id: str | None = None
     title: str = ""
 
 
@@ -40,6 +41,7 @@ class ChatListResponse(BaseModel):
     mode: str
     workspace_id: uuid.UUID | None
     card_id: uuid.UUID | None
+    parent_chat_id: uuid.UUID | None = None
     title: str
     created_at: datetime
     message_count: int = 0

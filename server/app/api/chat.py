@@ -78,6 +78,7 @@ async def list_chats(
             mode=c.mode,
             workspace_id=c.workspace_id,
             card_id=c.card_id,
+            parent_chat_id=c.parent_chat_id,
             title=c.title,
             created_at=c.created_at,
             message_count=count_map.get(c.id, 0),
@@ -111,6 +112,13 @@ async def create_chat(
         except Exception:
             card_uuid = None
 
+    parent_uuid = None
+    if req.parent_chat_id:
+        try:
+            parent_uuid = parse_uuid(req.parent_chat_id)
+        except Exception:
+            parent_uuid = None
+
     local_id = req.local_id or f"chat_{int(time.time() * 1000)}"
 
     # Check if chat with this local_id already exists
@@ -136,6 +144,7 @@ async def create_chat(
         title=req.title,
         workspace_id=workspace_uuid,
         card_id=card_uuid,
+        parent_chat_id=parent_uuid,
     )
     db.add(chat)
     await db.flush()

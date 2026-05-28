@@ -120,6 +120,20 @@ async def create_card(
     card = Card(**req.model_dump(), creator_id=user.id)
     db.add(card)
     await db.flush()
+
+    # Auto-attach card to workspace root node in topology tree
+    from app.models.topology import NodeCard, TreeNode as TopoNode
+
+    root_result = await db.execute(
+        select(TopoNode).where(
+            TopoNode.workspace_id == parse_uuid(req.workspace_id),
+            TopoNode.parent_id.is_(None),
+        ).limit(1)
+    )
+    root_node = root_result.scalar_one_or_none()
+    if root_node:
+        db.add(NodeCard(node_id=root_node.id, card_id=card.id))
+
     background_tasks.add_task(_generate_embedding, card.id)
     await create_activity(
         db, workspace_id=req.workspace_id, actor_id=user.id,

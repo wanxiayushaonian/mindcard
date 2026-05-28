@@ -22,6 +22,9 @@ class AiChat(Base):
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    parent_chat_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ai_chats.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     mode: Mapped[str] = mapped_column(String(8), default="rag")  # 'rag' | 'chat'
     title: Mapped[str] = mapped_column(String(128), default="")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
