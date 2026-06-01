@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 class CardCreate(BaseModel):
@@ -44,6 +44,11 @@ class CardResponse(BaseModel):
     updated_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer('parent_card_ids')
+    def serialize_parent_card_ids(self, value: list[uuid.UUID] | list[str]) -> list[str]:
+        """Convert UUID objects to strings for JSON serialization."""
+        return [str(v) for v in value]
 
 
 class CardListResponse(BaseModel):
