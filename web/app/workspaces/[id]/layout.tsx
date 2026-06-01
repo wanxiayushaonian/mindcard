@@ -12,10 +12,12 @@ import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/Breadcrumb";
-import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network, Activity, GitBranch } from "lucide-react";
+import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network, Activity, GitBranch, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SearchModal } from "@/components/SearchModal";
 import { AiChatPanel } from "@/components/AiChatPanel";
+import { EditorPanel } from "@/components/EditorPanel";
 import { NotificationBell } from "@/components/NotificationBell";
+import { usePanelStore } from "@/lib/workspace-layout-store";
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -223,10 +225,14 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto">{children}</div>
-        {showAiChat && canShowAiChat && (
-          <AiChatPanel workspaceId={workspaceId} onClose={() => setShowAiChat(false)} />
-        )}
+        <PanelLayout
+          workspaceId={workspaceId}
+          canShowAiChat={canShowAiChat}
+          showAiChat={showAiChat}
+          onToggleAiChat={() => setShowAiChat((v) => !v)}
+        >
+          {children}
+        </PanelLayout>
       </div>
 
       {/* Edit workspace modal */}
@@ -446,5 +452,84 @@ function MembersPanel({
         />
       )}
     </Modal>
+  );
+}
+
+// --- Three-Panel Layout ---
+
+function PanelLayout({
+  workspaceId,
+  canShowAiChat,
+  showAiChat,
+  onToggleAiChat,
+  children,
+}: {
+  workspaceId: string;
+  canShowAiChat: boolean;
+  showAiChat: boolean;
+  onToggleAiChat: () => void;
+  children: React.ReactNode;
+}) {
+  const { leftCollapsed, rightCollapsed, toggleLeft, toggleRight } = usePanelStore();
+
+  // Compute widths
+  const leftW = leftCollapsed ? 25 : 50;
+  const rightW = rightCollapsed ? 25 : 50;
+  const showEditor = leftCollapsed || rightCollapsed;
+  const editorW = showEditor ? 100 - leftW - rightW : 0;
+
+  // If AI chat not available, left takes full width
+  if (!canShowAiChat || !showAiChat) {
+    return (
+      <div className="flex h-full w-full">
+        <div className="h-full overflow-y-auto" style={{ width: "100%", transition: "width 300ms cubic-bezier(0.4,0,0.2,1)" }}>
+          {children}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full">
+      {/* Left Panel - Card List */}
+      <div
+        className="relative h-full overflow-hidden border-r border-border"
+        style={{ width: `${leftW}%`, transition: "width 300ms cubic-bezier(0.4,0,0.2,1)", willChange: "width" }}
+      >
+        <button
+          onClick={toggleLeft}
+          className="absolute right-2 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-surface/80 text-text-secondary shadow-sm backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
+          title={leftCollapsed ? "展开卡片列表" : "收起卡片列表"}
+        >
+          {leftCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+        </button>
+        <div className="h-full overflow-y-auto">{children}</div>
+      </div>
+
+      {/* Middle Panel - Editor */}
+      {showEditor && (
+        <div
+          className="h-full overflow-hidden border-r border-border"
+          style={{ width: `${editorW}%`, transition: "width 300ms cubic-bezier(0.4,0,0.2,1), opacity 200ms ease", willChange: "width" }}
+        >
+          <EditorPanel workspaceId={workspaceId} />
+        </div>
+      )}
+
+      {/* Right Panel - AI Chat */}
+      <div
+        className="relative h-full overflow-hidden"
+        style={{ width: `${rightW}%`, transition: "width 300ms cubic-bezier(0.4,0,0.2,1)", willChange: "width" }}
+      >
+        <button
+          onClick={toggleRight}
+          className="absolute left-2 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-surface/80 text-text-secondary shadow-sm backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
+          title={rightCollapsed ? "展开AI对话" : "收起AI对话"}
+        >
+          {rightCollapsed ? <PanelRightOpen size={13} /> : <PanelRightClose size={13} />}
+        </button>
+        <AiChatPanel workspaceId={workspaceId} onClose={onToggleAiChat} />
+      </div>
+    </div>
   );
 }

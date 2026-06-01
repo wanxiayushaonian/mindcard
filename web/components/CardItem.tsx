@@ -8,9 +8,38 @@ interface CardItemProps {
   topicName?: string;
   topicColor?: string;
   onContextMenu?: (e: React.MouseEvent) => void;
+  compact?: boolean;
 }
 
-export function CardItem({ card, onClick, topicName, topicColor, onContextMenu }: CardItemProps) {
+export function CardItem({ card, onClick, topicName, topicColor, onContextMenu, compact }: CardItemProps) {
+  if (compact) {
+    return (
+      <div
+        onClick={onClick}
+        onContextMenu={onContextMenu}
+        className="mb-2 cursor-pointer break-inside-avoid rounded-lg border border-border bg-surface p-2.5 shadow-sm transition hover:shadow-md"
+        style={{ borderLeft: `3px solid ${card.color}` }}
+      >
+        <div className="flex items-center gap-1.5">
+          {topicName && (
+            <>
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: topicColor || "#6366f1" }}
+              />
+              <span className="text-[9px] text-text-secondary truncate">{topicName}</span>
+              <span className="text-[9px] text-text-secondary/30">·</span>
+            </>
+          )}
+          <span className="truncate text-xs font-medium text-text">{card.title || "未命名"}</span>
+        </div>
+        <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-secondary">
+          {card.content}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={onClick}

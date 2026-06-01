@@ -15,6 +15,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { TreeBreadcrumb } from "@/components/TreeBreadcrumb";
+import { usePanelStore } from "@/lib/workspace-layout-store";
 import { Plus, Upload, Package, Search, Sparkles, GitBranch } from "lucide-react";
 
 // Stable topic colors derived from topic ID
@@ -339,8 +340,10 @@ export default function WorkspacePage() {
   if (isLoading) return <LoadingState />;
   if (error) return <ErrorState message={error.message} onRetry={revalidate} />;
 
+  const leftCollapsed = usePanelStore((s) => s.leftCollapsed);
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6">
+    <div className={`${leftCollapsed ? "px-2 py-3" : "mx-auto max-w-5xl px-4 py-6"}`}>
       {/* Row 1: status filters + create button */}
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex gap-1.5">
@@ -493,7 +496,7 @@ export default function WorkspacePage() {
         </div>
       )}
 
-      <div className="columns-2 gap-4 sm:columns-3">
+      <div className={leftCollapsed ? "columns-1 gap-2" : "columns-2 gap-4 sm:columns-3"}>
         {displayCards?.map((card) => {
           const topic = cardTopicMap.get(card.id);
           return (
@@ -504,6 +507,7 @@ export default function WorkspacePage() {
               topicName={topic?.name}
               topicColor={topic ? topicColor(topic.id) : undefined}
               onContextMenu={(e) => handleContextMenu(e, card)}
+              compact={leftCollapsed}
             />
           );
         })}

@@ -10,7 +10,8 @@ import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import AssistantResponse from "@/components/AssistantResponse";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch, ChevronRight } from "lucide-react";
+import { usePanelStore } from "@/lib/workspace-layout-store";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch, ChevronRight, Copy } from "lucide-react";
 
 type ChatMode = "rag" | "chat";
 
@@ -455,7 +456,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   };
 
   return (
-    <div className="flex h-full w-1/2 flex-shrink-0 flex-col border-l border-border bg-bg animate-slide-in">
+    <div className="flex h-full w-full flex-col border-l border-border bg-bg">
       {/* Header */}
       <div className="relative z-20 flex items-center gap-2 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-sm">
         <div className="flex rounded-full bg-gray-100 p-0.5">
@@ -670,7 +671,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             )}
 
             {messages.map((msg, i) => (
-              <div key={i} className={`mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div key={i} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2.5 ${
                     msg.role === "user"
@@ -692,6 +693,22 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                         />
                         {msg.status === "error" && (
                           <p className="mt-1 text-xs text-amber-600">回答中断，内容可能不完整</p>
+                        )}
+                        {msg.content && msg.content.trim() && (
+                          <div className="mt-2 flex justify-end opacity-0 transition-opacity group-hover/msg:opacity-100">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                usePanelStore.getState().appendToEditor(msg.content);
+                                toast("已复制到编辑器", "success");
+                              }}
+                              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition hover:bg-gray-100 hover:text-foreground"
+                              title="复制到编辑器"
+                            >
+                              <Copy size={10} />
+                              复制到编辑器
+                            </button>
+                          </div>
                         )}
                       </>
                     )
