@@ -66,14 +66,46 @@ export default function NetworkPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<"graph" | "tree">("graph");
   const [showForceSettings, setShowForceSettings] = useState(false);
-  const [forceParams, setForceParams] = useState({
-    charge: -800,
-    linkDistance: 120,
-    linkStrength: 0.005,
-    centerStrength: 0.01,
-    velocityDecay: 0.15,
+  const [forceParams, setForceParams] = useState(() => {
+    if (typeof window === "undefined") {
+      return {
+        charge: -800,
+        linkDistance: 120,
+        linkStrength: 0.005,
+        centerStrength: 0.01,
+        velocityDecay: 0.15,
+      };
+    }
+    const saved = localStorage.getItem("network-force-params");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return {
+          charge: -800,
+          linkDistance: 120,
+          linkStrength: 0.005,
+          centerStrength: 0.01,
+          velocityDecay: 0.15,
+        };
+      }
+    }
+    return {
+      charge: -800,
+      linkDistance: 120,
+      linkStrength: 0.005,
+      centerStrength: 0.01,
+      velocityDecay: 0.15,
+    };
   });
   const playTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Save force params to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("network-force-params", JSON.stringify(forceParams));
+    }
+  }, [forceParams]);
 
   // Cleanup playback on unmount
   useEffect(() => {
