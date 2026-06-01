@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     custom_model: str = ""
 
     # LLM defaults
-    default_llm_provider: str = "anthropic"  # Changed from deepseek to anthropic (Claude)
+    default_llm_provider: str = "claude"  # Changed from deepseek to claude
     default_llm_model: str = ""  # empty = provider's default model
 
     # CORS
