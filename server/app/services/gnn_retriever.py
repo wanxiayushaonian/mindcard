@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.card import Card
-from app.models.graph import EntityCard, GraphEntity, GraphRelation
+from app.models.graph import GNNTrainingLog, EntityCard, GraphEntity, GraphRelation
 from app.schemas.graph import (
     GraphSearchResponse,
     GraphSearchResultCard,
@@ -42,11 +42,48 @@ class GraphRetriever:
         if not matched_entities:
             return await self._embedding_fallback(query, workspace_id, db, k)
 
-        card_scores = await self._collect_card_scores(
+        # Build reasoning paths early so they are available for all paths
+        reasoning_paths = await self._build_reasoning_paths(
             matched_entities, workspace_id, db
         )
 
-        reasoning_paths = await self._build_reasoning_paths(
+        # Try GNN retrieval first
+        gnn_scores = await self._gnn_retrieve(
+            matched_entities, workspace_id, db, query_embedding, k
+        )
+
+        if gnn_scores is not None:
+            # Hybrid: GNN 60% + graph traversal 40%
+            traversal_scores = await self._collect_card_scores(
+                matched_entities, workspace_id, db
+            )
+            card_scores: dict[uuid.UUID, float] = {}
+            for cid, s in gnn_scores.items():
+                card_scores[cid] = card_scores.get(cid, 0.0) + s * 0.6
+            for cid, s in traversal_scores.items():
+                card_scores[cid] = card_scores.get(cid, 0.0) + s * 0.4
+
+            top_cards = sorted(card_scores.items(), key=lambda x: x[1], reverse=True)[:k]
+            result_cards: list[GraphSearchResultCard] = []
+            for card_id, score in top_cards:
+                card = await db.get(Card, card_id)
+                if card:
+                    result_cards.append(GraphSearchResultCard(
+                        id=card.id,
+                        title=card.title,
+                        content_snippet=card.content[:200] if card.content else None,
+                        score=round(score, 4),
+                    ))
+
+            return GraphSearchResponse(
+                query=query,
+                retrieval_mode="hybrid",
+                reasoning_paths=reasoning_paths[:5],
+                cards=result_cards,
+            )
+
+        # Fallback to pure graph traversal
+        card_scores = await self._collect_card_scores(
             matched_entities, workspace_id, db
         )
 
@@ -219,6 +256,123 @@ class GraphRetriever:
                     )
 
         return paths[:5]
+
+    async def _load_checkpoint(self, workspace_id: uuid.UUID, db: AsyncSession) -> dict | None:
+        """Load the latest completed GNN checkpoint for a workspace."""
+        result = await db.execute(
+            select(GNNTrainingLog)
+            .where(
+                GNNTrainingLog.workspace_id == workspace_id,
+                GNNTrainingLog.status == "completed",
+            )
+            .order_by(GNNTrainingLog.created_at.desc())
+            .limit(1)
+        )
+        log = result.scalar_one_or_none()
+        if not log or not log.checkpoint_path:
+            return None
+
+        from pathlib import Path
+
+        import torch
+
+        from app.services.sage_model import SAGERetriever
+
+        path = Path(log.checkpoint_path)
+        if not path.exists():
+            return None
+
+        data = torch.load(path, map_location="cpu", weights_only=False)
+        model = SAGERetriever(
+            num_nodes=data["num_nodes"],
+            num_relations=data["num_relations"],
+            hidden_dim=data["hidden_dim"],
+            num_layers=data["num_layers"],
+        )
+        model.load_state_dict(data["model_state_dict"])
+        model.eval()
+
+        entity_id_map = data["entity_id_map"]
+        id_to_idx = {v: k for k, v in entity_id_map.items()}
+
+        return {
+            "model": model,
+            "num_nodes": data["num_nodes"],
+            "hidden_dim": data["hidden_dim"],
+            "entity_id_map": entity_id_map,
+            "id_to_idx": id_to_idx,
+            "relation_type_map": data["relation_type_map"],
+            "edge_index": data.get("edge_index"),
+            "edge_type": data.get("edge_type"),
+            "edge_weight": data.get("edge_weight"),
+        }
+
+    async def _gnn_retrieve(
+        self,
+        matched_entities: list[tuple[uuid.UUID, str, float]],
+        workspace_id: uuid.UUID,
+        db: AsyncSession,
+        query_embedding: list[float],
+        k: int,
+    ) -> dict[uuid.UUID, float] | None:
+        """Run GNN inference to score cards based on entity matches.
+
+        Returns None when no trained model is available.
+        """
+        checkpoint = await self._load_checkpoint(workspace_id, db)
+        if checkpoint is None:
+            return None
+
+        import torch
+
+        id_to_idx = checkpoint["id_to_idx"]
+        matched_indices: list[int] = []
+        for entity_id, _, _ in matched_entities:
+            if entity_id in id_to_idx:
+                matched_indices.append(id_to_idx[entity_id])
+
+        if not matched_indices:
+            return None
+
+        seed_mask = torch.zeros(checkpoint["num_nodes"])
+        for idx in matched_indices:
+            seed_mask[idx] = 1.0
+
+        hidden_dim = checkpoint["hidden_dim"]
+        if len(query_embedding) >= hidden_dim:
+            query_tensor = torch.tensor(query_embedding[:hidden_dim], dtype=torch.float)
+        else:
+            query_tensor = torch.zeros(hidden_dim)
+            query_tensor[: len(query_embedding)] = torch.tensor(
+                query_embedding, dtype=torch.float
+            )
+
+        with torch.no_grad():
+            scores = checkpoint["model"](
+                checkpoint["edge_index"],
+                checkpoint["edge_type"],
+                checkpoint["edge_weight"],
+                query_tensor,
+                seed_mask,
+            )
+
+        entity_id_map = checkpoint["entity_id_map"]
+        card_scores: dict[uuid.UUID, float] = {}
+        for idx in range(checkpoint["num_nodes"]):
+            entity_id = entity_id_map.get(idx)
+            if entity_id is None:
+                continue
+            score = scores[idx].item()
+            if score > 0.3:
+                result = await db.execute(
+                    select(EntityCard).where(EntityCard.entity_id == entity_id)
+                )
+                for link in result.scalars().all():
+                    card_scores[link.card_id] = (
+                        card_scores.get(link.card_id, 0.0) + score
+                    )
+
+        return card_scores
 
     async def _embedding_fallback(
         self,
