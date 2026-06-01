@@ -12,7 +12,7 @@ import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/Breadcrumb";
-import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network, Activity } from "lucide-react";
+import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network, Activity, GitBranch } from "lucide-react";
 import { SearchModal } from "@/components/SearchModal";
 import { AiChatPanel } from "@/components/AiChatPanel";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -61,6 +61,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   } else if (pathname.endsWith("/network")) {
     breadcrumbs.push({ label: wsName, href: `/workspaces/${workspaceId}` });
     breadcrumbs.push({ label: "关联网络" });
+  } else if (pathname.endsWith("/knowledge-graph")) {
+    breadcrumbs.push({ label: wsName, href: `/workspaces/${workspaceId}` });
+    breadcrumbs.push({ label: "知识图谱" });
   } else {
     breadcrumbs.push({ label: wsName });
   }
@@ -80,6 +83,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       : []),
     { label: "洞察", href: `/workspaces/${workspaceId}/insights`, highlight: false, icon: <Lightbulb size={14} /> },
     { label: "网络", href: `/workspaces/${workspaceId}/network`, highlight: false, icon: <Network size={14} /> },
+    { label: "图谱", href: `/workspaces/${workspaceId}/knowledge-graph`, highlight: false, icon: <GitBranch size={14} /> },
     { label: "动态", href: `/workspaces/${workspaceId}/activities`, highlight: false, icon: <Activity size={14} /> },
   ];
 
