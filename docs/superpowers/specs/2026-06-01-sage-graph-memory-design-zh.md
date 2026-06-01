@@ -27,7 +27,7 @@
 | 检索方式 | GNN（SAGERetriever）+ embedding 回退 | 多跳推理能力，新卡片用 embedding 保底 |
 | GNN 训练时机 | 定期批量（每周 OR 每 100 张卡片） | 平衡动态图与训练成本 |
 | 训练模式 | 本地 CPU / 本地 GPU / 云端 GPU 三选一 | 适配不同硬件条件 |
-| 自进化机制 | LLM 评估三元组质量 → 优化 prompt | 比 SFT 训练轻量，保留闭环思想 |
+| 自进化机制 | Few-shot 示例 + 用户反馈 + 示例池更新 | 比 SFT 训练轻量，比纯 prompt 优化有效 |
 | 与拓扑树关系 | 单向链接（拓扑节点标记核心实体） | 保持拓扑树简洁，通过实体标签建立关联 |
 
 ## 架构设计
@@ -389,49 +389,144 @@ if entity_id not in trained_entity_ids:
 }
 ```
 
-### 模块四：自进化闭环
+### 模块四：自进化闭环（混合方案）
 
-借鉴 SAGE 的 deducibility evaluation，但用 prompt 优化替代 SFT 训练。
+借鉴 SAGE 的 deducibility evaluation，但用 **Few-shot 示例 + 用户反馈 + 示例池更新** 替代 SFT 训练。
 
-#### 三元组质量评估
+> **设计说明**：SAGE 原版使用 SFT（监督微调）训练写入器，但这对 MindCard 来说过重（需要标注数据、训练基础设施、定期重训）。我们采用更轻量的混合方案：通过 few-shot 示例引导 LLM，通过用户反馈收集高质量样本，通过示例池自动更新实现持续改进。
 
-定期（每月）评估已有三元组的质量：
+#### 阶段 1：Few-shot 示例驱动的抽取
+
+在 NER/RE prompt 中加入高质量三元组示例：
+
+**改进后的 RE Prompt**：
+```
+抽取实体之间的关系三元组。
+
+【高质量示例】
+文本：RAG 使用 BGE-M3 做 embedding，存入 pgvector 向量数据库。
+三元组：
+- ["RAG", "使用", "BGE-M3"]
+- ["BGE-M3", "功能", "embedding"]
+- ["RAG", "使用", "pgvector"]
+- ["pgvector", "类型", "向量数据库"]
+
+【低质量示例（避免）】
+❌ ["RAG", "相关", "embedding"]  # 关系太泛
+❌ ["第一步", "是", "转向量"]  # 实体太细碎
+❌ ["它", "使用", "数据库"]  # 实体不明确
+
+现在抽取以下文本的三元组：
+
+实体列表：
+{entities}
+
+原文：
+{card_content}
+
+输出格式：
+[
+  ["head", "relation", "tail"],
+  ...
+]
+```
+
+**示例池初始化**：
+- 手工标注 20-30 个高质量三元组作为初始示例池
+- 覆盖常见领域（RAG、向量数据库、LLM、embedding 等）
+
+#### 阶段 2：用户反馈收集
+
+**前端交互**：
+- 卡片详情页显示抽取的三元组
+- 用户可以标记每个三元组：👍 好 / 👎 差 / ✏️ 修正
+- 修正时可以编辑 head/relation/tail
+
+**后端存储**：
+```sql
+CREATE TABLE triple_feedback (
+    id UUID PRIMARY KEY,
+    triple_id UUID REFERENCES graph_relations(id),
+    user_id UUID REFERENCES users(id),
+    feedback_type TEXT NOT NULL,  -- 'good', 'bad', 'corrected'
+    corrected_head TEXT,
+    corrected_relation TEXT,
+    corrected_tail TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+#### 阶段 3：示例池自动更新
+
+定期（每月）运行更新流程：
+
+1. **收集高质量样本**：
+   ```python
+   # 获取用户标记为"好"的三元组
+   good_triples = await db.execute(
+       select(GraphRelation, Card.content)
+       .join(triple_feedback)
+       .where(triple_feedback.feedback_type == 'good')
+       .order_by(triple_feedback.created_at.desc())
+       .limit(100)
+   )
+   ```
+
+2. **分析低质量模式**：
+   ```python
+   # LLM 分析用户标记为"差"的三元组
+   bad_triples = await get_bad_triples()
+   
+   analysis_prompt = f"""
+   分析以下被用户标记为低质量的三元组，总结常见问题模式：
+   
+   {bad_triples}
+   
+   输出格式：
+   1. 问题模式 1：[描述]
+   2. 问题模式 2：[描述]
+   ...
+   """
+   
+   patterns = await llm.complete(analysis_prompt)
+   ```
+
+3. **更新示例池**：
+   ```python
+   # 从高质量样本中选择多样性最高的 10 个加入示例池
+   diverse_examples = select_diverse_examples(good_triples, k=10)
+   
+   # 更新 prompt 模板
+   await update_prompt_template(
+       good_examples=diverse_examples,
+       bad_patterns=patterns
+   )
+   ```
+
+#### 阶段 4：质量评估（可选）
+
+定期评估三元组的推理能力：
 
 **评估 Prompt**：
 ```
 给定以下知识子图和用户问题，判断这些三元组能否推导出正确答案。
 
 子图：
-- RAG 包含 embedding 模型
+- RAG 使用 BGE-M3
+- BGE-M3 功能 embedding
 - RAG 使用 余弦相似度
 - 余弦相似度 用于 chunk 检索
 
 用户问题：RAG 的检索流程是什么？
-正确答案：使用 embedding 模型将文档和查询转为向量，通过余弦相似度找到最相关的 chunk。
 
 判断：这些三元组能否推导出答案？（是/否）
-理由：
+如果否，缺少哪些关键三元组？
 ```
 
-#### Prompt 自动优化
-
-统计低质量三元组的模式：
-- 关系过于泛化（如"相关"、"涉及"）
-- 实体过于细碎（如"第一步"、"方法 A"）
-- 缺失关键关系
-
-自动调整 NER/RE prompt，增加约束：
-```
-【优化后的 RE prompt】
-抽取实体之间的关系三元组。
-
-注意：
-- 避免使用过于泛化的关系（如"相关"），使用具体关系（如"包含"、"依赖"）
-- 不要抽取过于细碎的实体（如"第一步"），聚焦核心概念
-- 优先抽取因果关系和层级关系
-
-...
-```
+评估结果用于：
+- 识别知识图谱的薄弱环节
+- 提示用户补充相关卡片
+- 调整抽取策略（如某些关系类型被系统性遗漏）
 
 ### 模块五：反馈机制
 
@@ -589,18 +684,20 @@ networkx = "^3.1"
 
 ### 阶段 5：自进化闭环（1-2 周）
 
-**目标**：实现三元组质量评估和 prompt 优化
+**目标**：实现 Few-shot 示例驱动和用户反馈收集
 
 **任务**：
-1. 实现 LLM 评估三元组质量
-2. 统计低质量三元组模式
-3. 自动生成优化后的 prompt
-4. 实现反馈权重调整
-5. 编写评估脚本
+1. 创建 `triple_feedback` 表
+2. 前端：卡片详情页显示三元组，支持 👍/👎/✏️ 反馈
+3. 初始化示例池（手工标注 20-30 个高质量三元组）
+4. 更新 NER/RE prompt，加入 few-shot 示例
+5. 实现示例池自动更新脚本（LLM 分析 + 多样性选择）
+6. 实现三元组质量评估（可选）
 
 **验收标准**：
-- 能识别低质量三元组
-- Prompt 自动优化后抽取质量提升
+- 用户能对三元组进行反馈
+- Few-shot 示例能改善抽取质量
+- 示例池能自动更新
 
 ### 阶段 6：前端可视化（1-2 周）
 
@@ -626,8 +723,8 @@ networkx = "^3.1"
 | Memory Writer（三元组抽取） | 两步 LLM 流水线（NER → RE） | 相同 |
 | Graph Storage | PostgreSQL 替代 kg.txt + PyG | 用关系数据库替代文件 |
 | Memory Reader（GNN 检索） | SAGERetriever，定期批量训练 | 增加训练触发条件和三种训练模式 |
-| Self-Evolution | Prompt 优化替代 SFT 训练 | 更轻量，不需要训练基础设施常驻 |
-| Feedback Loop | Weight 调整替代 RL reward | 更简单，基于用户交互 |
+| Self-Evolution | Few-shot 示例 + 用户反馈 + 示例池更新 | 更轻量实用，避免 SFT 训练的复杂度 |
+| Feedback Loop | Weight 调整 + 用户反馈收集 | 更简单，基于用户交互 |
 
 ## 风险与挑战
 
