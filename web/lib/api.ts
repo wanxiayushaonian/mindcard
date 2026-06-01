@@ -670,3 +670,114 @@ export const topologyApi = {
   removeRef: (nodeId: string, targetId: string) =>
     request<{ ok: boolean }>(`/api/topology/${nodeId}/refs/${targetId}`, { method: "DELETE" }),
 };
+
+// --- Graph Memory API ---
+export interface GraphEntity {
+  id: string;
+  workspace_id: string;
+  name: string;
+  entity_type: string | null;
+  access_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GraphEntityDetail extends GraphEntity {
+  related_cards: { card_id: string; title: string | null }[];
+  neighbor_entities: { entity_id: string; name: string; relation: string; direction: string }[];
+}
+
+export interface GraphRelation {
+  id: string;
+  workspace_id: string;
+  head_id: string;
+  head_name: string;
+  relation: string;
+  tail_id: string;
+  tail_name: string;
+  weight: number;
+  source_card_id: string | null;
+  created_at: string;
+}
+
+export interface ReasoningPath {
+  entities: string[];
+  relations: string[];
+  score: number;
+}
+
+export interface GraphSearchResult {
+  query: string;
+  retrieval_mode: string;
+  reasoning_paths: ReasoningPath[];
+  cards: {
+    id: string;
+    title: string | null;
+    content_snippet: string | null;
+    matched_path: string | null;
+    score: number;
+  }[];
+}
+
+export interface GraphStats {
+  entity_count: number;
+  relation_count: number;
+  relation_type_counts: Record<string, number>;
+  last_training: {
+    id: string;
+    status: string;
+    training_mode: string;
+    created_at: string;
+  } | null;
+}
+
+export interface GNNTrainingLog {
+  id: string;
+  workspace_id: string;
+  training_mode: string;
+  graph_size_nodes: number;
+  graph_size_edges: number;
+  checkpoint_path: string;
+  training_duration_seconds: number | null;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+}
+
+export const graphApi = {
+  getEntities: (workspaceId: string, entityType?: string) => {
+    const params = new URLSearchParams({ workspace_id: workspaceId });
+    if (entityType) params.set("entity_type", entityType);
+    return request<GraphEntity[]>(`/api/graph/entities?${params}`);
+  },
+
+  getEntity: (entityId: string) =>
+    request<GraphEntityDetail>(`/api/graph/entities/${entityId}`),
+
+  getRelations: (workspaceId: string) =>
+    request<GraphRelation[]>(`/api/graph/relations?workspace_id=${workspaceId}`),
+
+  search: (workspaceId: string, query: string, k = 10) =>
+    request<GraphSearchResult>(`/api/graph/search?workspace_id=${workspaceId}`, {
+      method: "POST",
+      body: JSON.stringify({ query, k }),
+    }),
+
+  triggerTraining: (workspaceId: string, mode = "auto") =>
+    request<GNNTrainingLog>(`/api/graph/train?workspace_id=${workspaceId}`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    }),
+
+  getTrainingStatus: (workspaceId: string) =>
+    request<GNNTrainingLog[]>(`/api/graph/training-status?workspace_id=${workspaceId}`),
+
+  submitFeedback: (tripleId: string, feedbackType: string, corrections?: Record<string, string>) =>
+    request<void>(`/api/graph/triples/${tripleId}/feedback`, {
+      method: "POST",
+      body: JSON.stringify({ feedback_type: feedbackType, ...corrections }),
+    }),
+
+  getStats: (workspaceId: string) =>
+    request<GraphStats>(`/api/graph/stats?workspace_id=${workspaceId}`),
+};
