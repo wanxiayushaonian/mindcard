@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import settings
@@ -29,6 +29,7 @@ class TreeNode(Base):
     )
     chat: Mapped["AiChat | None"] = relationship("AiChat", foreign_keys=[chat_id])
     chats: Mapped[list["AiChat"]] = relationship("AiChat", foreign_keys="AiChat.tree_node_id", back_populates="tree_node")
+    core_entity_ids: Mapped[list[str] | None] = mapped_column(ARRAY(UUID(as_uuid=True)), default=list)
     node_type: Mapped[str] = mapped_column(String(20), default="branch")  # root | branch | leaf
     title: Mapped[str] = mapped_column(String(256), default="")
     description: Mapped[str] = mapped_column(Text, default="")

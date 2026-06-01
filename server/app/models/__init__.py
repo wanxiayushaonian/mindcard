@@ -8,6 +8,7 @@ from .activity import ActivityLog
 from .api_key import ApiKey
 from .topic import Topic, TopicCard
 from .topology import TreeNode, NodeCard, NodeRef
+from .graph import GraphEntity, GraphRelation, EntityCard, GNNTrainingLog, TripleFeedback
 
 __all__ = [
     "User",
@@ -26,4 +27,9 @@ __all__ = [
     "TreeNode",
     "NodeCard",
     "NodeRef",
+    "GraphEntity",
+    "GraphRelation",
+    "EntityCard",
+    "GNNTrainingLog",
+    "TripleFeedback",
 ]
