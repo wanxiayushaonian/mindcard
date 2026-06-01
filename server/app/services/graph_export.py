@@ -43,7 +43,7 @@ class GraphExport:
         for idx, entity in enumerate(entities):
             entity_id_to_idx[entity.id] = idx
             entity_id_map[idx] = entity.id
-            if entity.embedding:
+            if entity.embedding is not None:
                 dim = len(entity.embedding)
                 node_features.append(list(entity.embedding))
             else:
