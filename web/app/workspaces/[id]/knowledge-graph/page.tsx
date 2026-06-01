@@ -73,6 +73,12 @@ export default function KnowledgeGraphPage() {
     const width = svgRef.current.clientWidth;
     const height = svgRef.current.clientHeight || 600;
 
+    // Get computed colors from CSS variables
+    const computedStyle = getComputedStyle(document.documentElement);
+    const textColor = computedStyle.getPropertyValue('--color-text').trim() || '#2C3E50';
+    const textSecondaryColor = computedStyle.getPropertyValue('--color-text-secondary').trim() || '#8E99A4';
+    const borderColor = computedStyle.getPropertyValue('--color-border').trim() || '#E5E7EB';
+
     const nodes: SimNode[] = entities.map((e) => ({
       id: e.id,
       name: e.name,
@@ -115,7 +121,7 @@ export default function KnowledgeGraphPage() {
       .selectAll("line")
       .data(links)
       .join("line")
-      .attr("stroke", "#4b5563")
+      .attr("stroke", textSecondaryColor)
       .attr("stroke-opacity", 0.6)
       .attr("stroke-width", (d) => Math.max(1, d.weight * 2));
 
@@ -126,7 +132,7 @@ export default function KnowledgeGraphPage() {
       .join("text")
       .text((d) => d.relation)
       .attr("font-size", 8)
-      .attr("fill", "#9ca3af")
+      .attr("fill", textSecondaryColor)
       .attr("text-anchor", "middle");
 
     const dragBehavior = d3Drag<SVGCircleElement, SimNode>()
@@ -152,7 +158,7 @@ export default function KnowledgeGraphPage() {
       .join("circle")
       .attr("r", 8)
       .attr("fill", (d) => d.color)
-      .attr("stroke", "#1f2937")
+      .attr("stroke", borderColor)
       .attr("stroke-width", 1.5)
       .style("cursor", "pointer")
       .on("click", (_event, d) => {
@@ -167,7 +173,7 @@ export default function KnowledgeGraphPage() {
       .join("text")
       .text((d) => (d.name.length > 15 ? d.name.slice(0, 15) + "..." : d.name))
       .attr("font-size", 10)
-      .attr("fill", "#e5e7eb")
+      .attr("fill", textColor)
       .attr("text-anchor", "middle")
       .attr("dy", -12);
 
