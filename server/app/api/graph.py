@@ -85,12 +85,12 @@ async def get_entity(
 
     # Neighbor entities via relations
     out_stmt = (
-        select(GraphRelation.id, GraphRelation.relation, GraphEntity.id, GraphEntity.name)
+        select(GraphRelation.relation, GraphEntity.id, GraphEntity.name)
         .join(GraphEntity, GraphRelation.tail_id == GraphEntity.id)
         .where(GraphRelation.head_id == eid, GraphRelation.workspace_id == membership.workspace_id)
     )
     in_stmt = (
-        select(GraphRelation.id, GraphRelation.relation, GraphEntity.id, GraphEntity.name)
+        select(GraphRelation.relation, GraphEntity.id, GraphEntity.name)
         .join(GraphEntity, GraphRelation.head_id == GraphEntity.id)
         .where(GraphRelation.tail_id == eid, GraphRelation.workspace_id == membership.workspace_id)
     )
@@ -99,12 +99,12 @@ async def get_entity(
     out_rows = (await db.execute(out_stmt)).all()
     for row in out_rows:
         neighbors.append(
-            NeighborEntity(entity_id=row.id, name=row.name, relation=row.relation, direction="outgoing")
+            NeighborEntity(entity_id=row[1], name=row[2], relation=row[0], direction="outgoing")
         )
     in_rows = (await db.execute(in_stmt)).all()
     for row in in_rows:
         neighbors.append(
-            NeighborEntity(entity_id=row.id, name=row.name, relation=row.relation, direction="incoming")
+            NeighborEntity(entity_id=row[1], name=row[2], relation=row[0], direction="incoming")
         )
 
     # Related cards via entity_cards join
