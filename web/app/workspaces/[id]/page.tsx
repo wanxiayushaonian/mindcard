@@ -337,10 +337,10 @@ export default function WorkspacePage() {
     }
   };
 
+  const leftCollapsed = usePanelStore((s) => s.leftCollapsed);
+
   if (isLoading) return <LoadingState />;
   if (error) return <ErrorState message={error.message} onRetry={revalidate} />;
-
-  const leftCollapsed = usePanelStore((s) => s.leftCollapsed);
 
   return (
     <div className={`${leftCollapsed ? "px-2 py-3" : "mx-auto max-w-5xl px-4 py-6"}`}>
