@@ -162,13 +162,15 @@ function fixMarkdown(text: string): string {
         }
       }
       // Convert to list item only if:
-      // - short text (< 30 chars), no sentence-ending punctuation
-      // - followed by 2+ dash-prefixed items
-      // - current line has no colon (if it has colon, it's already a list item)
-      // - following items DO have colons (distinguishes heading from first list item)
-      const isShort = trimmed.length < 30 && !/[。！？；.!?]/.test(trimmed);
+      // - short text (< 20 chars), no sentence-ending punctuation
+      // - followed by 3+ dash-prefixed items (increased from 2)
+      // - current line has colon AND following items also have colons (both must have colons)
+      // - NOT a heading (no # prefix)
+      const isShort = trimmed.length < 20 && !/[。！？；.!?]/.test(trimmed);
       const currentHasColon = /：/.test(trimmed);
-      if (isShort && !currentHasColon && nextHasColon && dashCount >= 2) {
+      const isHeading = /^#{1,6}\s/.test(trimmed);
+      // Only convert if: short, has colon, next items have colons, 3+ items, not a heading
+      if (isShort && currentHasColon && nextHasColon && dashCount >= 3 && !isHeading) {
         normResult.push("- " + trimmed);
       } else {
         normResult.push(line);
@@ -322,7 +324,7 @@ const remarkPlugins = [remarkBreaks, remarkGfm, remarkMath];
 const rehypePlugins = [rehypeKatex];
 
 const PROSE_CLASSES =
-  "prose prose-sm max-w-none break-words dark:prose-invert prose-headings:font-semibold prose-headings:mb-2 prose-headings:mt-4 prose-headings:tracking-tight prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-hr:my-6 prose-pre:bg-transparent prose-pre:p-0 prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-blockquote:border-l-2 prose-blockquote:pl-3 prose-blockquote:not-italic prose-table:my-3 prose-th:text-left prose-th:font-medium";
+  "prose prose-sm max-w-none break-words dark:prose-invert prose-headings:font-semibold prose-headings:mb-2 prose-headings:mt-4 prose-headings:tracking-tight prose-h1:text-[1.125rem] prose-h2:text-[1rem] prose-h3:text-[0.9375rem] prose-h4:text-[0.875rem] prose-h5:text-[0.875rem] prose-h6:text-[0.875rem] prose-p:my-2 prose-p:text-[0.875rem] prose-p:leading-relaxed prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-li:text-[0.875rem] prose-hr:my-6 prose-pre:bg-transparent prose-pre:p-0 prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-blockquote:border-l-2 prose-blockquote:pl-3 prose-blockquote:not-italic prose-table:my-3 prose-th:text-left prose-th:font-medium prose-strong:font-semibold prose-strong:text-[0.875rem]";
 
 interface MarkdownRendererProps {
   source: string;
