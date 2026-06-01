@@ -526,13 +526,56 @@ function smartFormatMarkdown(content: string): string {
   return lines.join("\n");
 }
 
+/**
+ * Fix common AI markdown formatting issues without breaking normal text
+ * Only fixes clear structural issues at line boundaries
+ */
+function fixAIMarkdownFormatting(content: string): string {
+  if (!content) return "";
+
+  let result = content;
+
+  // Fix 1: Add space after heading markers at line start
+  // ##标题 -> ## 标题
+  result = result.replace(/^(#{1,6})([^\s#])/gm, "$1 $2");
+
+  // Fix 2: Add space after list markers at line start
+  // -项目 -> - 项目
+  result = result.replace(/^-([^\s-])/gm, "- $1");
+
+  // Fix 3: Ensure blank line before headings (if previous line has content)
+  // Split into lines and process
+  const lines = result.split("\n");
+  const fixed: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const prevLine = i > 0 ? lines[i - 1] : "";
+
+    // If this is a heading and previous line has content, add blank line
+    if (line.match(/^#{1,6}\s/) && prevLine.trim() !== "") {
+      fixed.push("");
+    }
+
+    fixed.push(line);
+
+    // If this is a heading and next line has content, add blank line after
+    const nextLine = i < lines.length - 1 ? lines[i + 1] : "";
+    if (line.match(/^#{1,6}\s/) && nextLine.trim() !== "") {
+      fixed.push("");
+    }
+  }
+
+  return fixed.join("\n");
+}
+
 export function normalizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
 
-  // First apply smart formatting to fix AI output issues
-  const formatted = smartFormatMarkdown(content);
+  // Apply AI formatting fixes first
+  const fixed = fixAIMarkdownFormatting(content);
 
-  const normalized = stripInvisibleCharacters(formatted)
+  const normalized = stripInvisibleCharacters(fixed)
     .replace(/\r\n/g, "\n")
     .replace(EMPTY_DETAILS_REGEX, "")
     .replace(EMPTY_SUMMARY_REGEX, "")
