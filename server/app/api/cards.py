@@ -44,6 +44,22 @@ async def _generate_embedding(card_id: UUID, default_node_id: UUID | None = None
             from app.services.topology import topology_service
             await topology_service.assign_card_to_node(db, db_card, default_node_id)
             await db.commit()
+            # Extract knowledge graph triples
+            try:
+                from app.services.triple_extractor import triple_extractor
+                from app.services.entity_linker import EntityLinker
+
+                entities, triples = await triple_extractor.extract(
+                    db_card.content, db_card.workspace_id
+                )
+                if entities and triples:
+                    linker = EntityLinker(db)
+                    await linker.link_triples(
+                        entities, triples, db_card.id, db_card.workspace_id
+                    )
+                    await db.commit()
+            except Exception as e:
+                logger.warning("Triple extraction failed for card %s: %s", card_id, e)
     except Exception as e:
         logger.warning("Embedding generation failed for card %s: %s", card_id, e)
 
