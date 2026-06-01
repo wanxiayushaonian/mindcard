@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { settingsApi } from "@/lib/api";
+import { Languages, Check } from "lucide-react";
 
 export default function ExtractionSettingsPage() {
   const [language, setLanguage] = useState<"zh" | "en">("zh");
@@ -37,67 +38,110 @@ export default function ExtractionSettingsPage() {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="mx-auto max-w-2xl px-6 py-8">
         <div className="text-text-secondary">加载中...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-2xl">
-      <h1 className="text-2xl font-semibold text-text mb-2">知识图谱提取语言</h1>
-      <p className="text-sm text-text-secondary mb-6">
+    <div className="mx-auto max-w-2xl px-6 py-8">
+      <h1 className="mb-1 text-xl font-bold text-text">知识图谱提取语言</h1>
+      <p className="mb-6 text-sm text-text-secondary">
         选择实体和关系提取时使用的提示词语言。这会影响知识图谱的构建质量。
       </p>
 
-      <div className="bg-surface border border-border rounded-lg p-6">
-        <div className="space-y-4">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="radio"
-              name="language"
-              value="zh"
-              checked={language === "zh"}
-              onChange={() => handleSave("zh")}
-              disabled={saving}
-              className="mt-1"
-            />
-            <div>
-              <div className="font-medium text-text">中文</div>
-              <div className="text-sm text-text-secondary">
-                使用中文提示词进行实体和关系提取，适合中文内容
-              </div>
-            </div>
-          </label>
-
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="radio"
-              name="language"
-              value="en"
-              checked={language === "en"}
-              onChange={() => handleSave("en")}
-              disabled={saving}
-              className="mt-1"
-            />
-            <div>
-              <div className="font-medium text-text">English</div>
-              <div className="text-sm text-text-secondary">
-                Use English prompts for entity and relation extraction, suitable for English content
-              </div>
-            </div>
-          </label>
+      {/* Current language banner */}
+      <div className="mb-6 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+        <Languages size={18} className="text-primary" />
+        <div>
+          <p className="text-xs text-text-secondary">当前语言</p>
+          <p className="text-sm font-medium text-text">
+            {language === "zh" ? "中文" : "English"}
+          </p>
         </div>
-
-        {saving && (
-          <div className="mt-4 text-sm text-primary">保存中...</div>
-        )}
       </div>
 
-      <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-        <div className="text-sm text-blue-900 dark:text-blue-100">
+      {/* Language options */}
+      <div className="flex flex-col gap-3">
+        <button
+          onClick={() => handleSave("zh")}
+          disabled={saving}
+          className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
+            language === "zh"
+              ? "border-primary/30 bg-primary/5"
+              : "border-border bg-surface hover:bg-gray-50 dark:hover:bg-gray-800"
+          }`}
+        >
+          <div
+            className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${
+              language === "zh"
+                ? "bg-primary/10 text-primary-dark"
+                : "bg-gray-200 text-gray-400"
+            }`}
+          >
+            中
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-text">中文</span>
+              {language === "zh" && (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  当前
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-text-secondary">
+              使用中文提示词进行实体和关系提取，适合中文内容
+            </p>
+          </div>
+          {language === "zh" && <Check size={16} className="text-primary" />}
+        </button>
+
+        <button
+          onClick={() => handleSave("en")}
+          disabled={saving}
+          className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
+            language === "en"
+              ? "border-primary/30 bg-primary/5"
+              : "border-border bg-surface hover:bg-gray-50 dark:hover:bg-gray-800"
+          }`}
+        >
+          <div
+            className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold ${
+              language === "en"
+                ? "bg-primary/10 text-primary-dark"
+                : "bg-gray-200 text-gray-400"
+            }`}
+          >
+            EN
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-text">English</span>
+              {language === "en" && (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  当前
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-text-secondary">
+              Use English prompts for entity and relation extraction, suitable for English content
+            </p>
+          </div>
+          {language === "en" && <Check size={16} className="text-primary" />}
+        </button>
+      </div>
+
+      {saving && (
+        <div className="mt-4 text-center text-sm text-primary">保存中...</div>
+      )}
+
+      {/* Hint */}
+      <div className="mt-8 rounded-xl border border-dashed border-gray-300 bg-gray-50/50 p-4">
+        <p className="text-xs text-text-secondary">
           <strong>提示：</strong>更改语言设置后，新创建的卡片将使用新的语言进行知识图谱提取。已有的图谱不会受到影响。
-        </div>
+        </p>
       </div>
     </div>
   );
