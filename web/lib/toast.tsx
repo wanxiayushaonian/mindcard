@@ -14,6 +14,11 @@ export function toast(message: string, type: ToastItem["type"] = "info") {
   _addToast?.(message, type);
 }
 
+// Convenience methods
+toast.success = (message: string) => toast(message, "success");
+toast.error = (message: string) => toast(message, "error");
+toast.info = (message: string) => toast(message, "info");
+
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextIdRef = useRef(0);
