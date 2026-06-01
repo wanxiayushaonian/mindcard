@@ -7,38 +7,6 @@ from app.services.llm import llm_service
 
 logger = logging.getLogger(__name__)
 
-NER_SYSTEM_PROMPT = """You are a named entity recognition system specialized in technical content.
-
-Extract all named entities from the text. Entity types:
-- concept: Technical concepts (e.g., RAG, Transformer, Knowledge Graph)
-- tool: Tools and frameworks (e.g., pgvector, Milvus, PyTorch)
-- method: Methods and algorithms (e.g., cosine similarity, BM25, GCN)
-- model: Model names (e.g., BGE-M3, GPT-4, BERT)
-
-Return a JSON array. Each object has "name" (string) and "type" (one of: concept, tool, method, model).
-If no entities found, return an empty array [].
-
-IMPORTANT: Return ONLY the JSON array, no other text."""
-
-RE_SYSTEM_PROMPT = """You are a relation extraction system. Given a list of entities and source text, extract relation triples.
-
-Valid relation types:
-- contains: A contains B (e.g., RAG contains embedding model)
-- uses: A uses B (e.g., RAG uses cosine similarity)
-- depends_on: A depends on B (e.g., inference depends_on GPU)
-- example_of: A is an example of B (e.g., Milvus example_of vector database)
-- contradicts: A contradicts B (e.g., sparse retrieval contradicts dense retrieval)
-- extends: A extends/improves B (e.g., hybrid search extends vector search)
-
-Rules:
-- Only extract relations explicitly stated or clearly implied in the text
-- Head and tail MUST be entities from the provided entity list (exact match)
-- Use the most specific relation type
-- Return ONLY a JSON array of [head, relation, tail] arrays
-- If no relations found, return []
-
-IMPORTANT: Return ONLY the JSON array, no other text."""
-
 
 @dataclass
 class ExtractedEntity:
@@ -65,9 +33,12 @@ class TripleExtractor:
 
     async def _extract_entities(self, text: str) -> list[ExtractedEntity]:
         try:
+            from app.services.graph_evolution import graph_evolution
+
+            system_prompt = graph_evolution.build_few_shot_ner_prompt()
             user_prompt = f"Extract entities from:\n\n{text[:3000]}"
             response = await llm_service.complete_simple(
-                system_prompt=NER_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_content=user_prompt,
                 max_tokens=1024,
                 temperature=0.3,
@@ -92,6 +63,9 @@ class TripleExtractor:
         self, entities: list[ExtractedEntity], text: str
     ) -> list[ExtractedTriple]:
         try:
+            from app.services.graph_evolution import graph_evolution
+
+            system_prompt = graph_evolution.build_few_shot_re_prompt()
             entity_list = ", ".join(
                 f'"{e.name}" ({e.entity_type})' for e in entities
             )
@@ -101,7 +75,7 @@ class TripleExtractor:
                 f"Extract relation triples."
             )
             response = await llm_service.complete_simple(
-                system_prompt=RE_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_content=user_prompt,
                 max_tokens=1024,
                 temperature=0.3,
