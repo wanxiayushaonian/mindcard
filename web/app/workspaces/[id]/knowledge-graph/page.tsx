@@ -214,6 +214,7 @@ export default function KnowledgeGraphPage() {
       {selectedEntity && (
         <EntitySidebar
           entityId={selectedEntity}
+          workspaceId={workspaceId}
           onClose={() => setSelectedEntity(null)}
           onNavigateTopology={(nodeId) =>
             router.push(`/workspaces/${workspaceId}/network?highlight=${nodeId}`)
@@ -226,16 +227,18 @@ export default function KnowledgeGraphPage() {
 
 function EntitySidebar({
   entityId,
+  workspaceId,
   onClose,
   onNavigateTopology,
 }: {
   entityId: string;
+  workspaceId: string;
   onClose: () => void;
   onNavigateTopology: (nodeId: string) => void;
 }) {
   const { data: entity } = useSWR(
     entityId ? `graph-entity-${entityId}` : null,
-    () => graphApi.getEntity(entityId)
+    () => graphApi.getEntity(entityId, workspaceId)
   );
 
   if (!entity)

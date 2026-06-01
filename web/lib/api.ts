@@ -751,8 +751,8 @@ export const graphApi = {
     return request<GraphEntity[]>(`/api/graph/entities?${params}`);
   },
 
-  getEntity: (entityId: string) =>
-    request<GraphEntityDetail>(`/api/graph/entities/${entityId}`),
+  getEntity: (entityId: string, workspaceId: string) =>
+    request<GraphEntityDetail>(`/api/graph/entities/${entityId}?workspace_id=${workspaceId}`),
 
   getRelations: (workspaceId: string) =>
     request<GraphRelation[]>(`/api/graph/relations?workspace_id=${workspaceId}`),
