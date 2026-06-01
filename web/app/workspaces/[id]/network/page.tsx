@@ -7,6 +7,7 @@ import * as d3 from "d3";
 import { cardApi, topicApi, topologyApi, type Card, type Topic } from "@/lib/api";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { TopologyTreeView } from "@/components/TopologyTreeView";
+import { Settings } from "lucide-react";
 
 const MIN_RADIUS = 12;
 const MAX_RADIUS = 20;
@@ -64,6 +65,14 @@ export default function NetworkPage() {
   const [eventEnd, setEventEnd] = useState(0); // 1-based index, 0 = show all
   const [isPlaying, setIsPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<"graph" | "tree">("graph");
+  const [showForceSettings, setShowForceSettings] = useState(false);
+  const [forceParams, setForceParams] = useState({
+    charge: -800,
+    linkDistance: 120,
+    linkStrength: 0.005,
+    centerStrength: 0.01,
+    velocityDecay: 0.15,
+  });
   const playTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Cleanup playback on unmount
@@ -290,15 +299,15 @@ export default function NetworkPage() {
     // Simulation
     const simulation = d3
       .forceSimulation<GraphNode>(nodes)
-      .force("charge", d3.forceManyBody<GraphNode>().strength(-800))
+      .force("charge", d3.forceManyBody<GraphNode>().strength(forceParams.charge))
       .force(
         "link",
-        d3.forceLink<GraphNode, GraphEdge>(edges).id((d) => d.id).distance(120).strength((d) => 0.005 * (d.weight || 1))
+        d3.forceLink<GraphNode, GraphEdge>(edges).id((d) => d.id).distance(forceParams.linkDistance).strength((d) => forceParams.linkStrength * (d.weight || 1))
       )
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("x", d3.forceX<GraphNode>(width / 2).strength(0.01))
-      .force("y", d3.forceY<GraphNode>(height / 2).strength(0.01))
-      .velocityDecay(0.15)
+      .force("x", d3.forceX<GraphNode>(width / 2).strength(forceParams.centerStrength))
+      .force("y", d3.forceY<GraphNode>(height / 2).strength(forceParams.centerStrength))
+      .velocityDecay(forceParams.velocityDecay)
       .stop();
 
     // Build topic data for circles
@@ -577,7 +586,7 @@ export default function NetworkPage() {
     return () => {
       simulation.stop();
     };
-  }, [nodes, edges, highlightId, topics, viewMode]);
+  }, [nodes, edges, highlightId, topics, viewMode, forceParams]);
 
   // Update visibility without re-creating SVG (preserves zoom)
   useEffect(() => {
@@ -686,6 +695,18 @@ export default function NetworkPage() {
             >
               重建话题
             </button>
+            <button
+              onClick={() => setShowForceSettings(!showForceSettings)}
+              className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
+                showForceSettings
+                  ? "bg-primary text-white"
+                  : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+              }`}
+              title="力导向参数设置"
+            >
+              <Settings size={12} className="inline mr-1" />
+              布局参数
+            </button>
           </>
         )}
       </div>
@@ -716,6 +737,142 @@ export default function NetworkPage() {
         />
       ) : (
       <>
+      {/* Force settings panel */}
+      {showForceSettings && (
+        <div className="absolute right-4 top-16 z-20 w-72 rounded-xl border border-border bg-surface/95 p-4 shadow-lg backdrop-blur-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-text">力导向参数</h3>
+            <button
+              onClick={() => setShowForceSettings(false)}
+              className="text-text-secondary hover:text-text"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {/* Charge strength */}
+            <div>
+              <label className="mb-1 flex items-center justify-between text-xs text-text-secondary">
+                <span>节点斥力</span>
+                <span className="font-mono">{forceParams.charge}</span>
+              </label>
+              <input
+                type="range"
+                min="-2000"
+                max="-100"
+                step="50"
+                value={forceParams.charge}
+                onChange={(e) => setForceParams({ ...forceParams, charge: Number(e.target.value) })}
+                className="w-full"
+              />
+              <div className="mt-0.5 flex justify-between text-[10px] text-text-secondary">
+                <span>强</span>
+                <span>弱</span>
+              </div>
+            </div>
+
+            {/* Link distance */}
+            <div>
+              <label className="mb-1 flex items-center justify-between text-xs text-text-secondary">
+                <span>连接距离</span>
+                <span className="font-mono">{forceParams.linkDistance}</span>
+              </label>
+              <input
+                type="range"
+                min="50"
+                max="300"
+                step="10"
+                value={forceParams.linkDistance}
+                onChange={(e) => setForceParams({ ...forceParams, linkDistance: Number(e.target.value) })}
+                className="w-full"
+              />
+              <div className="mt-0.5 flex justify-between text-[10px] text-text-secondary">
+                <span>近</span>
+                <span>远</span>
+              </div>
+            </div>
+
+            {/* Link strength */}
+            <div>
+              <label className="mb-1 flex items-center justify-between text-xs text-text-secondary">
+                <span>连接强度</span>
+                <span className="font-mono">{forceParams.linkStrength.toFixed(3)}</span>
+              </label>
+              <input
+                type="range"
+                min="0.001"
+                max="0.02"
+                step="0.001"
+                value={forceParams.linkStrength}
+                onChange={(e) => setForceParams({ ...forceParams, linkStrength: Number(e.target.value) })}
+                className="w-full"
+              />
+              <div className="mt-0.5 flex justify-between text-[10px] text-text-secondary">
+                <span>弱</span>
+                <span>强</span>
+              </div>
+            </div>
+
+            {/* Center strength */}
+            <div>
+              <label className="mb-1 flex items-center justify-between text-xs text-text-secondary">
+                <span>中心引力</span>
+                <span className="font-mono">{forceParams.centerStrength.toFixed(3)}</span>
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="0.1"
+                step="0.005"
+                value={forceParams.centerStrength}
+                onChange={(e) => setForceParams({ ...forceParams, centerStrength: Number(e.target.value) })}
+                className="w-full"
+              />
+              <div className="mt-0.5 flex justify-between text-[10px] text-text-secondary">
+                <span>弱</span>
+                <span>强</span>
+              </div>
+            </div>
+
+            {/* Velocity decay */}
+            <div>
+              <label className="mb-1 flex items-center justify-between text-xs text-text-secondary">
+                <span>速度衰减</span>
+                <span className="font-mono">{forceParams.velocityDecay.toFixed(2)}</span>
+              </label>
+              <input
+                type="range"
+                min="0.05"
+                max="0.5"
+                step="0.05"
+                value={forceParams.velocityDecay}
+                onChange={(e) => setForceParams({ ...forceParams, velocityDecay: Number(e.target.value) })}
+                className="w-full"
+              />
+              <div className="mt-0.5 flex justify-between text-[10px] text-text-secondary">
+                <span>慢</span>
+                <span>快</span>
+              </div>
+            </div>
+
+            {/* Reset button */}
+            <button
+              onClick={() => setForceParams({
+                charge: -800,
+                linkDistance: 120,
+                linkStrength: 0.005,
+                centerStrength: 0.01,
+                velocityDecay: 0.15,
+              })}
+              className="w-full rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-text-secondary hover:bg-gray-200"
+            >
+              重置为默认值
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Legend */}
       <div className="absolute bottom-14 left-4 z-10 rounded-xl border border-border bg-surface/90 p-3 text-xs shadow-sm backdrop-blur-sm">
         <div className="mb-1 flex items-center gap-2">
