@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { ragApi, chatApi, aiApi, cardApi, workspaceApi, settingsApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode } from "@/lib/api";
+import { UnifiedWSClient, createWSUrl, type StreamEvent } from "@/lib/unified-ws";
 import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -39,6 +40,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
+  const wsClientRef = useRef<UnifiedWSClient | null>(null);
   const streamContentRef = useRef("");
   const webSearchResultsRef = useRef<WebSearchResult[] | undefined>(undefined);
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
@@ -72,8 +74,83 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Initialize WebSocket client
   useEffect(() => {
-    return () => { abortRef.current?.(); };
+    const handleEvent = (event: StreamEvent) => {
+      if (event.type === "content" && event.content) {
+        // Accumulate content
+        streamContentRef.current += event.content;
+        const content = streamContentRef.current;
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { ...updated[updated.length - 1], content };
+          return updated;
+        });
+      } else if (event.type === "web_search_results" && event.results) {
+        // Web search results
+        streamContentRef.current = "";
+        webSearchResultsRef.current = event.results;
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            webSearchResults: event.results,
+            content: "",
+          };
+          setExpandedSearchResults((s) => new Set(s).add(updated.length - 1));
+          return updated;
+        });
+      } else if (event.type === "sources" && event.source_cards) {
+        // RAG sources
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            sources: event.source_cards,
+          };
+          return updated;
+        });
+      } else if (event.type === "done") {
+        // Stream completed
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { ...updated[updated.length - 1], status: "done" };
+          return updated;
+        });
+        setIsStreaming(false);
+        if (chatIdRef.current && streamContentRef.current) {
+          saveMessage(chatIdRef.current, "assistant", streamContentRef.current, webSearchResultsRef.current);
+        }
+      } else if (event.type === "error") {
+        // Error occurred
+        console.error("WebSocket stream error:", event.content);
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          updated[updated.length - 1] = {
+            ...last,
+            content: last.content || "抱歉，处理问题时出错了。请稍后重试。",
+            status: "error",
+          };
+          return updated;
+        });
+        setIsStreaming(false);
+      }
+    };
+
+    const handleClose = () => {
+      console.log("WebSocket connection closed");
+      toast.error("连接已断开");
+    };
+
+    const wsUrl = createWSUrl("/api/ws");
+    wsClientRef.current = new UnifiedWSClient(wsUrl, handleEvent, handleClose);
+    wsClientRef.current.connect();
+
+    return () => {
+      wsClientRef.current?.disconnect();
+      abortRef.current?.();
+    };
   }, []);
 
   const loadHistory = useCallback(() => {
@@ -303,86 +380,45 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       saveMessage(currentChatId, "user", question);
     }
 
-    const onChunk = (text: string) => {
-      if (text.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(text);
-          if (parsed.type === "web_search_results" && parsed.results) {
-            streamContentRef.current = "";
-            webSearchResultsRef.current = parsed.results;
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                ...updated[updated.length - 1],
-                webSearchResults: parsed.results,
-                content: "",
-              };
-              setExpandedSearchResults((s) => new Set(s).add(updated.length - 1));
-              return updated;
-            });
-            return;
-          }
-          if (parsed.type === "sources" && parsed.cards) {
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                ...updated[updated.length - 1],
-                sources: parsed.cards,
-              };
-              return updated;
-            });
-            return;
-          }
-        } catch {}
-      }
-      streamContentRef.current += text;
-      const content = streamContentRef.current;
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { ...updated[updated.length - 1], content };
-        return updated;
-      });
-    };
+    // Reset stream state
+    streamContentRef.current = "";
+    webSearchResultsRef.current = undefined;
 
-    const onDone = () => {
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { ...updated[updated.length - 1], status: "done" };
-        return updated;
-      });
-      setIsStreaming(false);
-      abortRef.current = null;
-      if (currentChatId && streamContentRef.current) {
-        saveMessage(currentChatId, "assistant", streamContentRef.current, webSearchResultsRef.current);
-      }
-    };
-
-    const onError = (err: Error) => {
-      console.error("Stream error:", err);
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        updated[updated.length - 1] = {
-          ...last,
-          content: last.content || "抱歉，处理问题时出错了。请稍后重试。",
-          status: "error",
-        };
-        return updated;
-      });
-      setIsStreaming(false);
-      abortRef.current = null;
-    };
-
+    // Build history
     const hist = messages
       .filter((m) => m.content)
       .map((m) => ({ role: m.role, content: m.content }));
-    if (mode === "chat") {
-      abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist, webSearch);
-    } else {
-      abortRef.current = ragApi.askStream(
-        question, globalRag ? undefined : workspaceId, onChunk, onDone, onError, cardId, 5, webSearch, hist,
-      );
+
+    // Send via WebSocket
+    if (!wsClientRef.current?.connected) {
+      toast.error("WebSocket未连接，请刷新页面");
+      setIsStreaming(false);
+      return;
     }
+
+    if (mode === "chat") {
+      wsClientRef.current.send({
+        type: "chat",
+        message: question,
+        history: hist,
+        web_search: webSearch,
+      });
+    } else {
+      wsClientRef.current.send({
+        type: "rag",
+        question: question,
+        workspace_ids: globalRag ? undefined : [workspaceId],
+        card_id: cardId,
+        top_k: 5,
+        web_search: webSearch,
+        history: hist,
+      });
+    }
+
+    // Set abort function to cancel via WebSocket
+    abortRef.current = () => {
+      wsClientRef.current?.send({ type: "cancel" });
+    };
   };
 
   const handleSend = () => {
