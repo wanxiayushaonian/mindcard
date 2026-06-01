@@ -104,12 +104,16 @@ export default function KnowledgeGraphPage() {
 
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
-    // Merge multiple edges between same node pairs
+    // Merge multiple edges between same node pairs (including bidirectional)
     const edgeMap = new Map<string, SimLink>();
     relations
       .filter((r) => nodeMap.has(r.head_id) && nodeMap.has(r.tail_id))
       .forEach((r) => {
-        const key = `${r.head_id}-${r.tail_id}`;
+        // Create a canonical key (smaller ID first) to merge bidirectional edges
+        const key = r.head_id < r.tail_id
+          ? `${r.head_id}-${r.tail_id}`
+          : `${r.tail_id}-${r.head_id}`;
+
         const existing = edgeMap.get(key);
         if (existing) {
           // Merge: combine relations and sum weights
