@@ -190,12 +190,12 @@ export default function KnowledgeGraphPage() {
   }, [entities, relations]);
 
   return (
-    <div className="flex h-full">
-      <div className="flex-1 relative">
-        <div className="absolute top-4 left-4 z-10 bg-gray-900/90 rounded-lg p-3 text-sm">
+    <div className="flex h-[calc(100vh-56px)]">
+      <div className="flex-1 relative bg-bg">
+        <div className="absolute top-4 left-4 z-10 bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-3 text-sm shadow-sm">
           <div className="flex gap-3 mb-2">
             {Object.entries(ENTITY_COLORS).map(([type, color]) => (
-              <span key={type} className="flex items-center gap-1 text-gray-300">
+              <span key={type} className="flex items-center gap-1 text-text">
                 <span
                   className="w-3 h-3 rounded-full inline-block"
                   style={{ backgroundColor: color }}
@@ -204,11 +204,11 @@ export default function KnowledgeGraphPage() {
               </span>
             ))}
           </div>
-          <div className="text-gray-400">
+          <div className="text-text-secondary">
             {stats && `${stats.entity_count} entities, ${stats.relation_count} relations`}
           </div>
         </div>
-        <svg ref={svgRef} className="w-full h-full min-h-[600px] bg-gray-950" />
+        <svg ref={svgRef} className="w-full h-full min-h-[600px] bg-bg" />
       </div>
 
       {selectedEntity && (
@@ -243,37 +243,37 @@ function EntitySidebar({
 
   if (!entity)
     return (
-      <div className="w-72 bg-gray-900 border-l border-gray-700 p-4 text-gray-400">
+      <div className="w-72 bg-surface border-l border-border p-4 text-text-secondary">
         Loading...
       </div>
     );
 
   return (
-    <div className="w-72 bg-gray-900 border-l border-gray-700 p-4 overflow-y-auto">
+    <div className="w-72 bg-surface border-l border-border p-4 overflow-y-auto">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold text-white">{entity.name}</h3>
+        <h3 className="text-lg font-semibold text-text">{entity.name}</h3>
         <button
           onClick={onClose}
-          className="text-gray-400 hover:text-white"
+          className="text-text-secondary hover:text-text"
         >
-          x
+          ×
         </button>
       </div>
       <div className="space-y-3 text-sm">
         <div>
-          <span className="text-gray-400">Type:</span>{" "}
-          <span className="text-white">{entity.entity_type}</span>
+          <span className="text-text-secondary">Type:</span>{" "}
+          <span className="text-text">{entity.entity_type}</span>
         </div>
         <div>
-          <span className="text-gray-400">Access count:</span>{" "}
-          <span className="text-white">{entity.access_count}</span>
+          <span className="text-text-secondary">Access count:</span>{" "}
+          <span className="text-text">{entity.access_count}</span>
         </div>
 
         {entity.related_cards.length > 0 && (
           <div>
-            <h4 className="font-medium text-white mb-1">Related Cards</h4>
+            <h4 className="font-medium text-text mb-1">Related Cards</h4>
             {entity.related_cards.map((c) => (
-              <div key={c.card_id} className="text-gray-400 truncate">
+              <div key={c.card_id} className="text-text-secondary truncate">
                 {c.title || c.card_id}
               </div>
             ))}
@@ -282,9 +282,9 @@ function EntitySidebar({
 
         {entity.neighbor_entities.length > 0 && (
           <div>
-            <h4 className="font-medium text-white mb-1">Connections</h4>
+            <h4 className="font-medium text-text mb-1">Connections</h4>
             {entity.neighbor_entities.map((n, i) => (
-              <div key={i} className="text-gray-400">
+              <div key={i} className="text-text-secondary">
                 {n.direction === "outgoing" ? "->" : "<-"} {n.relation}{" "}
                 {n.name}
               </div>
@@ -294,7 +294,7 @@ function EntitySidebar({
 
         <button
           onClick={() => onNavigateTopology(entityId)}
-          className="mt-4 w-full py-2 px-3 bg-blue-500/20 text-blue-400 rounded text-sm hover:bg-blue-500/30"
+          className="mt-4 w-full py-2 px-3 bg-primary/20 text-primary rounded text-sm hover:bg-primary/30 transition-colors"
         >
           View in Topology
         </button>
