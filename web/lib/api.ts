@@ -617,6 +617,7 @@ export interface TreeNode {
   id: string;
   workspace_id: string;
   parent_id: string | null;
+  chat_id: string | null;
   node_type: "root" | "branch" | "leaf";
   title: string;
   description: string;
@@ -635,7 +636,7 @@ export interface TreeNode {
 export const topologyApi = {
   list: (workspaceId: string) =>
     request<{ nodes: TreeNode[] }>(`/api/topology/?workspace_id=${workspaceId}`).then((r) => r.nodes),
-  get: (nodeId: string) => request<TreeNode>(`/api/topology/${nodeId}`),
+  get: (nodeId: string) => request<TreeNode>(`/api/topology/nodes/${nodeId}`),
   create: (data: {
     workspace_id: string;
     parent_id?: string;

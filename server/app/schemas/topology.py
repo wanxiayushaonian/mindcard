@@ -26,6 +26,7 @@ class TreeNodeResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
     parent_id: uuid.UUID | None
+    chat_id: uuid.UUID | None
     node_type: str
     title: str
     description: str

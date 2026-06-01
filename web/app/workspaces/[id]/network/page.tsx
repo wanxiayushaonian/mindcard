@@ -4,8 +4,9 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import useSWR from "swr";
 import * as d3 from "d3";
-import { cardApi, topicApi, type Card, type Topic } from "@/lib/api";
+import { cardApi, topicApi, topologyApi, type Card, type Topic } from "@/lib/api";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { TopologyTreeView } from "@/components/TopologyTreeView";
 
 const MIN_RADIUS = 12;
 const MAX_RADIUS = 20;
@@ -62,6 +63,7 @@ export default function NetworkPage() {
   const [sliderMode, setSliderMode] = useState<"all" | "time" | "event">("all");
   const [eventEnd, setEventEnd] = useState(0); // 1-based index, 0 = show all
   const [isPlaying, setIsPlaying] = useState(false);
+  const [viewMode, setViewMode] = useState<"graph" | "tree">("graph");
   const playTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Cleanup playback on unmount
@@ -326,34 +328,70 @@ export default function NetworkPage() {
     topicData.forEach((td) => memberSetByTopic.set(td.id, new Set(td.nodeIds)));
     const allMemberIds = new Set([...topicData.values()].flatMap((td) => td.nodeIds));
 
+    // Helper: get centroid + radius for a topic
+    const topicEntries = [...topicData.values()];
+    function getTopicCircle(td: (typeof topicEntries)[number]) {
+      const memberNodes = td.nodeIds
+        .map((nid) => nodes.find((n) => n.id === nid))
+        .filter((n): n is GraphNode => !!n && n.x !== undefined && n.y !== undefined);
+      if (memberNodes.length < 2) return null;
+      const cx = memberNodes.reduce((s, n) => s + n.x!, 0) / memberNodes.length;
+      const cy = memberNodes.reduce((s, n) => s + n.y!, 0) / memberNodes.length;
+      const maxDist = Math.max(...memberNodes.map((n) => Math.hypot(n.x! - cx, n.y! - cy)));
+      return { cx, cy, radius: Math.max(maxDist + 30, 60), memberNodes };
+    }
+
     function topicRepelForce(alpha: number) {
-      const PAD = 35; // extra padding beyond circle radius
+      const PAD = 35;
+      // 1) Repel non-member nodes out of each topic circle
       for (const node of nodes) {
         if (!node.x || !node.y) continue;
         let fx = 0, fy = 0;
-        topicData.forEach((td) => {
+        topicEntries.forEach((td) => {
           if (memberSetByTopic.get(td.id)!.has(node.id)) return;
-          const memberNodes = td.nodeIds
-            .map((nid) => nodes.find((n) => n.id === nid))
-            .filter((n): n is GraphNode => !!n && n.x !== undefined && n.y !== undefined);
-          if (memberNodes.length < 2) return;
-          const cx = memberNodes.reduce((s, n) => s + n.x!, 0) / memberNodes.length;
-          const cy = memberNodes.reduce((s, n) => s + n.y!, 0) / memberNodes.length;
-          const maxDist = Math.max(...memberNodes.map((n) => Math.hypot(n.x! - cx, n.y! - cy)));
-          const radius = Math.max(maxDist + 30, 60) + PAD;
-          const dx = node.x! - cx;
-          const dy = node.y! - cy;
+          const circle = getTopicCircle(td);
+          if (!circle) return;
+          const totalRadius = circle.radius + PAD;
+          const dx = node.x! - circle.cx;
+          const dy = node.y! - circle.cy;
           const dist = Math.hypot(dx, dy);
-          if (dist < radius && dist > 0.1) {
-            // Push node outside the circle
-            const overlap = radius - dist;
-            const strength = 0.3 * alpha * (overlap / radius);
+          if (dist < totalRadius && dist > 0.1) {
+            const overlap = totalRadius - dist;
+            const strength = 0.3 * alpha * (overlap / totalRadius);
             fx += (dx / dist) * overlap * strength;
             fy += (dy / dist) * overlap * strength;
           }
         });
         node.vx = (node.vx || 0) + fx;
         node.vy = (node.vy || 0) + fy;
+      }
+
+      // 2) Repel topic circles from each other
+      for (let i = 0; i < topicEntries.length; i++) {
+        for (let j = i + 1; j < topicEntries.length; j++) {
+          const a = getTopicCircle(topicEntries[i]);
+          const b = getTopicCircle(topicEntries[j]);
+          if (!a || !b) continue;
+          const dx = b.cx - a.cx;
+          const dy = b.cy - a.cy;
+          const dist = Math.hypot(dx, dy);
+          const minDist = a.radius + b.radius + 40; // 40px gap between circles
+          if (dist < minDist && dist > 0.1) {
+            const overlap = minDist - dist;
+            const strength = 0.15 * alpha * (overlap / minDist);
+            const fx = (dx / dist) * overlap * strength;
+            const fy = (dy / dist) * overlap * strength;
+            // Push member nodes of each topic apart
+            a.memberNodes.forEach((n) => {
+              n.vx = (n.vx || 0) - fx;
+              n.vy = (n.vy || 0) - fy;
+            });
+            b.memberNodes.forEach((n) => {
+              n.vx = (n.vx || 0) + fx;
+              n.vy = (n.vy || 0) + fy;
+            });
+          }
+        }
       }
     }
 
@@ -488,24 +526,17 @@ export default function NetworkPage() {
       node.attr("transform", (d) => `translate(${d.x},${d.y})`);
 
       // Update topic circles
-      const topicEntries = [...topicData.values()];
       topicCircleGroup
         .selectAll("circle")
         .data(topicEntries, (d: any) => d.id)
         .join("circle")
         .each(function (d) {
-          const memberNodes = d.nodeIds
-            .map((nid) => nodes.find((n) => n.id === nid))
-            .filter((n): n is GraphNode => !!n && n.x !== undefined && n.y !== undefined);
-          if (memberNodes.length < 2) return;
-          const cx = memberNodes.reduce((s, n) => s + n.x!, 0) / memberNodes.length;
-          const cy = memberNodes.reduce((s, n) => s + n.y!, 0) / memberNodes.length;
-          const maxDist = Math.max(...memberNodes.map((n) => Math.hypot(n.x! - cx, n.y! - cy)));
-          const radius = Math.max(maxDist + 30, 60);
+          const circle = getTopicCircle(d);
+          if (!circle) return;
           d3.select(this)
-            .attr("cx", cx)
-            .attr("cy", cy)
-            .attr("r", radius)
+            .attr("cx", circle.cx)
+            .attr("cy", circle.cy)
+            .attr("r", circle.radius)
             .attr("fill", d.color)
             .attr("fill-opacity", d.active ? 0.10 : 0.03)
             .attr("stroke", d.color)
@@ -519,17 +550,11 @@ export default function NetworkPage() {
         .data(topicEntries, (d: any) => d.id)
         .join("text")
         .each(function (d) {
-          const memberNodes = d.nodeIds
-            .map((nid) => nodes.find((n) => n.id === nid))
-            .filter((n): n is GraphNode => !!n && n.x !== undefined && n.y !== undefined);
-          if (memberNodes.length < 2) return;
-          const cx = memberNodes.reduce((s, n) => s + n.x!, 0) / memberNodes.length;
-          const cy = memberNodes.reduce((s, n) => s + n.y!, 0) / memberNodes.length;
-          const maxDist = Math.max(...memberNodes.map((n) => Math.hypot(n.x! - cx, n.y! - cy)));
-          const radius = Math.max(maxDist + 30, 60);
+          const circle = getTopicCircle(d);
+          if (!circle) return;
           d3.select(this)
-            .attr("x", cx)
-            .attr("y", cy - radius - 6)
+            .attr("x", circle.cx)
+            .attr("y", circle.cy - circle.radius - 6)
             .attr("text-anchor", "middle")
             .attr("font-size", "11px")
             .attr("font-weight", "500")
@@ -552,7 +577,7 @@ export default function NetworkPage() {
     return () => {
       simulation.stop();
     };
-  }, [nodes, edges, highlightId, topics]);
+  }, [nodes, edges, highlightId, topics, viewMode]);
 
   // Update visibility without re-creating SVG (preserves zoom)
   useEffect(() => {
@@ -600,47 +625,97 @@ export default function NetworkPage() {
 
   return (
     <div className="relative h-[calc(100vh-56px)] overflow-hidden bg-bg">
-      {/* Keyword filter bar */}
+      {/* View mode toggle + filter bar */}
       <div className="absolute left-0 right-0 top-0 z-10 flex gap-2 overflow-x-auto border-b border-border bg-surface/80 px-4 py-2 backdrop-blur-sm">
-        <button
-          onClick={() => setSelectedTags(new Set())}
-          className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
-            selectedTags.size === 0
-              ? "bg-primary text-white"
-              : "bg-gray-100 text-text-secondary hover:bg-gray-200"
-          }`}
-        >
-          全部
-        </button>
-        {topKeywords.map((kw) => (
+        {/* View mode toggle */}
+        <div className="flex rounded-md border border-border overflow-hidden flex-shrink-0">
           <button
-            key={kw}
-            onClick={() => toggleTag(kw)}
-            className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
-              selectedTags.has(kw)
-                ? "bg-primary text-white"
-                : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+            onClick={() => setViewMode("graph")}
+            className={`px-3 py-1 text-xs transition-colors ${
+              viewMode === "graph" ? "bg-primary text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
             }`}
           >
-            {kw}
+            关系图
           </button>
-        ))}
-        <button
-          onClick={async () => {
-            try {
-              await topicApi.rebuild(workspaceId);
-              window.location.reload();
-            } catch (e: any) {
-              alert("重建失败: " + e.message);
-            }
-          }}
-          className="flex-shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs text-text-secondary hover:bg-gray-200"
-          title="重建话题聚类"
-        >
-          重建话题
-        </button>
+          <button
+            onClick={() => setViewMode("tree")}
+            className={`px-3 py-1 text-xs transition-colors ${
+              viewMode === "tree" ? "bg-primary text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
+            }`}
+          >
+            拓扑树
+          </button>
+        </div>
+
+        {viewMode === "graph" && (
+          <>
+            <button
+              onClick={() => setSelectedTags(new Set())}
+              className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
+                selectedTags.size === 0
+                  ? "bg-primary text-white"
+                  : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+              }`}
+            >
+              全部
+            </button>
+            {topKeywords.map((kw) => (
+              <button
+                key={kw}
+                onClick={() => toggleTag(kw)}
+                className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
+                  selectedTags.has(kw)
+                    ? "bg-primary text-white"
+                    : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+                }`}
+              >
+                {kw}
+              </button>
+            ))}
+            <button
+              onClick={async () => {
+                try {
+                  await topicApi.rebuild(workspaceId);
+                  window.location.reload();
+                } catch (e: any) {
+                  alert("重建失败: " + e.message);
+                }
+              }}
+              className="flex-shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs text-text-secondary hover:bg-gray-200"
+              title="重建话题聚类"
+            >
+              重建话题
+            </button>
+          </>
+        )}
       </div>
 
+      {/* Content based on view mode */}
+      {viewMode === "tree" ? (
+        <TopologyTreeView
+          workspaceId={workspaceId}
+          highlightId={highlightId}
+          onNodeClick={async (nodeId) => {
+            if (!nodeId) return;
+
+            // Fetch node to get chat_id
+            try {
+              const node = await topologyApi.get(nodeId);
+
+              if (node.chat_id) {
+                // Open conversation
+                router.push(`/workspaces/${workspaceId}/chat/${node.chat_id}`);
+              } else {
+                // No conversation, just highlight node
+                router.push(`/workspaces/${workspaceId}/network?highlight=${nodeId}`);
+              }
+            } catch (error) {
+              console.error('Failed to fetch node:', error);
+            }
+          }}
+        />
+      ) : (
+      <>
       {/* Legend */}
       <div className="absolute bottom-14 left-4 z-10 rounded-xl border border-border bg-surface/90 p-3 text-xs shadow-sm backdrop-blur-sm">
         <div className="mb-1 flex items-center gap-2">
@@ -842,6 +917,8 @@ export default function NetworkPage() {
             查看详情
           </button>
         </div>
+      )}
+      </>
       )}
     </div>
   );

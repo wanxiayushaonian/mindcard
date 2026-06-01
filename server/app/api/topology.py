@@ -19,6 +19,7 @@ from app.schemas.topology import (
 )
 from app.utils.auth import get_current_user, get_workspace_membership, require_role
 from app.utils.helpers import parse_uuid
+from app.services.topology import topology_service
 
 router = APIRouter()
 
@@ -47,6 +48,7 @@ async def _build_node_response(db: AsyncSession, node: TreeNode) -> TreeNodeResp
         id=node.id,
         workspace_id=node.workspace_id,
         parent_id=node.parent_id,
+        chat_id=node.chat_id,
         node_type=node.node_type,
         title=node.title,
         description=node.description,
@@ -90,6 +92,28 @@ async def list_nodes(
 
     responses = [await _build_node_response(db, n) for n in nodes]
     return TreeNodeListResponse(nodes=responses)
+
+
+@router.get("/nodes/{node_id}", response_model=TreeNodeResponse)
+async def get_node_by_id(
+    node_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get topology node by ID."""
+    result = await db.execute(
+        select(TreeNode)
+        .join(TreeNode.workspace)
+        .where(
+            TreeNode.id == node_id,
+            TreeNode.workspace.has(user_id=user.id)
+        )
+    )
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    return await _build_node_response(db, node)
 
 
 @router.post("/", response_model=TreeNodeResponse)
@@ -319,4 +343,23 @@ async def remove_ref(
     if ref:
         await db.delete(ref)
         await db.commit()
+    return {"ok": True}
+
+
+# ── Rebuild ──
+
+
+@router.post("/rebuild-embeddings")
+async def rebuild_embeddings(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Rebuild node centroids for all tree nodes in a workspace."""
+    ws_id = parse_uuid(workspace_id)
+    membership = await get_workspace_membership(ws_id, user, db)
+    require_role(membership, "owner", "admin")
+
+    await topology_service.rebuild_node_embeddings(db, ws_id)
+    await db.commit()
     return {"ok": True}
