@@ -72,7 +72,7 @@ export function ModelSelector({ compact = false }: ModelSelectorProps) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg">
+        <div className="absolute right-0 bottom-full z-50 mb-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg">
           {providersError && (
             <div className="px-3 py-3 text-xs text-red-500">加载失败: {providersError.message}</div>
           )}
