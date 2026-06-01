@@ -33,7 +33,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const [showEdit, setShowEdit] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const [showAiChat, setShowAiChat] = useState(false);
+  const [showAiChat, setShowAiChat] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Cmd+K / Ctrl+K to open search
@@ -80,9 +80,6 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   }, [canShowAiChat]);
 
   const navItems = [
-    ...(canShowAiChat
-      ? [{ label: "AI 问答", href: null, highlight: true, icon: <Sparkles size={14} />, toggle: "aiChat" as const }]
-      : []),
     { label: "洞察", href: `/workspaces/${workspaceId}/insights`, highlight: false, icon: <Lightbulb size={14} /> },
     { label: "网络", href: `/workspaces/${workspaceId}/network`, highlight: false, icon: <Network size={14} /> },
     { label: "图谱", href: `/workspaces/${workspaceId}/knowledge-graph`, highlight: false, icon: <GitBranch size={14} /> },
@@ -134,20 +131,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             {navItems.map((item) => (
               <button
                 key={item.label}
-                onClick={() => {
-                  if ("toggle" in item && item.toggle === "aiChat") {
-                    setShowAiChat((v) => !v);
-                  } else {
-                    navigate(item.href!);
-                  }
-                }}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${
-                  "toggle" in item && item.toggle === "aiChat" && showAiChat
-                    ? "bg-primary text-white"
-                    : item.highlight
-                      ? "bg-primary/10 font-medium text-primary-dark"
-                      : "text-text-secondary hover:bg-gray-100"
-                }`}
+                onClick={() => navigate(item.href!)}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-gray-100"
               >
                 {item.icon}
                 {item.label}
@@ -195,21 +180,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             {navItems.map((item) => (
               <button
                 key={item.label}
-                onClick={() => {
-                  if ("toggle" in item && item.toggle === "aiChat") {
-                    setShowAiChat((v) => !v);
-                    setMenuOpen(false);
-                  } else {
-                    navigate(item.href!);
-                  }
-                }}
-                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
-                  "toggle" in item && item.toggle === "aiChat" && showAiChat
-                    ? "bg-primary text-white"
-                    : item.highlight
-                      ? "bg-primary/10 font-medium text-primary-dark"
-                      : "text-text-secondary hover:bg-gray-100"
-                }`}
+                onClick={() => navigate(item.href!)}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-text-secondary hover:bg-gray-100"
               >
                 {item.icon}
                 {item.label}
@@ -498,10 +470,10 @@ function PanelLayout({
       >
         <button
           onClick={toggleLeft}
-          className="absolute right-2 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-surface/80 text-text-secondary shadow-sm backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
+          className="absolute right-2 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-surface/90 text-text-secondary shadow backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
           title={leftCollapsed ? "展开卡片列表" : "收起卡片列表"}
         >
-          {leftCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+          {leftCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
         <div className="h-full overflow-y-auto">{children}</div>
       </div>
@@ -523,10 +495,10 @@ function PanelLayout({
       >
         <button
           onClick={toggleRight}
-          className="absolute left-2 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-surface/80 text-text-secondary shadow-sm backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
+          className="absolute left-2 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-surface/90 text-text-secondary shadow backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
           title={rightCollapsed ? "展开AI对话" : "收起AI对话"}
         >
-          {rightCollapsed ? <PanelRightOpen size={13} /> : <PanelRightClose size={13} />}
+          {rightCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
         </button>
         <AiChatPanel workspaceId={workspaceId} onClose={onToggleAiChat} />
       </div>
