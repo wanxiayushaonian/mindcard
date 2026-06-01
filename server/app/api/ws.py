@@ -50,12 +50,11 @@ async def chat_websocket(websocket: WebSocket):
         return
 
     # Verify token and get user
-    from app.utils.auth import decode_token
+    from app.utils.auth import decode_access_token
     try:
-        payload = decode_token(token)
-        user_id = payload.get("sub")
+        user_id = decode_access_token(token)
         if not user_id:
-            raise ValueError("Invalid token payload")
+            raise ValueError("Invalid token")
     except Exception as e:
         await websocket.send_json({
             "type": "error",
