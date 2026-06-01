@@ -418,11 +418,13 @@ export function normalizeMarkdownForDisplay(content: string): string {
   // Step 1: Fix AI formatting issues - add newlines where missing
   let fixed = String(content);
 
-  // Fix: ##标题 -> \n## 标题\n (add newlines and space)
-  fixed = fixed.replace(/(#{1,6})([^\s#\n])/g, "\n$1 $2\n");
+  // Fix: ##标题 -> \n## 标题\n (add newlines and space after #)
+  // Only match ## at start of line or after non-# character
+  fixed = fixed.replace(/(^|[^#])(#{1,6})([^\s#\n])/gm, "$1\n$2 $3\n");
 
   // Fix: -列表项 -> \n- 列表项 (add newline and space before list items)
-  fixed = fixed.replace(/([^\n])(-)([^\s-])/g, "$1\n$2 $3");
+  // Only match - at start of line or after punctuation/closing brackets
+  fixed = fixed.replace(/(^|[。！？；：）】」》)\]}>])\s*-([^\s-])/gm, "$1\n- $2");
 
   const normalized = stripInvisibleCharacters(fixed)
     .replace(/\r\n/g, "\n")
