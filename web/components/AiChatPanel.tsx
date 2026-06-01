@@ -3,12 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { ragApi, chatApi, aiApi, cardApi, workspaceApi, settingsApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession } from "@/lib/api";
+import { ragApi, chatApi, aiApi, cardApi, workspaceApi, settingsApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode } from "@/lib/api";
 import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch, ChevronRight } from "lucide-react";
 
 type ChatMode = "rag" | "chat";
 
@@ -55,6 +55,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const chatIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const [pendingAutoSend, setPendingAutoSend] = useState<string | null>(null);
+  const [chatPath, setChatPath] = useState<ChatPathNode[]>([]);
 
   // Keep refs in sync
   useEffect(() => { chatIdRef.current = chatId; }, [chatId]);
@@ -81,6 +82,20 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  // Fetch chat path when chatId changes
+  useEffect(() => {
+    if (!chatId) {
+      setChatPath([]);
+      return;
+    }
+    chatApi.getChatPath(chatId)
+      .then((res) => setChatPath(res.path))
+      .catch((err) => {
+        console.error("Failed to fetch chat path:", err);
+        setChatPath([]);
+      });
+  }, [chatId]);
 
   // Listen for fork-complete: save current, create branch, switch, auto-send
   useEffect(() => {
@@ -484,6 +499,35 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       </div>
 
       <div className="relative flex-1 overflow-hidden">
+        {/* Breadcrumb Navigation */}
+        {chatPath.length > 0 && (
+          <div className="border-b border-border bg-surface/50 px-3 py-2">
+            <div className="flex items-center gap-1 text-xs text-text-secondary overflow-x-auto">
+              {chatPath.map((node, idx) => (
+                <div key={node.node_id} className="flex items-center gap-1">
+                  {idx > 0 && <ChevronRight size={12} className="shrink-0" />}
+                  <button
+                    onClick={() => {
+                      if (node.chat_id) {
+                        loadChat(node.chat_id);
+                      }
+                    }}
+                    disabled={!node.chat_id}
+                    className={`shrink-0 rounded px-2 py-0.5 transition ${
+                      node.chat_id
+                        ? "hover:bg-primary/10 hover:text-primary-dark cursor-pointer"
+                        : "cursor-default opacity-60"
+                    } ${idx === chatPath.length - 1 ? "font-medium text-text" : ""}`}
+                    title={node.title}
+                  >
+                    {node.title}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* History sub-panel */}
         {showHistory && (
           <div className="absolute inset-0 z-10 flex flex-col bg-bg">

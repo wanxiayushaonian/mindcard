@@ -429,6 +429,13 @@ export interface ChatDetail extends ChatSession {
   messages: ChatMessage[];
 }
 
+export interface ChatPathNode {
+  node_id: string;
+  title: string;
+  chat_id: string | null;
+  node_type: string;
+}
+
 export const chatApi = {
   list: (workspaceId?: string, mode?: string) => {
     const params = new URLSearchParams();
@@ -449,6 +456,8 @@ export const chatApi = {
     }),
   delete: (chatId: string) =>
     request<{ ok: boolean }>(`/api/chats/${chatId}`, { method: "DELETE" }),
+  getChatPath: (chatId: string) =>
+    request<{ path: ChatPathNode[] }>(`/api/chats/${chatId}/path`),
 };
 
 // --- AI Text Tools ---
