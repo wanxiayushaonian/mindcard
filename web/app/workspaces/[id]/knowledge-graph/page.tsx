@@ -48,6 +48,7 @@ export default function KnowledgeGraphPage() {
   const workspaceId = params.id as string;
   const svgRef = useRef<SVGSVGElement>(null);
   const [selectedEntity, setSelectedEntity] = useState<string | null>(null);
+  const [isTraining, setIsTraining] = useState(false);
 
   const { data: entities } = useSWR(
     workspaceId ? `graph-entities-${workspaceId}` : null,
@@ -59,10 +60,25 @@ export default function KnowledgeGraphPage() {
     () => graphApi.getRelations(workspaceId)
   );
 
-  const { data: stats } = useSWR(
+  const { data: stats, mutate: mutateStats } = useSWR(
     workspaceId ? `graph-stats-${workspaceId}` : null,
     () => graphApi.getStats(workspaceId)
   );
+
+  const handleTriggerTraining = async () => {
+    if (!workspaceId || isTraining) return;
+
+    setIsTraining(true);
+    try {
+      await graphApi.triggerTraining(workspaceId, "auto");
+      await mutateStats();
+      alert("GNN 训练已启动！");
+    } catch (err: any) {
+      alert(`训练失败: ${err.message}`);
+    } finally {
+      setIsTraining(false);
+    }
+  };
 
   useEffect(() => {
     if (!entities || !relations || !svgRef.current) return;
@@ -210,9 +226,26 @@ export default function KnowledgeGraphPage() {
               </span>
             ))}
           </div>
-          <div className="text-text-secondary">
+          <div className="text-text-secondary mb-2">
             {stats && `${stats.entity_count} entities, ${stats.relation_count} relations`}
           </div>
+          {stats?.last_training && (
+            <div className="text-xs text-text-secondary mb-2">
+              上次训练: {stats.last_training.training_mode} ({stats.last_training.status})
+            </div>
+          )}
+          <button
+            onClick={handleTriggerTraining}
+            disabled={isTraining || !stats || stats.entity_count < 10}
+            className="w-full py-1.5 px-3 bg-primary/20 text-primary rounded text-xs hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isTraining ? "训练中..." : "训练 GNN 模型"}
+          </button>
+          {stats && stats.entity_count < 10 && (
+            <div className="text-xs text-text-secondary mt-1">
+              需要至少 10 个实体才能训练
+            </div>
+          )}
         </div>
         <svg ref={svgRef} className="w-full h-full min-h-[600px] bg-bg" />
       </div>
