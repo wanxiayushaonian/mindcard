@@ -492,8 +492,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           </button>
         )}
 
-        <ModelSelector compact />
-
         {activeBranchIdx !== null && branches[activeBranchIdx] && (
           <div className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] text-green-700">
             <GitBranch size={10} />
@@ -836,6 +834,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
                   {/* Spacer */}
                   <div className="flex-1" />
+
+                  {/* Model Selector */}
+                  <ModelSelector compact />
 
                   {/* Send / Stop button */}
                   {isStreaming ? (
