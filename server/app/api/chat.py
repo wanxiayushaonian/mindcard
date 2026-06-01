@@ -1,16 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.chat import AiChat, ChatMessage
+from app.models.topology import TreeNode
 from app.models.user import User
 from app.schemas.chat import (
     ChatCreate,
+    ChatForkRequest,
+    ChatForkResponse,
     ChatListResponse,
     ChatMessageCreate,
     ChatMessageResponse,
     ChatResponse,
+    ChatSummarizeRequest,
 )
 from app.utils.auth import get_current_user, get_workspace_membership
 from app.utils.helpers import parse_uuid
@@ -99,25 +105,19 @@ async def create_chat(
 
     workspace_uuid = None
     if req.workspace_id:
+        workspace_uuid = parse_uuid(req.workspace_id)
         try:
-            workspace_uuid = parse_uuid(req.workspace_id)
             await get_workspace_membership(workspace_uuid, user, db)
-        except Exception:
+        except HTTPException:
             workspace_uuid = None
 
     card_uuid = None
     if req.card_id:
-        try:
-            card_uuid = parse_uuid(req.card_id)
-        except Exception:
-            card_uuid = None
+        card_uuid = parse_uuid(req.card_id)
 
     parent_uuid = None
     if req.parent_chat_id:
-        try:
-            parent_uuid = parse_uuid(req.parent_chat_id)
-        except Exception:
-            parent_uuid = None
+        parent_uuid = parse_uuid(req.parent_chat_id)
 
     local_id = req.local_id or f"chat_{int(time.time() * 1000)}"
 
@@ -277,3 +277,267 @@ async def delete_chat(
     await db.delete(chat)
     await db.commit()
     return {"ok": True}
+
+
+# ── Fork & Summarize ──
+
+
+@router.post("/{chat_id}/fork", response_model=ChatForkResponse)
+async def fork_chat(
+    chat_id: str,
+    req: ChatForkRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Fork a conversation into a sub-conversation, creating a child topology node."""
+    import time
+
+    parent_chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not parent_chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    if parent_chat.user_id != user.id:
+        raise HTTPException(status_code=403, detail="无权访问此对话")
+
+    # Get parent's topology node
+    parent_node_id = parent_chat.tree_node_id
+    if not parent_node_id:
+        # Parent chat has no node - create root node for workspace first
+        root_result = await db.execute(
+            select(TreeNode).where(
+                TreeNode.workspace_id == parent_chat.workspace_id,
+                TreeNode.parent_id == None,
+                TreeNode.node_type == "root"
+            )
+        )
+        root_node = root_result.scalar_one_or_none()
+        if not root_node:
+            # Create root node
+            root_node = TreeNode(
+                workspace_id=parent_chat.workspace_id,
+                title="知识探索",
+                node_type="root",
+                status="active",
+                embedding=[0.0] * 768  # Placeholder embedding
+            )
+            db.add(root_node)
+            await db.flush()
+
+        # Bind parent chat to root
+        parent_chat.tree_node_id = root_node.id
+        parent_node_id = root_node.id
+
+    # Create child topology node
+    child_node = TreeNode(
+        workspace_id=parent_chat.workspace_id,
+        parent_id=parent_node_id,
+        title=req.title or req.topic[:50] if req.topic else "新分支",
+        node_type="branch",
+        status="active",
+        embedding=[0.0] * 768  # Will be updated when cards are added
+    )
+    db.add(child_node)
+    await db.flush()
+
+    # Fetch recent messages for context
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.chat_id == parent_chat.id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(20)
+    )
+    recent_messages = list(reversed(result.scalars().all()))
+
+    # Build context summary
+    context_lines = []
+    for msg in recent_messages:
+        role_label = "用户" if msg.role == "user" else "AI"
+        context_lines.append(f"{role_label}: {msg.content[:200]}")
+    context_summary = "\n".join(context_lines)
+
+    # If a topic is specified, prepend it to the context
+    if req.topic:
+        context_summary = f"## 聚焦主题: {req.topic}\n\n{context_summary}"
+
+    # Auto-generate title if not provided
+    title = req.title
+    if not title:
+        title = req.topic[:50] if req.topic else f"分支: {parent_chat.title[:40]}"
+
+    # Create sub-conversation
+    local_id = f"fork_{int(time.time() * 1000)}"
+    forked = AiChat(
+        local_id=local_id,
+        user_id=user.id,
+        mode=req.mode,
+        title=title,
+        workspace_id=parent_chat.workspace_id,
+        card_id=parent_chat.card_id,
+        parent_chat_id=parent_chat.id,
+        tree_node_id=child_node.id,
+    )
+    db.add(forked)
+    await db.flush()
+
+    # Link node back to chat
+    child_node.chat_id = forked.id
+
+    # Add context as the first system message
+    context_msg = ChatMessage(
+        chat_id=forked.id,
+        role="assistant",
+        content=f"这是从「{parent_chat.title}」分叉出来的对话。\n\n以下是之前的对话上下文：\n\n{context_summary}",
+    )
+    db.add(context_msg)
+    await db.commit()
+    await db.refresh(forked)
+
+    return ChatForkResponse(
+        chat=ChatResponse(
+            id=forked.id,
+            mode=forked.mode,
+            workspace_id=forked.workspace_id,
+            card_id=forked.card_id,
+            parent_chat_id=forked.parent_chat_id,
+            tree_node_id=forked.tree_node_id,
+            title=forked.title,
+            created_at=forked.created_at,
+            messages=[ChatMessageResponse.model_validate(context_msg)],
+        ),
+        context_summary=context_summary,
+    )
+
+
+@router.post("/{chat_id}/summarize")
+async def summarize_chat(
+    chat_id: str,
+    req: ChatSummarizeRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Summarize a conversation into a card. Runs LLM in background."""
+    chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    if chat.user_id != user.id:
+        raise HTTPException(status_code=403, detail="无权访问此对话")
+
+    # Fetch all messages
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.chat_id == chat.id)
+        .order_by(ChatMessage.created_at.asc())
+    )
+    messages = result.scalars().all()
+
+    if len(messages) < 2:
+        raise HTTPException(status_code=400, detail="对话内容太少，无法生成摘要")
+
+    # Build conversation text
+    conversation_text = "\n".join(
+        f"{'用户' if m.role == 'user' else 'AI'}: {m.content}"
+        for m in messages
+    )
+
+    # Generate summary in background
+    background_tasks.add_task(
+        _generate_summary_card,
+        chat_id=chat.id,
+        workspace_id=chat.workspace_id,
+        user_id=user.id,
+        conversation_text=conversation_text,
+        title=req.title,
+        keywords=req.keywords,
+    )
+
+    return {"ok": True, "message": "摘要生成中，稍后将作为卡片保存"}
+
+
+async def _generate_summary_card(
+    chat_id: uuid.UUID,
+    workspace_id: uuid.UUID | None,
+    user_id: uuid.UUID,
+    conversation_text: str,
+    title: str = "",
+    keywords: list[str] | None = None,
+):
+    """Generate a summary card from a conversation (runs in background)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        from app.database import async_session
+        from app.models.card import Card
+        from app.services.llm import llm_service
+
+        async with async_session() as db:
+            # Generate summary using LLM
+            summary_prompt = (
+                "请将以下对话内容整理成一篇结构化的知识笔记。\n"
+                "要求：\n"
+                "- 使用 Markdown 格式\n"
+                "- 用 ## 标题分段\n"
+                "- 提取关键观点和结论\n"
+                "- 保留重要的技术细节\n"
+                "- 语言简洁精炼\n\n"
+                f"对话内容：\n{conversation_text[:8000]}"
+            )
+
+            summary = await llm_service.complete_simple(
+                summary_prompt, "", max_tokens=2048
+            )
+
+            # Generate title if not provided
+            if not title:
+                title_raw = await llm_service.complete_simple(
+                    "请用不超过20个字概括以下内容的主题，作为标题。只输出标题文字本身。",
+                    summary[:500],
+                    max_tokens=32,
+                )
+                title = title_raw.strip()[:50]
+
+            # Extract keywords if not provided
+            if not keywords:
+                kw_raw = await llm_service.complete_simple(
+                    "从以下内容中提取3-5个核心关键字，用逗号分隔。",
+                    summary[:500],
+                    max_tokens=64,
+                )
+                keywords = [kw.strip() for kw in kw_raw.split(",") if kw.strip()][:5]
+
+            # Create card
+            card = Card(
+                local_id=f"summary_{uuid.uuid4().hex[:16]}",
+                workspace_id=workspace_id,
+                creator_id=user_id,
+                title=title,
+                content=summary,
+                keywords=keywords or [],
+                is_temp=False,
+            )
+            db.add(card)
+            await db.flush()
+
+            # Generate embedding and classify
+            from app.services.embedding import embedding_service
+            text = embedding_service.card_to_text(card.title, card.content, card.keywords, card.emotion_tag)
+            embedding = await embedding_service.embed(text)
+            card.embedding = embedding
+            await db.commit()
+
+            # Assign to topic
+            from app.services.topic import topic_service
+            await topic_service.assign_card_to_topic(db, card)
+            await db.commit()
+
+            # Auto-classify into topology tree
+            from app.services.topology import topology_service
+            await topology_service.assign_card_to_node(db, card)
+            await db.commit()
+
+            logger.info("Summary card created: %s (from chat %s)", card.id, chat_id)
+
+    except Exception as e:
+        logger.error("Summary generation failed for chat %s: %s", chat_id, e, exc_info=True)

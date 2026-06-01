@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.card import Card, CardRelation
+from app.models.chat import AiChat
 from app.models.user import User
 from app.schemas.card import CardCreate, CardListResponse, CardRelationCreate, CardResponse, CardUpdate
 from app.services.embedding import embedding_service
@@ -18,7 +19,7 @@ from app.utils.helpers import parse_uuid
 router = APIRouter()
 
 
-async def _generate_embedding(card_id: UUID):
+async def _generate_embedding(card_id: UUID, default_node_id: UUID | None = None):
     """Generate and update embedding for a card (runs in background)."""
     import logging
 
@@ -38,6 +39,10 @@ async def _generate_embedding(card_id: UUID):
             # Assign to topic
             from app.services.topic import topic_service
             await topic_service.assign_card_to_topic(db, db_card)
+            await db.commit()
+            # Auto-classify into topology tree
+            from app.services.topology import topology_service
+            await topology_service.assign_card_to_node(db, db_card, default_node_id)
             await db.commit()
     except Exception as e:
         logger.warning("Embedding generation failed for card %s: %s", card_id, e)
@@ -117,7 +122,18 @@ async def create_card(
 ):
     membership = await get_workspace_membership(req.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
-    card = Card(**req.model_dump(), creator_id=user.id)
+
+    # Get chat's topology node as default
+    chat_node_id = None
+    if req.chat_id:
+        chat_result = await db.execute(
+            select(AiChat.tree_node_id).where(AiChat.id == parse_uuid(req.chat_id))
+        )
+        chat_node_id = chat_result.scalar_one_or_none()
+
+    # Create card (exclude chat_id as it's not a Card model field)
+    card_data = req.model_dump(exclude={"chat_id"})
+    card = Card(**card_data, creator_id=user.id)
     db.add(card)
     await db.flush()
 
@@ -134,7 +150,7 @@ async def create_card(
     if root_node:
         db.add(NodeCard(node_id=root_node.id, card_id=card.id))
 
-    background_tasks.add_task(_generate_embedding, card.id)
+    background_tasks.add_task(_generate_embedding, card.id, chat_node_id)
     await create_activity(
         db, workspace_id=req.workspace_id, actor_id=user.id,
         action="card.created", target_type="card", target_id=str(card.id),
@@ -218,10 +234,8 @@ async def add_relation(
     membership = await get_workspace_membership(card.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
-    from sqlalchemy import select as sa_select
-
     existing = await db.execute(
-        sa_select(CardRelation).where(
+        select(CardRelation).where(
             CardRelation.card_id == parse_uuid(card_id),
             CardRelation.related_card_id == parse_uuid(req.related_card_id),
             CardRelation.relation_type == req.relation_type,

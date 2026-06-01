@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class CardCreate(BaseModel):
     local_id: str = Field(..., max_length=64)
     workspace_id: str
+    chat_id: str | None = None  # Optional: which chat created this card
     title: str = Field("", max_length=128)
     content: str = Field(..., min_length=1, max_length=50000)
     keywords: list[str] = Field(default=[], max_length=5)
