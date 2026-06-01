@@ -103,14 +103,29 @@ export default function KnowledgeGraphPage() {
     }));
 
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-    const links: SimLink[] = relations
+
+    // Merge multiple edges between same node pairs
+    const edgeMap = new Map<string, SimLink>();
+    relations
       .filter((r) => nodeMap.has(r.head_id) && nodeMap.has(r.tail_id))
-      .map((r) => ({
-        source: r.head_id,
-        target: r.tail_id,
-        relation: r.relation,
-        weight: r.weight,
-      }));
+      .forEach((r) => {
+        const key = `${r.head_id}-${r.tail_id}`;
+        const existing = edgeMap.get(key);
+        if (existing) {
+          // Merge: combine relations and sum weights
+          existing.relation = `${existing.relation}, ${r.relation}`;
+          existing.weight += r.weight;
+        } else {
+          edgeMap.set(key, {
+            source: r.head_id,
+            target: r.tail_id,
+            relation: r.relation,
+            weight: r.weight,
+          });
+        }
+      });
+
+    const links: SimLink[] = Array.from(edgeMap.values());
 
     const simulation = forceSimulation<SimNode>(nodes)
       .force(
