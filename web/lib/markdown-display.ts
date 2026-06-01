@@ -415,28 +415,7 @@ function linkifyCitationsOutsideCode(content: string): string {
 export function normalizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
 
-  // Step 1: Fix AI formatting issues - add newlines where missing
-  let fixed = String(content);
-
-  // Fix: ##标题文本 -> ## 标题\n文本
-  // Match ## followed immediately by Chinese/English characters (no space)
-  // Only at line boundaries to avoid breaking mid-text
-  fixed = fixed.replace(/^(#{1,6})([^\s#\n])/gm, "$1 $2");
-
-  // Add newline before headings if they're glued to previous text
-  fixed = fixed.replace(/([^\n])(#{1,6}\s)/g, "$1\n\n$2");
-
-  // Add newline after headings if they're glued to next text
-  fixed = fixed.replace(/(#{1,6}\s[^\n]+)([^\n])/g, "$1\n$2");
-
-  // Fix: 文本-列表项 -> 文本\n- 列表项
-  // Only match - at the start of what looks like a list item (- followed by Chinese/letter)
-  fixed = fixed.replace(/([。！？；：）】」》)\]}>])(-)([一-龥a-zA-Z])/g, "$1\n- $3");
-
-  // Fix list items that start a line but missing space: -文本 -> - 文本
-  fixed = fixed.replace(/^-([^\s-])/gm, "- $1");
-
-  const normalized = stripInvisibleCharacters(fixed)
+  const normalized = stripInvisibleCharacters(content)
     .replace(/\r\n/g, "\n")
     .replace(EMPTY_DETAILS_REGEX, "")
     .replace(EMPTY_SUMMARY_REGEX, "")
