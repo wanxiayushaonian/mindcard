@@ -690,6 +690,20 @@ export default function NetworkPage() {
 
         {viewMode === "graph" && (
           <>
+            {/* Force settings button - moved to left side */}
+            <button
+              onClick={() => setShowForceSettings(!showForceSettings)}
+              className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition flex items-center gap-1 ${
+                showForceSettings
+                  ? "bg-primary text-white"
+                  : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+              }`}
+              title="力导向参数设置"
+            >
+              <Settings size={12} />
+              布局参数
+            </button>
+
             <button
               onClick={() => setSelectedTags(new Set())}
               className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
@@ -726,18 +740,6 @@ export default function NetworkPage() {
               title="重建话题聚类"
             >
               重建话题
-            </button>
-            <button
-              onClick={() => setShowForceSettings(!showForceSettings)}
-              className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
-                showForceSettings
-                  ? "bg-primary text-white"
-                  : "bg-gray-100 text-text-secondary hover:bg-gray-200"
-              }`}
-              title="力导向参数设置"
-            >
-              <Settings size={12} className="inline mr-1" />
-              布局参数
             </button>
           </>
         )}
