@@ -9,13 +9,11 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.user import User
 from app.services.rag import rag_service
-from app.utils.auth import get_current_user_ws
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
