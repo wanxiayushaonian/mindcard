@@ -3,6 +3,9 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    # General
+    debug: bool = False
+
     # Database
     database_url: str = "postgresql+asyncpg://mindcard:mindcard@localhost:5432/mindcard"
 
@@ -53,9 +56,30 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "*"
 
+    # Rate limiting
+    rate_limit_auth_max: int = 10
+    rate_limit_auth_window: int = 60
+    rate_limit_ai_max: int = 20
+    rate_limit_ai_window: int = 60
+    rate_limit_rag_max: int = 10
+    rate_limit_rag_window: int = 60
+
     # Search
     search_top_k: int = 20
     rag_top_k: int = 5
+
+    # GNN Training
+    gnn_training_mode: str = "auto"  # "auto", "local_cpu", "local_gpu", "remote_gpu"
+    gnn_training_trigger_cards: int = 100
+    gnn_training_trigger_days: int = 7
+    gnn_hidden_dim: int = 256
+    gnn_num_layers: int = 3
+    gnn_learning_rate: float = 0.001
+    gnn_num_epochs: int = 50
+
+    # Modal Labs (Remote GPU)
+    modal_app_name: str = ""
+    modal_api_key: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
