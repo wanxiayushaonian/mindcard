@@ -13,40 +13,42 @@ SEED_EXAMPLES = [
     {
         "text": "RAG uses BGE-M3 for embedding, stored in pgvector vector database.",
         "entities": [
-            {"name": "RAG", "type": "concept"},
-            {"name": "BGE-M3", "type": "model"},
-            {"name": "pgvector", "type": "tool"},
+            {"name": "RAG", "type": "技术"},
+            {"name": "BGE-M3", "type": "模型"},
+            {"name": "pgvector", "type": "工具"},
+            {"name": "embedding", "type": "概念"},
         ],
         "triples": [
             ["RAG", "uses", "BGE-M3"],
-            ["BGE-M3", "example_of", "embedding model"],
+            ["BGE-M3", "is_a", "embedding model"],
             ["RAG", "uses", "pgvector"],
-            ["pgvector", "example_of", "vector database"],
+            ["pgvector", "stores", "embedding"],
         ],
     },
     {
-        "text": "Knowledge distillation transfers knowledge from large models to small models, reducing computational cost.",
+        "text": "卡片笔记法通过双向链接构建知识网络，促进创新思考。",
         "entities": [
-            {"name": "Knowledge distillation", "type": "method"},
-            {"name": "large models", "type": "concept"},
-            {"name": "small models", "type": "concept"},
+            {"name": "卡片笔记法", "type": "方法"},
+            {"name": "双向链接", "type": "特性"},
+            {"name": "知识网络", "type": "结构"},
+            {"name": "创新思考", "type": "目标"},
         ],
         "triples": [
-            ["Knowledge distillation", "uses", "large models"],
-            ["Knowledge distillation", "extends", "small models"],
-            ["large models", "example_of", "model"],
+            ["卡片笔记法", "uses", "双向链接"],
+            ["卡片笔记法", "builds", "知识网络"],
+            ["知识网络", "enables", "创新思考"],
         ],
     },
     {
         "text": "GCN aggregates neighbor node features through adjacency matrix for semi-supervised learning.",
         "entities": [
-            {"name": "GCN", "type": "method"},
-            {"name": "adjacency matrix", "type": "concept"},
-            {"name": "semi-supervised learning", "type": "method"},
+            {"name": "GCN", "type": "算法"},
+            {"name": "adjacency matrix", "type": "数据结构"},
+            {"name": "semi-supervised learning", "type": "任务"},
         ],
         "triples": [
             ["GCN", "uses", "adjacency matrix"],
-            ["GCN", "example_of", "semi-supervised learning"],
+            ["GCN", "enables", "semi-supervised learning"],
         ],
     },
 ]
@@ -68,18 +70,17 @@ class GraphEvolution:
             entities_str = json.dumps(ex["entities"], ensure_ascii=False)
             examples_text += f"\nText: {ex['text']}\nEntities: {entities_str}\n"
 
-        return f"""You are a named entity recognition system specialized in technical content.
+        return f"""You are a named entity recognition system.
 
 Good examples:
 {examples_text}
-Extract all named entities from the text. Entity types:
-- concept: Technical concepts (e.g., RAG, Transformer)
-- tool: Tools and frameworks (e.g., pgvector, Milvus)
-- method: Methods and algorithms (e.g., cosine similarity, BM25)
-- model: Model names (e.g., BGE-M3, GPT-4)
+Extract all important entities from the text.
+For each entity, provide a name and a type that best describes it.
+The type should be intuitive and descriptive (e.g., "概念", "方法", "工具", "人物", "作品", etc.).
+Don't limit yourself to predefined types - use whatever type makes sense for the entity.
 
 Return a JSON array. Each object has "name" and "type".
-IMPORTANT: Return ONLY the JSON array."""
+IMPORTANT: Return ONLY the JSON array, e.g. [{"name": "实体名", "type": "类型"}]"""
 
     def build_few_shot_re_prompt(self) -> str:
         """Build a few-shot prompt for relation extraction."""
@@ -88,7 +89,7 @@ IMPORTANT: Return ONLY the JSON array."""
             triples_str = json.dumps(ex["triples"], ensure_ascii=False)
             good += (
                 f"\nText: {ex['text']}\n"
-                f"Entities: {json.dumps([e['name'] for e in ex['entities']])}\n"
+                f"Entities: {json.dumps(ex['entities'])}\n"
                 f"Triples: {triples_str}\n"
             )
 

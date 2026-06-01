@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExtractedEntity:
     name: str
-    entity_type: str
+    entity_type: str | None = None  # Optional, for backward compatibility
 
 
 @dataclass
@@ -48,12 +48,16 @@ class TripleExtractor:
                 return []
             entities = []
             for item in parsed:
-                if isinstance(item, dict) and "name" in item and "type" in item:
+                if isinstance(item, dict) and "name" in item:
                     entities.append(
                         ExtractedEntity(
-                            name=item["name"].strip(), entity_type=item["type"]
+                            name=item["name"].strip(),
+                            entity_type=item.get("type")  # Optional type
                         )
                     )
+                elif isinstance(item, str):
+                    # Support simple string list format
+                    entities.append(ExtractedEntity(name=item.strip()))
             return entities
         except Exception as e:
             logger.warning("NER extraction failed: %s", e)
@@ -67,7 +71,8 @@ class TripleExtractor:
 
             system_prompt = graph_evolution.build_few_shot_re_prompt()
             entity_list = ", ".join(
-                f'"{e.name}" ({e.entity_type})' for e in entities
+                f'"{e.name}" ({e.entity_type})' if e.entity_type else f'"{e.name}"'
+                for e in entities
             )
             user_prompt = (
                 f"Entities: [{entity_list}]\n\n"
