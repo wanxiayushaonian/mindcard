@@ -205,6 +205,39 @@ class TopologyService:
 
         logger.info("Rebuilt embeddings for %d nodes in workspace %s", len(nodes), workspace_id)
 
+    async def mark_core_entities(self, db: AsyncSession, tree_node_id: uuid.UUID) -> None:
+        """Mark top-3 entities by frequency as core entities for a topology node."""
+        from collections import Counter
+
+        from sqlalchemy import update as sa_update
+
+        from app.models.graph import EntityCard
+
+        # Get cards assigned to this node
+        cards_result = await db.execute(
+            select(NodeCard).where(NodeCard.node_id == tree_node_id)
+        )
+        node_cards = cards_result.scalars().all()
+        if not node_cards:
+            return
+
+        entity_freq: Counter = Counter()
+        for nc in node_cards:
+            ec_result = await db.execute(
+                select(EntityCard).where(EntityCard.card_id == nc.card_id)
+            )
+            for ec in ec_result.scalars().all():
+                entity_freq[ec.entity_id] += 1
+
+        core_ids = [eid for eid, _ in entity_freq.most_common(3)]
+        if core_ids:
+            await db.execute(
+                sa_update(TreeNode)
+                .where(TreeNode.id == tree_node_id)
+                .values(core_entity_ids=core_ids)
+            )
+            await db.flush()
+
     @staticmethod
     def _cosine_distance(a: list[float], b: list[float]) -> float:
         """Cosine distance between two (assumed normalized) vectors."""
