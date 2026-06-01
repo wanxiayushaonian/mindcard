@@ -14,6 +14,57 @@ function stripInvisibleCharacters(value: string): string {
 }
 
 /**
+ * Fix common AI markdown formatting issues
+ * - Add space after ## if missing
+ * - Add space after - if missing
+ * - Add empty lines around headings
+ * - Add empty lines around lists
+ */
+function fixAIMarkdownIssues(content: string): string {
+  let lines = content.split("\n");
+  const result: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Fix heading: ##标题 -> ## 标题
+    if (/^#{1,6}[^\s#]/.test(trimmed)) {
+      const fixed = trimmed.replace(/^(#{1,6})([^\s#])/, "$1 $2");
+      // Add empty line before heading if previous line is not empty
+      if (i > 0 && result.length > 0 && result[result.length - 1].trim() !== "") {
+        result.push("");
+      }
+      result.push(fixed);
+      // Add empty line after heading if next line is not empty
+      if (i < lines.length - 1 && lines[i + 1].trim() !== "") {
+        result.push("");
+      }
+      continue;
+    }
+
+    // Fix list item: -项目 -> - 项目
+    if (/^-[^\s-]/.test(trimmed)) {
+      const fixed = trimmed.replace(/^(-)([^\s-])/, "$1 $2");
+      // Add empty line before list if previous line is not empty and not a list
+      if (i > 0 && result.length > 0 && result[result.length - 1].trim() !== "" && !/^-\s/.test(result[result.length - 1])) {
+        result.push("");
+      }
+      result.push(fixed);
+      // Check if next line is not a list item, add empty line
+      if (i < lines.length - 1 && lines[i + 1].trim() !== "" && !/^-/.test(lines[i + 1].trim())) {
+        result.push("");
+      }
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
+}
+
+/**
  * Extract plain text from markdown for analysis
  */
 function stripDisplaySyntax(value: string): string {
@@ -129,6 +180,7 @@ function removeEmptyMarkdownTables(content: string): string {
 /**
  * Normalize markdown content for display
  * - Remove invisible characters
+ * - Fix AI formatting issues (missing spaces, missing empty lines)
  * - Clean up empty HTML blocks
  * - Remove empty tables
  * - Normalize line breaks
@@ -136,12 +188,17 @@ function removeEmptyMarkdownTables(content: string): string {
 export function normalizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
 
-  const normalized = stripInvisibleCharacters(String(content))
+  // Step 1: Fix AI formatting issues
+  const fixed = fixAIMarkdownIssues(content);
+
+  // Step 2: Standard normalization
+  const normalized = stripInvisibleCharacters(String(fixed))
     .replace(/\r\n/g, "\n")
     .replace(EMPTY_HTML_BLOCK_REGEX, "")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/^\n+|\n+$/g, "");
 
+  // Step 3: Remove empty tables
   const cleaned = removeEmptyMarkdownTables(normalized).replace(/\n{3,}/g, "\n\n");
 
   return cleaned;
@@ -162,3 +219,4 @@ export function hasVisibleMarkdownContent(content: string): boolean {
 
   return stripInvisibleCharacters(withoutMarkup).trim().length > 0;
 }
+
