@@ -415,7 +415,16 @@ function linkifyCitationsOutsideCode(content: string): string {
 export function normalizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
 
-  const normalized = stripInvisibleCharacters(String(content))
+  // Step 1: Fix AI formatting issues - add newlines where missing
+  let fixed = String(content);
+
+  // Fix: ##标题 -> \n## 标题\n (add newlines and space)
+  fixed = fixed.replace(/(#{1,6})([^\s#\n])/g, "\n$1 $2\n");
+
+  // Fix: -列表项 -> \n- 列表项 (add newline and space before list items)
+  fixed = fixed.replace(/([^\n])(-)([^\s-])/g, "$1\n$2 $3");
+
+  const normalized = stripInvisibleCharacters(fixed)
     .replace(/\r\n/g, "\n")
     .replace(EMPTY_DETAILS_REGEX, "")
     .replace(EMPTY_SUMMARY_REGEX, "")
