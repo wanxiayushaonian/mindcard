@@ -104,8 +104,6 @@ async def segment_content(req: TextRequest, user: User = Depends(get_current_use
     )
 
     # Parse JSON from response
-    import re
-
     json_str = raw.strip()
     fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", json_str, re.DOTALL | re.IGNORECASE)
     if fence_match:

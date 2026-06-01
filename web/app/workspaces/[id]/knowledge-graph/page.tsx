@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import {
@@ -23,12 +23,27 @@ import {
   type GraphStats,
 } from "@/lib/api";
 
-const ENTITY_COLORS: Record<string, string> = {
-  concept: "#3b82f6",
-  tool: "#22c55e",
-  method: "#f97316",
-  model: "#a855f7",
-};
+// Generate consistent color for entity type using hash
+function getEntityColor(type: string): string {
+  const colors = [
+    "#3b82f6", // blue
+    "#22c55e", // green
+    "#f97316", // orange
+    "#a855f7", // purple
+    "#ef4444", // red
+    "#06b6d4", // cyan
+    "#f59e0b", // amber
+    "#ec4899", // pink
+    "#8b5cf6", // violet
+    "#14b8a6", // teal
+  ];
+
+  let hash = 0;
+  for (let i = 0; i < type.length; i++) {
+    hash = type.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
 
 interface SimNode extends SimulationNodeDatum {
   id: string;
@@ -65,6 +80,20 @@ export default function KnowledgeGraphPage() {
     () => graphApi.getStats(workspaceId)
   );
 
+  // Collect all unique entity types with counts
+  const entityTypes = useMemo(() => {
+    if (!entities) return [];
+    const typeCounts = new Map<string, number>();
+    entities.forEach((e) => {
+      if (e.entity_type) {
+        typeCounts.set(e.entity_type, (typeCounts.get(e.entity_type) || 0) + 1);
+      }
+    });
+    return Array.from(typeCounts.entries())
+      .sort((a, b) => b[1] - a[1]) // Sort by count descending
+      .map(([type, count]) => ({ type, count }));
+  }, [entities]);
+
   const handleTriggerTraining = async () => {
     if (!workspaceId || isTraining) return;
 
@@ -81,7 +110,7 @@ export default function KnowledgeGraphPage() {
   };
 
   useEffect(() => {
-    if (!entities || !relations || !svgRef.current) return;
+    if (!filteredEntities || !relations || !svgRef.current) return;
 
     const svg = select(svgRef.current);
     svg.selectAll("*").remove();
@@ -95,11 +124,11 @@ export default function KnowledgeGraphPage() {
     const textSecondaryColor = computedStyle.getPropertyValue('--color-text-secondary').trim() || '#8E99A4';
     const borderColor = computedStyle.getPropertyValue('--color-border').trim() || '#E5E7EB';
 
-    const nodes: SimNode[] = entities.map((e) => ({
+    const nodes: SimNode[] = filteredEntities.map((e) => ({
       id: e.id,
       name: e.name,
-      type: e.entity_type || "concept",
-      color: ENTITY_COLORS[e.entity_type || "concept"] || "#6b7280",
+      type: e.entity_type || "unknown",
+      color: e.entity_type ? getEntityColor(e.entity_type) : "#6b7280",
     }));
 
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
@@ -234,14 +263,14 @@ export default function KnowledgeGraphPage() {
     <div className="flex h-[calc(100vh-56px)]">
       <div className="flex-1 relative bg-bg">
         <div className="absolute top-4 left-4 z-10 bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-3 text-sm shadow-sm">
-          <div className="flex gap-3 mb-2">
-            {Object.entries(ENTITY_COLORS).map(([type, color]) => (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {entityTypes.map(({ type, count }) => (
               <span key={type} className="flex items-center gap-1 text-text">
                 <span
                   className="w-3 h-3 rounded-full inline-block"
-                  style={{ backgroundColor: color }}
+                  style={{ backgroundColor: getEntityColor(type) }}
                 />
-                {type}
+                {type} ({count})
               </span>
             ))}
           </div>

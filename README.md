@@ -96,7 +96,7 @@ cp .env.example .env
 
 # 3. 启动数据库
 docker compose up -d   # PostgreSQL（含 pgvector 扩展）
-
+docker compose up -d postgres redis
 # 4. 数据库迁移
 uv run alembic upgrade head
 

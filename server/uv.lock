@@ -1158,6 +1158,7 @@ dependencies = [
     { name = "ddgs" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "networkx" },
     { name = "pgvector" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -1165,6 +1166,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "sentence-transformers" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "torch" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -1185,6 +1187,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
+    { name = "networkx", specifier = ">=3.1" },
     { name = "pgvector", specifier = ">=0.3.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
@@ -1195,6 +1198,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
     { name = "sentence-transformers", specifier = ">=3.3.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
+    { name = "torch", specifier = ">=2.0.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 provides-extras = ["dev"]

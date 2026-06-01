@@ -15,6 +15,7 @@ from app.utils.auth import (
     hash_password,
     verify_password,
 )
+from app.utils.rate_limit import RateLimitByIP, auth_limiter
 from app.utils.wechat import (
     code_to_openid,
     exchange_web_code,
@@ -95,7 +96,11 @@ class UserMeResponse(BaseModel):
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(
+    req: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(RateLimitByIP(auth_limiter)),
+):
     """Register a new user with username and password."""
     existing = await db.execute(select(User).where(User.username == req.username))
     if existing.scalar_one_or_none():
@@ -115,7 +120,11 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    req: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(RateLimitByIP(auth_limiter)),
+):
     """Login with username and password."""
     result = await db.execute(select(User).where(User.username == req.username))
     user = result.scalar_one_or_none()
@@ -129,7 +138,11 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/wechat-login", response_model=TokenResponse)
-async def wechat_login(req: WeChatLoginRequest, db: AsyncSession = Depends(get_db)):
+async def wechat_login(
+    req: WeChatLoginRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(RateLimitByIP(auth_limiter)),
+):
     """WeChat mini-program login: exchange code for JWT."""
     try:
         wx_data = await code_to_openid(req.code)
@@ -272,6 +285,8 @@ async def get_me(user: User = Depends(get_current_user)):
 @router.post("/dev-login", response_model=TokenResponse)
 async def dev_login(req: DevLoginRequest, db: AsyncSession = Depends(get_db)):
     """Development login: create or reuse a dev user, no WeChat required."""
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not found")
     import hashlib
 
     dev_openid = "dev_" + hashlib.md5(req.nickname.encode()).hexdigest()[:12]

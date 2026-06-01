@@ -98,6 +98,8 @@ async def update_workspace(
     membership = await get_workspace_membership(ws_id, user, db)
     require_owner(membership)
     ws = await db.get(Workspace, ws_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(ws, field, value)
     await db.commit()
@@ -114,6 +116,8 @@ async def delete_workspace(
     membership = await get_workspace_membership(ws_id, user, db)
     require_owner(membership)
     ws = await db.get(Workspace, ws_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
     await db.delete(ws)
     await db.commit()
     return {"ok": True}
@@ -155,6 +159,8 @@ async def generate_invite_code(
     membership = await get_workspace_membership(ws_id, user, db)
     require_role(membership, "owner", "admin")
     ws = await db.get(Workspace, ws_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
 
     chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     code = "".join(random.choice(chars) for _ in range(6))

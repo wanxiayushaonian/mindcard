@@ -88,6 +88,14 @@ async def _generate_embedding(card_id: uuid.UUID):
             embedding = await embedding_service.embed(text)
             db_card.embedding = embedding
             await db.commit()
+            # Assign to topic
+            from app.services.topic import topic_service
+            await topic_service.assign_card_to_topic(db, db_card)
+            await db.commit()
+            # Auto-classify into topology tree
+            from app.services.topology import topology_service
+            await topology_service.assign_card_to_node(db, db_card)
+            await db.commit()
             logger.info("Embedding saved for card %s (dim=%d)", card_id, len(embedding))
     except Exception as e:
         logger.error("Embedding generation failed for card %s: %s", card_id, e, exc_info=True)
