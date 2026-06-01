@@ -59,6 +59,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const messagesRef = useRef<Message[]>([]);
   const [pendingAutoSend, setPendingAutoSend] = useState<string | null>(null);
   const [chatPath, setChatPath] = useState<ChatPathNode[]>([]);
+  const isComposingRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => { chatIdRef.current = chatId; }, [chatId]);
@@ -762,78 +763,106 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input */}
+          {/* Input - DeepTutor-style composer */}
           <div className="border-t border-border bg-surface px-3 py-2.5">
-            <div className="mb-2 flex items-center gap-2">
-              <Globe size={12} className={webSearch ? "text-primary-dark" : "text-text-secondary"} />
-              <span className={`text-xs ${webSearch ? "text-primary-dark" : "text-text-secondary"}`}>联网搜索</span>
-              <button
-                onClick={() => setWebSearch(!webSearch)}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  webSearch ? "bg-primary" : "bg-gray-300"
-                }`}
-                title={webSearch ? "关闭网页搜索" : "开启网页搜索"}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                    webSearch ? "translate-x-4" : "translate-x-0.5"
-                  }`}
+            <div className="rounded-2xl border border-border bg-card shadow-sm">
+              {/* Textarea area */}
+              <div className="px-3 pt-2.5 pb-1">
+                <textarea
+                  ref={(el) => {
+                    if (el) {
+                      el.style.height = "28px";
+                      const next = Math.min(Math.max(el.scrollHeight, 28), 160);
+                      el.style.height = `${next}px`;
+                      el.style.overflowY = el.scrollHeight > 160 ? "auto" : "hidden";
+                    }
+                  }}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !isComposingRef.current) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  onCompositionStart={() => { isComposingRef.current = true; }}
+                  onCompositionEnd={() => {
+                    setTimeout(() => { isComposingRef.current = false; }, 0);
+                  }}
+                  placeholder={
+                    forkMode
+                      ? "你想深入了解什么？输入后回车创建分支..."
+                      : mode === "rag"
+                        ? "问一个关于灵感的问题..."
+                        : "输入问题..."
+                  }
+                  className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-text-secondary"
+                  style={{ minHeight: 28, maxHeight: 160, transition: "height 0.15s ease-out" }}
+                  rows={1}
+                  disabled={isStreaming}
                 />
-              </button>
-              <div className="ml-auto">
-                <button
-                  onClick={() => setForkMode(!forkMode)}
-                  className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition ${
-                    forkMode
-                      ? "bg-green-100 text-green-700"
-                      : "text-text-secondary hover:bg-gray-100"
-                  }`}
-                  title="创建知识分支"
-                >
-                  <GitBranch size={10} />
-                  分叉
-                </button>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                placeholder={
-                  forkMode
-                    ? "你想深入了解什么？输入后回车创建分支..."
-                    : mode === "rag"
-                      ? "问一个关于灵感的问题..."
-                      : "输入问题..."
-                }
-                className={`flex-1 rounded-xl bg-gray-100 px-3 py-2 text-sm outline-none focus:ring-2 ${
-                  forkMode ? "focus:ring-green-300" : "focus:ring-primary/30"
-                }`}
-                disabled={isStreaming}
-              />
-              {isStreaming ? (
-                <button
-                  onClick={stopStream}
-                  className="flex items-center justify-center rounded-xl bg-danger px-3 py-2 text-white transition hover:bg-red-600"
-                  title="停止"
-                >
-                  <Square size={14} />
-                </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim()}
-                  className={`flex items-center justify-center rounded-xl px-3 py-2 text-white transition disabled:opacity-50 ${
-                    forkMode
-                      ? "bg-green-500 hover:bg-green-600"
-                      : "bg-primary hover:bg-primary-dark"
-                  }`}
-                  title={forkMode ? "创建分支并发送" : "发送"}
-                >
-                  {forkMode ? <GitBranch size={14} /> : <Send size={14} />}
-                </button>
-              )}
+
+              {/* Toolbar */}
+              <div className="border-t border-border/35 px-2.5 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  {/* Web search toggle */}
+                  <button
+                    onClick={() => setWebSearch(!webSearch)}
+                    className={`inline-flex shrink-0 items-center gap-1 py-1 px-1.5 text-[11px] font-medium transition-colors ${
+                      webSearch ? "text-primary" : "text-text-secondary hover:text-foreground"
+                    }`}
+                    title={webSearch ? "关闭网页搜索" : "开启网页搜索"}
+                  >
+                    <Globe size={12} />
+                    联网
+                  </button>
+
+                  <div className="h-3.5 w-px bg-border/30" />
+
+                  {/* Fork toggle */}
+                  <button
+                    onClick={() => setForkMode(!forkMode)}
+                    className={`inline-flex shrink-0 items-center gap-1 py-1 px-1.5 text-[11px] font-medium transition-colors ${
+                      forkMode
+                        ? "text-green-600"
+                        : "text-text-secondary hover:text-foreground"
+                    }`}
+                    title="创建知识分支"
+                  >
+                    <GitBranch size={12} />
+                    分叉
+                  </button>
+
+                  {/* Spacer */}
+                  <div className="flex-1" />
+
+                  {/* Send / Stop button */}
+                  {isStreaming ? (
+                    <button
+                      onClick={stopStream}
+                      className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-sm transition hover:bg-primary-dark"
+                      title="停止生成"
+                    >
+                      <span className="pointer-events-none absolute inset-0 rounded-full border-[1.5px] border-white/30 border-t-white/85 animate-spin opacity-90 transition-opacity group-hover:opacity-40" />
+                      <Square size={8} strokeWidth={2.5} className="relative z-10 fill-current" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim()}
+                      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition disabled:opacity-25 disabled:shadow-none ${
+                        forkMode
+                          ? "bg-green-500 hover:bg-green-600"
+                          : "bg-primary hover:bg-primary-dark"
+                      }`}
+                      title={forkMode ? "创建分支并发送" : "发送"}
+                    >
+                      <Send size={13} strokeWidth={2.5} className="-rotate-0 translate-x-[0.5px]" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
