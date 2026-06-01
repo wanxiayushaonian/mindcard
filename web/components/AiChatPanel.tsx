@@ -7,6 +7,7 @@ import { ragApi, chatApi, aiApi, cardApi, workspaceApi, settingsApi, topologyApi
 import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import AssistantResponse from "@/components/AssistantResponse";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch, ChevronRight } from "lucide-react";
 
@@ -650,10 +651,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                       </div>
                     ) : (
                       <>
-                        <MarkdownContent
+                        <AssistantResponse
                           content={msg.content || " "}
-                          streaming={isStreaming && i === messages.length - 1}
-                          onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
+                          className="text-[14px] leading-[1.75]"
                         />
                         {msg.status === "error" && (
                           <p className="mt-1 text-xs text-amber-600">回答中断，内容可能不完整</p>
