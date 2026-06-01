@@ -408,6 +408,48 @@ async def fork_chat(
     )
 
 
+@router.get("/{chat_id}/path")
+async def get_chat_path(
+    chat_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the topology path from root to this chat's node"""
+    # Get chat
+    result = await db.execute(
+        select(AiChat).where(AiChat.id == chat_id, AiChat.user_id == current_user.id)
+    )
+    chat = result.scalar_one_or_none()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if not chat.tree_node_id:
+        return {"path": []}
+
+    # Build path from node to root
+    path = []
+    current_node_id = chat.tree_node_id
+
+    while current_node_id:
+        node_result = await db.execute(
+            select(TreeNode).where(TreeNode.id == current_node_id)
+        )
+        node = node_result.scalar_one_or_none()
+        if not node:
+            break
+
+        path.insert(0, {
+            "node_id": str(node.id),
+            "title": node.title,
+            "chat_id": str(node.chat_id) if node.chat_id else None,
+            "node_type": node.node_type
+        })
+
+        current_node_id = node.parent_id
+
+    return {"path": path}
+
+
 @router.post("/{chat_id}/summarize")
 async def summarize_chat(
     chat_id: str,
