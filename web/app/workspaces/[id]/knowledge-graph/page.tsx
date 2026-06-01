@@ -110,7 +110,7 @@ export default function KnowledgeGraphPage() {
   };
 
   useEffect(() => {
-    if (!filteredEntities || !relations || !svgRef.current) return;
+    if (!entities || !relations || !svgRef.current) return;
 
     const svg = select(svgRef.current);
     svg.selectAll("*").remove();
@@ -124,7 +124,7 @@ export default function KnowledgeGraphPage() {
     const textSecondaryColor = computedStyle.getPropertyValue('--color-text-secondary').trim() || '#8E99A4';
     const borderColor = computedStyle.getPropertyValue('--color-border').trim() || '#E5E7EB';
 
-    const nodes: SimNode[] = filteredEntities.map((e) => ({
+    const nodes: SimNode[] = entities.map((e) => ({
       id: e.id,
       name: e.name,
       type: e.entity_type || "unknown",
