@@ -39,14 +39,14 @@ class CardResponse(BaseModel):
     emotion_tag: str
     is_favorite: bool
     is_temp: bool
-    parent_card_ids: list[str] = []
+    parent_card_ids: list[uuid.UUID] = []
     created_at: datetime
     updated_at: datetime | None
 
     model_config = {"from_attributes": True}
 
     @field_serializer('parent_card_ids')
-    def serialize_parent_card_ids(self, value: list[uuid.UUID] | list[str]) -> list[str]:
+    def serialize_parent_card_ids(self, value: list[uuid.UUID]) -> list[str]:
         """Convert UUID objects to strings for JSON serialization."""
         return [str(v) for v in value]
 
