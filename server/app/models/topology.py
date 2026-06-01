@@ -1,11 +1,17 @@
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.config import settings
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.chat import AiChat
 
 
 class TreeNode(Base):
@@ -18,12 +24,18 @@ class TreeNode(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tree_nodes.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    chat_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ai_chats.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    chat: Mapped["AiChat | None"] = relationship("AiChat", foreign_keys=[chat_id])
+    chats: Mapped[list["AiChat"]] = relationship("AiChat", foreign_keys="AiChat.tree_node_id", back_populates="tree_node")
     node_type: Mapped[str] = mapped_column(String(20), default="branch")  # root | branch | leaf
     title: Mapped[str] = mapped_column(String(256), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     summary: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | completed | archived
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)

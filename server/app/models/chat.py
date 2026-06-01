@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.topology import TreeNode
 
 
 class AiChat(Base):
@@ -25,6 +29,10 @@ class AiChat(Base):
     parent_chat_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ai_chats.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    tree_node_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tree_nodes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    tree_node: Mapped["TreeNode | None"] = relationship("TreeNode", foreign_keys=[tree_node_id], back_populates="chats")
     mode: Mapped[str] = mapped_column(String(8), default="rag")  # 'rag' | 'chat'
     title: Mapped[str] = mapped_column(String(128), default="")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
