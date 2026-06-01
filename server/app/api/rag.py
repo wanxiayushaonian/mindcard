@@ -55,7 +55,7 @@ async def rag_ask(
     ws_ids = await _resolve_workspace_ids(req.workspace_id, user, db)
     result = await rag_service.ask(
         db, req.question, ws_ids, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
-        history=req.history or None,
+        history=req.history or None, use_graph=req.use_graph,
     )
     source_cards = [
         CardSummary.model_validate(s) if isinstance(s, dict) else s

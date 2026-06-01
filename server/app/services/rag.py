@@ -36,11 +36,31 @@ class RAGService:
         top_k: int = 5,
         web_search: bool = False,
         history: list[dict[str, str]] | None = None,
+        use_graph: bool = True,
     ) -> dict:
         """Answer a question using RAG over workspace cards."""
         # 1. Retrieve relevant cards
         if card_id:
             context_cards = await self._find_similar_cards(db, card_id, limit=top_k)
+        elif use_graph and workspace_ids and len(workspace_ids) == 1:
+            # Try Graph RAG first for single workspace queries
+            try:
+                from app.services.gnn_retriever import graph_retriever
+                graph_result = await graph_retriever.retrieve(
+                    question, workspace_ids[0], db, k=top_k
+                )
+                context_cards = [c.id for c in graph_result.cards]
+                # Fetch full card objects
+                if context_cards:
+                    stmt = select(Card).where(Card.id.in_(context_cards))
+                    result = await db.execute(stmt)
+                    context_cards = list(result.scalars().all())
+                else:
+                    context_cards = []
+            except Exception as e:
+                logger.warning("Graph retrieval failed, falling back to hybrid search: %s", e)
+                scored = await search_service.hybrid_search(db, question, workspace_ids, limit=top_k)
+                context_cards = [sc.card for sc in scored]
         else:
             scored = await search_service.hybrid_search(db, question, workspace_ids, limit=top_k)
             context_cards = [sc.card for sc in scored]

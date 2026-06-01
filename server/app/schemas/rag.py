@@ -9,6 +9,7 @@ class RAGRequest(BaseModel):
     card_id: str | None = None  # Optional: use a specific card as context center
     top_k: int = 5
     web_search: bool = False  # Enable web search for supplementary context
+    use_graph: bool = True  # Enable Graph RAG (falls back to hybrid search if unavailable)
     history: list[dict[str, str]] = []  # [{"role": "user"/"assistant", "content": "..."}]
 
 
