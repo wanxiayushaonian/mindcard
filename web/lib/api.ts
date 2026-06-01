@@ -83,11 +83,12 @@ export function streamRequest(
         buffer = lines.pop() || "";
         for (const line of lines) {
           if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") {
+            const data = line.slice(6);
+            if (data.trim() === "[DONE]") {
               onDone();
               return;
             }
+            // Don't trim the data - preserve whitespace and newlines
             onChunk(data);
           }
         }
