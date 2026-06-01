@@ -412,10 +412,127 @@ function linkifyCitationsOutsideCode(content: string): string {
   return fenced.restore(inline.restore(linkifyCitations(inline.masked)));
 }
 
+/**
+ * Smart markdown formatting: fix common AI output issues without breaking normal text
+ * Uses token-based approach instead of regex to avoid splitting words
+ */
+function smartFormatMarkdown(content: string): string {
+  if (!content) return "";
+
+  const lines: string[] = [];
+  let currentLine = "";
+  let i = 0;
+
+  while (i < content.length) {
+    const char = content[i];
+    const nextChar = content[i + 1];
+    const prevChar = i > 0 ? content[i - 1] : "";
+
+    // Check if we're at a heading marker
+    if (char === "#" && (i === 0 || prevChar === "\n" || currentLine === "")) {
+      // Count consecutive #
+      let hashCount = 0;
+      let j = i;
+      while (j < content.length && content[j] === "#" && hashCount < 6) {
+        hashCount++;
+        j++;
+      }
+
+      // Check if there's content after the hashes
+      if (j < content.length && content[j] !== "\n") {
+        const hashes = "#".repeat(hashCount);
+
+        // Add blank line before heading if previous line has content
+        if (lines.length > 0 && lines[lines.length - 1].trim() !== "") {
+          lines.push("");
+        }
+
+        // Add space after # if missing
+        if (content[j] !== " ") {
+          currentLine = hashes + " ";
+        } else {
+          currentLine = hashes + " ";
+          j++; // Skip the existing space
+        }
+
+        i = j;
+        continue;
+      }
+    }
+
+    // Check if we're at a list marker
+    if (char === "-" && (i === 0 || prevChar === "\n" || currentLine.trim() === "")) {
+      // Check if next char is not a space and not a newline (malformed list)
+      if (nextChar && nextChar !== " " && nextChar !== "\n" && nextChar !== "-") {
+        // Add blank line before list if previous line has content
+        if (lines.length > 0 && lines[lines.length - 1].trim() !== "" && !lines[lines.length - 1].startsWith("-")) {
+          lines.push("");
+        }
+
+        currentLine = "- ";
+        i++;
+        continue;
+      }
+    }
+
+    // Handle newlines
+    if (char === "\n") {
+      const trimmedLine = currentLine.trim();
+
+      // If current line is a heading, ensure blank line after
+      if (trimmedLine.match(/^#{1,6}\s/)) {
+        lines.push(currentLine);
+        // Check if next line is not blank
+        if (i + 1 < content.length && content[i + 1] !== "\n") {
+          lines.push(""); // Add blank line after heading
+        }
+        currentLine = "";
+        i++;
+        continue;
+      }
+
+      // If current line is a list item, check if we need blank line after list
+      if (trimmedLine.startsWith("-")) {
+        lines.push(currentLine);
+        // Check if next line is not a list item and not blank
+        const nextLineStart = content.substring(i + 1, i + 10);
+        if (nextLineStart && !nextLineStart.match(/^\s*-/) && !nextLineStart.match(/^\s*$/)) {
+          // Next line is not a list item, add blank line after list
+          if (i + 1 < content.length && content[i + 1] !== "\n") {
+            lines.push(""); // Add blank line after list
+          }
+        }
+        currentLine = "";
+        i++;
+        continue;
+      }
+
+      lines.push(currentLine);
+      currentLine = "";
+      i++;
+      continue;
+    }
+
+    // Regular character
+    currentLine += char;
+    i++;
+  }
+
+  // Don't forget the last line
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.join("\n");
+}
+
 export function normalizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
 
-  const normalized = stripInvisibleCharacters(content)
+  // First apply smart formatting to fix AI output issues
+  const formatted = smartFormatMarkdown(content);
+
+  const normalized = stripInvisibleCharacters(formatted)
     .replace(/\r\n/g, "\n")
     .replace(EMPTY_DETAILS_REGEX, "")
     .replace(EMPTY_SUMMARY_REGEX, "")
