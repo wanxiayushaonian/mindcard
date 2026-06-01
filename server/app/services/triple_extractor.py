@@ -23,19 +23,19 @@ class ExtractedTriple:
 
 class TripleExtractor:
     async def extract(
-        self, card_content: str, workspace_id: uuid.UUID
+        self, card_content: str, workspace_id: uuid.UUID, language: str = "zh"
     ) -> tuple[list[ExtractedEntity], list[ExtractedTriple]]:
-        entities = await self._extract_entities(card_content)
+        entities = await self._extract_entities(card_content, language)
         if not entities:
             return [], []
-        triples = await self._extract_relations(entities, card_content)
+        triples = await self._extract_relations(entities, card_content, language)
         return entities, triples
 
-    async def _extract_entities(self, text: str) -> list[ExtractedEntity]:
+    async def _extract_entities(self, text: str, language: str = "zh") -> list[ExtractedEntity]:
         try:
             from app.services.graph_evolution import graph_evolution
 
-            system_prompt = graph_evolution.build_few_shot_ner_prompt()
+            system_prompt = graph_evolution.build_few_shot_ner_prompt(language)
             user_prompt = f"Extract entities from:\n\n{text[:3000]}"
             response = await llm_service.complete_simple(
                 system_prompt=system_prompt,
@@ -64,12 +64,12 @@ class TripleExtractor:
             return []
 
     async def _extract_relations(
-        self, entities: list[ExtractedEntity], text: str
+        self, entities: list[ExtractedEntity], text: str, language: str = "zh"
     ) -> list[ExtractedTriple]:
         try:
             from app.services.graph_evolution import graph_evolution
 
-            system_prompt = graph_evolution.build_few_shot_re_prompt()
+            system_prompt = graph_evolution.build_few_shot_re_prompt(language)
             entity_list = ", ".join(
                 f'"{e.name}" ({e.entity_type})' if e.entity_type else f'"{e.name}"'
                 for e in entities

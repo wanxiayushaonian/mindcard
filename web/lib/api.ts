@@ -610,6 +610,12 @@ export const settingsApi = {
       method: "PUT",
       body: JSON.stringify({ provider, model }),
     }),
+  getExtractionLanguage: () => request<{ language: "zh" | "en" }>("/api/settings/extraction-language"),
+  updateExtractionLanguage: (language: "zh" | "en") =>
+    request<{ ok: boolean; language: string }>("/api/settings/extraction-language", {
+      method: "PUT",
+      body: JSON.stringify({ language }),
+    }),
 };
 
 // --- Topology Tree ---

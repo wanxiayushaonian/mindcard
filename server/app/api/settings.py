@@ -43,6 +43,10 @@ class SwitchProviderRequest(BaseModel):
     model: str | None = None
 
 
+class UpdateExtractionLanguageRequest(BaseModel):
+    language: str  # 'zh' | 'en'
+
+
 # ── Helpers ──
 
 
@@ -159,3 +163,39 @@ async def list_models_for_provider(provider_name: str):
         return {"models": remote_models, "source": "remote"}
 
     return {"models": spec.models, "source": "static"}
+
+
+@router.put("/extraction-language")
+async def update_extraction_language(
+    req: UpdateExtractionLanguageRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the user's extraction language preference for knowledge graph."""
+    if req.language not in ["zh", "en"]:
+        raise HTTPException(400, "Language must be 'zh' or 'en'")
+
+    result = await db.execute(select(UserSetting).where(UserSetting.user_id == user.id))
+    user_setting = result.scalar_one_or_none()
+
+    if not user_setting:
+        user_setting = UserSetting(user_id=user.id, extraction_language=req.language)
+        db.add(user_setting)
+    else:
+        user_setting.extraction_language = req.language
+
+    await db.commit()
+    return {"ok": True, "language": req.language}
+
+
+@router.get("/extraction-language")
+async def get_extraction_language(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the user's extraction language preference."""
+    result = await db.execute(select(UserSetting).where(UserSetting.user_id == user.id))
+    user_setting = result.scalar_one_or_none()
+
+    language = user_setting.extraction_language if user_setting else "zh"
+    return {"language": language}

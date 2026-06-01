@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.card import Card, CardRelation
 from app.models.chat import AiChat
-from app.models.user import User
+from app.models.user import User, UserSetting
 from app.schemas.card import CardCreate, CardListResponse, CardRelationCreate, CardResponse, CardUpdate
 from app.services.embedding import embedding_service
 from app.utils.activity import create_activity
@@ -49,8 +49,15 @@ async def _generate_embedding(card_id: UUID, default_node_id: UUID | None = None
                 from app.services.triple_extractor import triple_extractor
                 from app.services.entity_linker import EntityLinker
 
+                # Get user's extraction language preference
+                user_setting_result = await db.execute(
+                    select(UserSetting).where(UserSetting.user_id == user.id)
+                )
+                user_setting = user_setting_result.scalar_one_or_none()
+                extraction_language = user_setting.extraction_language if user_setting else "zh"
+
                 entities, triples = await triple_extractor.extract(
-                    db_card.content, db_card.workspace_id
+                    db_card.content, db_card.workspace_id, extraction_language
                 )
                 if entities and triples:
                     linker = EntityLinker(db)
