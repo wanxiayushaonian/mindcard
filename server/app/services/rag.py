@@ -437,8 +437,11 @@ Respond in JSON format:
                     ],
                 }
 
-        # Build enhanced system prompt with entity/topology context
-        system_parts = ["""你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
+        # Build enhanced system prompt based on retrieval level
+        if level == RetrievalLevel.FREE:
+            system_parts = [MARKDOWN_SYSTEM_PROMPT]
+        else:
+            system_parts = ["""你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
 # ⚠️ 关键要求：必须输出标准Markdown格式
 
@@ -491,7 +494,8 @@ Respond in JSON format:
             system_parts.append(entity_ctx)
         if topo_ctx:
             system_parts.append(topo_ctx)
-        system_parts.append(f"\n相关灵感卡片：\n{context}")
+        if context:
+            system_parts.append(f"\n相关灵感卡片：\n{context}")
         if search_context:
             system_parts.append(search_context)
 
