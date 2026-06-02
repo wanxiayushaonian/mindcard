@@ -11,6 +11,7 @@ export type StreamEventType =
   | "content"
   | "sources"
   | "web_search_results"
+  | "auto_fork"
   | "done"
   | "error"
   | "cancelled"
@@ -21,6 +22,8 @@ export interface StreamEvent {
   content?: string;
   results?: any[];
   source_cards?: any[];
+  node_id?: string;
+  title?: string;
   metadata?: Record<string, unknown>;
 }
 

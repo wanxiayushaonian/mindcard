@@ -132,6 +132,32 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           };
           return updated;
         });
+      } else if (event.type === "auto_fork" && event.node_id) {
+        // Auto-detected topic drift — insert lightweight fork divider
+        const forkId = `auto-${Date.now()}`;
+        const title = event.title || "话题偏移";
+        const meta: Omit<ForkMetaEntry, "msgId"> = {
+          title,
+          nodeId: event.node_id,
+          collapsed: false,
+          completed: false,
+          auto: true,
+        };
+        setMessages((prev) => [
+          ...prev,
+          { role: "fork-divider" as const, content: encodeForkContent(meta), forkId },
+          { role: "assistant" as const, content: "" },
+        ]);
+        setForkMeta((prev) => ({ ...prev, [forkId]: { ...meta, completed: false } }));
+        activeForkIdRef.current = forkId;
+        // Persist divider to backend
+        if (chatIdRef.current) {
+          chatApi.addMessage(chatIdRef.current, "fork-divider", encodeForkContent(meta), undefined, forkId)
+            .then((saved) => {
+              setForkMeta((p) => ({ ...p, [forkId]: { ...p[forkId], msgId: saved.id } }));
+            })
+            .catch((e) => console.error("Failed to save auto-fork divider:", e));
+        }
       } else if (event.type === "done") {
         // Stream completed
         setMessages((prev) => {
