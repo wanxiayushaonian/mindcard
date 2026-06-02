@@ -24,6 +24,7 @@ async def _generate_embedding(card_id: UUID, default_node_id: UUID | None = None
     import logging
 
     logger = logging.getLogger(__name__)
+    logger.info("Starting embedding generation for card %s", card_id)
     try:
         from app.database import async_session
 
@@ -33,9 +34,11 @@ async def _generate_embedding(card_id: UUID, default_node_id: UUID | None = None
                 logger.warning("Card %s not found for embedding generation", card_id)
                 return
             text = embedding_service.card_to_text(db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag)
+            logger.info("Embedding card %s: text length=%d", card_id, len(text))
             embedding = await embedding_service.embed(text)
             db_card.embedding = embedding
             await db.commit()
+            logger.info("Embedding saved for card %s (dim=%d)", card_id, len(embedding))
             # Assign to topic
             from app.services.topic import topic_service
             await topic_service.assign_card_to_topic(db, db_card)
@@ -49,12 +52,8 @@ async def _generate_embedding(card_id: UUID, default_node_id: UUID | None = None
                 from app.services.triple_extractor import triple_extractor
                 from app.services.entity_linker import EntityLinker
 
-                # Get user's extraction language preference
-                user_setting_result = await db.execute(
-                    select(UserSetting).where(UserSetting.user_id == user.id)
-                )
-                user_setting = user_setting_result.scalar_one_or_none()
-                extraction_language = user_setting.extraction_language if user_setting else "zh"
+                # Default to Chinese extraction (no user context in background task)
+                extraction_language = "zh"
 
                 entities, triples = await triple_extractor.extract(
                     db_card.content, db_card.workspace_id, extraction_language

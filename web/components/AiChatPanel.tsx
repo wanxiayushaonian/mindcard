@@ -353,16 +353,13 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     try {
       let title = "";
       let keywords: string[] = [];
-      try {
-        const [titleRes, kwRes] = await Promise.all([
-          aiApi.generateTitle(blockText),
-          aiApi.extractKeywords(blockText),
-        ]);
-        title = titleRes.title || "";
-        keywords = kwRes.keywords || [];
-      } catch {
-        // LLM call failed
-      }
+      // Run independently so one failure doesn't kill the other
+      const [titleRes, kwRes] = await Promise.allSettled([
+        aiApi.generateTitle(blockText),
+        aiApi.extractKeywords(blockText),
+      ]);
+      if (titleRes.status === "fulfilled") title = titleRes.value.title || "";
+      if (kwRes.status === "fulfilled") keywords = kwRes.value.keywords || [];
       // Fallback if API returned empty
       if (!title) {
         const firstLine = blockText.split("\n").find((l) => l.trim()) || "";

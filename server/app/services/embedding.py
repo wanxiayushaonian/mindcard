@@ -22,17 +22,23 @@ class EmbeddingService:
     async def _embed_raw(self, texts: list[str]) -> list[list[float]]:
         """Call Ollama embed API and return raw embeddings."""
         client = self._get_client()
-        resp = await client.post(
-            f"{self._base_url}/api/embed",
-            json={"model": self._model, "input": texts},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["embeddings"]
+        try:
+            resp = await client.post(
+                f"{self._base_url}/api/embed",
+                json={"model": self._model, "input": texts},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["embeddings"]
+        except Exception as e:
+            logger.error("Ollama embed API failed (%s): %s", self._base_url, e)
+            raise
 
     async def embed(self, text: str) -> list[float]:
         """Generate embedding for a single text."""
+        logger.debug("Embedding text (length=%d) with model %s", len(text), self._model)
         embeddings = await self._embed_raw([text])
+        logger.debug("Embedding generated, dim=%d", len(embeddings[0]))
         return embeddings[0]
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
