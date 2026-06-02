@@ -615,15 +615,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                           chatId === chat.id ? "bg-primary/10 text-primary-dark" : "text-text"
                         }`}
                       >
-                        <span
-                          className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                            chat.mode === "rag"
-                              ? "bg-blue-100 text-blue-600"
-                              : "bg-green-100 text-green-600"
-                          }`}
-                        >
-                          {chat.mode === "rag" ? "知识" : "对话"}
-                        </span>
                         <span className="line-clamp-1 flex-1">{chat.title || "新对话"}</span>
                         {children.length > 0 && (
                           <span className="flex-shrink-0 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] text-green-600">
