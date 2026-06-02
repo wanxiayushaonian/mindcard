@@ -375,23 +375,49 @@ Respond in JSON format:
         top_k: int = 5,
         web_search: bool = False,
         history: list[dict[str, str]] | None = None,
+        retrieval_level: int | None = None,
+        chat_id: str | None = None,
     ) -> AsyncGenerator[str | dict, None]:
-        """Streaming RAG answer: retrieve cards, stream LLM, yield sources dict at end."""
-        # 1. Retrieve relevant cards
-        if card_id:
-            context_cards = await self._find_similar_cards(db, card_id, limit=top_k)
-        else:
-            scored = await search_service.hybrid_search(db, question, workspace_ids, limit=top_k)
-            context_cards = [sc.card for sc in scored]
+        """Streaming RAG answer: retrieve cards via RetrievalDispatcher, stream LLM, yield sources dict at end."""
+        from app.schemas.retrieval import RetrievalLevel
+        from app.services.retrieval_dispatcher import retrieval_dispatcher
 
-        if not context_cards:
+        # Determine retrieval level
+        if retrieval_level is not None:
+            level = RetrievalLevel(retrieval_level)
+        else:
+            # Default: GRAPH when workspace_ids provided, FREE otherwise
+            level = RetrievalLevel.GRAPH if workspace_ids else RetrievalLevel.FREE
+
+        ws_ids = [uuid.UUID(w) for w in workspace_ids] if workspace_ids else []
+
+        retrieval_result = await retrieval_dispatcher.dispatch(
+            question=question,
+            level=level,
+            workspace_ids=ws_ids,
+            db=db,
+            top_k=top_k,
+            card_id=card_id,
+            chat_id=chat_id,
+        )
+
+        context_cards = retrieval_result.cards
+
+        # Build entity and topology context strings
+        entity_ctx = retrieval_dispatcher.build_entity_context_string(retrieval_result)
+        topo_ctx = retrieval_dispatcher.build_topology_context_string(retrieval_result)
+
+        if not context_cards and level != RetrievalLevel.FREE:
             yield "没有找到相关的灵感卡片。"
             return
 
-        # 2. Build context
-        context = "\n\n".join(
-            f"【{c.title or 'Untitled'}】{c.content}" for c in context_cards
-        )
+        # Build context from cards
+        if context_cards:
+            context = "\n\n".join(
+                f"【{c.title or 'Untitled'}】{c.content}" for c in context_cards
+            )
+        else:
+            context = ""
 
         # 2.5 Optional web search - yield results immediately
         search_context = ""
@@ -410,7 +436,8 @@ Respond in JSON format:
                     ],
                 }
 
-        system_prompt = f"""你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
+        # Build enhanced system prompt with entity/topology context
+        system_parts = ["""你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
 # ⚠️ 关键要求：必须输出标准Markdown格式
 
@@ -457,11 +484,17 @@ Respond in JSON format:
 4. ✓ 每个列表项都单独一行
 5. ✓ 列表前后都有空行
 
-**记住：格式错误会让用户看到乱码般的文本！**
+**记住：格式错误会让用户看到乱码般的文本！**"""]
 
-相关灵感卡片：
-{context}
-{search_context}"""
+        if entity_ctx:
+            system_parts.append(entity_ctx)
+        if topo_ctx:
+            system_parts.append(topo_ctx)
+        system_parts.append(f"\n相关灵感卡片：\n{context}")
+        if search_context:
+            system_parts.append(search_context)
+
+        system_prompt = "\n\n".join(system_parts)
 
         # 3. Stream LLM response
         messages = [{"role": "system", "content": system_prompt}]

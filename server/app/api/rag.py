@@ -108,7 +108,7 @@ async def ask_stream(
         sources = []
         async for chunk in rag_service.ask_stream(
             db, req.question, ws_ids, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
-            history=req.history or None,
+            history=req.history or None, retrieval_level=req.retrieval_level, chat_id=req.chat_id,
         ):
             if isinstance(chunk, dict):
                 chunk_type = chunk.get("type", "")

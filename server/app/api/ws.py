@@ -104,6 +104,8 @@ async def chat_websocket(websocket: WebSocket):
         top_k: int,
         web_search: bool,
         history: list[dict[str, str]] | None,
+        retrieval_level: int | None = None,
+        chat_id: str | None = None,
     ):
         """Handle RAG query."""
         try:
@@ -115,6 +117,8 @@ async def chat_websocket(websocket: WebSocket):
                 top_k=top_k,
                 web_search=web_search,
                 history=history,
+                retrieval_level=retrieval_level,
+                chat_id=chat_id,
             ):
                 if isinstance(chunk, dict):
                     # Sources, web search results, or other metadata
@@ -170,9 +174,11 @@ async def chat_websocket(websocket: WebSocket):
                     top_k = msg.get("top_k", 5)
                     web_search = msg.get("web_search", False)
                     history = msg.get("history")
+                    retrieval_level = msg.get("retrieval_level")
+                    chat_id = msg.get("chat_id")
 
                     current_task = asyncio.create_task(
-                        handle_rag(db, question, workspace_ids, card_id, top_k, web_search, history)
+                        handle_rag(db, question, workspace_ids, card_id, top_k, web_search, history, retrieval_level, chat_id)
                     )
                     break
 
