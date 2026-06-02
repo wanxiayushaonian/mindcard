@@ -16,12 +16,32 @@ class LLMService:
 
     def __init__(self) -> None:
         self._provider_name: str = settings.default_llm_provider
+        api_key, base_url = self._resolve_credentials(settings.default_llm_provider)
         self._provider: LLMProvider = make_provider(
             provider_name=settings.default_llm_provider,
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
+            api_key=api_key,
+            base_url=base_url,
             model=settings.default_llm_model or None,
         )
+
+    @staticmethod
+    def _resolve_credentials(provider_name: str) -> tuple[str, str | None]:
+        """Return (api_key, base_url) for the given provider."""
+        from app.providers.registry import PROVIDERS
+        spec = PROVIDERS.get(provider_name)
+        if not spec:
+            return ("", None)
+        # Map provider name to settings fields
+        key_map = {
+            "deepseek": (settings.deepseek_api_key, settings.deepseek_base_url),
+            "openai": (settings.openai_api_key, settings.openai_base_url),
+            "claude": (settings.anthropic_api_key, settings.anthropic_base_url),
+            "gemini": (settings.gemini_api_key, None),
+            "moonshot": (settings.moonshot_api_key, None),
+            "custom": (settings.custom_api_key, settings.custom_base_url or None),
+        }
+        api_key, base_url = key_map.get(provider_name, ("", None))
+        return (api_key, base_url)
 
     # ------------------------------------------------------------------
     # Provider switching

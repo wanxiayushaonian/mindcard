@@ -208,6 +208,7 @@ async def add_message(
         role=req.role,
         content=req.content,
         web_search_results=[r.model_dump() for r in req.web_search_results] if req.web_search_results else None,
+        fork_id=req.fork_id,
     )
     db.add(msg)
     await db.flush()
@@ -260,6 +261,32 @@ async def add_messages_batch(
     for msg in msgs:
         await db.refresh(msg)
     return {"ok": True, "count": len(msgs)}
+
+
+@router.patch("/{chat_id}/messages/{msg_id}", response_model=ChatMessageResponse)
+async def update_message(
+    chat_id: str,
+    msg_id: str,
+    req: ChatMessageCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Update an existing message's content."""
+    chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    if chat.user_id != user.id:
+        raise HTTPException(status_code=403, detail="无权访问此对话")
+    msg = await db.get(ChatMessage, parse_uuid(msg_id))
+    if not msg or msg.chat_id != chat.id:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    msg.role = req.role
+    msg.content = req.content
+    if req.fork_id is not None:
+        msg.fork_id = req.fork_id
+    await db.commit()
+    await db.refresh(msg)
+    return msg
 
 
 @router.delete("/{chat_id}")

@@ -33,9 +33,10 @@ class WebSearchResult(BaseModel):
 
 
 class ChatMessageCreate(BaseModel):
-    role: str  # 'user' | 'assistant'
+    role: str  # 'user' | 'assistant' | 'fork-divider'
     content: str
     web_search_results: list[WebSearchResult] | None = None
+    fork_id: str | None = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -44,6 +45,7 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     web_search_results: list[WebSearchResult] | None = None
+    fork_id: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -13,6 +13,8 @@ async def lifespan(app: FastAPI):
     # Startup: initialize embedding model, redis, etc.
     yield
     # Shutdown: cleanup
+    from app.services.embedding import embedding_service
+    await embedding_service.close()
 
 
 app = FastAPI(

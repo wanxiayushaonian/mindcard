@@ -45,7 +45,8 @@ class ChatMessage(Base):
     chat_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ai_chats.id", ondelete="CASCADE"), index=True
     )
-    role: Mapped[str] = mapped_column(String(16), nullable=False)  # 'user' | 'assistant'
+    role: Mapped[str] = mapped_column(String(16), nullable=False)  # 'user' | 'assistant' | 'fork-divider'
     content: Mapped[str] = mapped_column(Text, nullable=False)
     web_search_results: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    fork_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # fork group identifier
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

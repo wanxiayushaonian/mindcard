@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
@@ -34,7 +35,7 @@ class OpenAICompatProvider(LLMProvider):
             "temperature": temperature,
         }
 
-        for attempt in range(2):
+        for attempt in range(4):
             try:
                 async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     resp = await client.post(
@@ -42,18 +43,26 @@ class OpenAICompatProvider(LLMProvider):
                         headers={"Authorization": f"Bearer {self.api_key}"},
                         json=payload,
                     )
-                    if resp.status_code in (429, 500, 502, 503) and attempt == 0:
+                    if resp.status_code == 429 and attempt < 3:
+                        delay = 2 ** attempt
+                        logger.warning("OpenAI compat API 429 rate limited, retrying in %ds...", delay)
+                        await asyncio.sleep(delay)
+                        continue
+                    if resp.status_code in (500, 502, 503) and attempt < 3:
                         logger.warning("OpenAI compat API %d, retrying...", resp.status_code)
+                        await asyncio.sleep(1)
                         continue
                     resp.raise_for_status()
                     data = resp.json()
                     return data["choices"][0]["message"]["content"]
             except httpx.HTTPStatusError:
-                if attempt == 0:
+                if attempt < 3:
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 raise
             except (httpx.TimeoutException, httpx.ConnectError):
-                if attempt == 0:
+                if attempt < 3:
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 raise
         return ""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
@@ -80,7 +81,7 @@ class AnthropicProvider(LLMProvider):
         if system:
             payload["system"] = system
 
-        for attempt in range(2):
+        for attempt in range(4):
             try:
                 async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     resp = await client.post(
@@ -88,8 +89,14 @@ class AnthropicProvider(LLMProvider):
                         headers=self._headers(),
                         json=payload,
                     )
-                    if resp.status_code in (429, 500, 502, 503) and attempt == 0:
+                    if resp.status_code == 429 and attempt < 3:
+                        delay = 2 ** attempt  # 1s, 2s, 4s
+                        logger.warning("Anthropic API 429 rate limited, retrying in %ds...", delay)
+                        await asyncio.sleep(delay)
+                        continue
+                    if resp.status_code in (500, 502, 503) and attempt < 3:
                         logger.warning("Anthropic API %d, retrying...", resp.status_code)
+                        await asyncio.sleep(1)
                         continue
                     if resp.status_code >= 400:
                         body = resp.text[:500]
@@ -101,11 +108,13 @@ class AnthropicProvider(LLMProvider):
                     text_parts = [b["text"] for b in content_blocks if b.get("type") == "text"]
                     return "".join(text_parts)
             except httpx.HTTPStatusError:
-                if attempt == 0:
+                if attempt < 3:
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 raise
             except (httpx.TimeoutException, httpx.ConnectError):
-                if attempt == 0:
+                if attempt < 3:
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 raise
         return ""
