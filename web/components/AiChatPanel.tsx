@@ -3,17 +3,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { ragApi, chatApi, aiApi, cardApi, workspaceApi, settingsApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode } from "@/lib/api";
+import { chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode } from "@/lib/api";
 import { UnifiedWSClient, createWSUrl, type StreamEvent } from "@/lib/unified-ws";
 import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
-import { MarkdownContent } from "@/components/MarkdownContent";
 import AssistantResponse from "@/components/AssistantResponse";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { usePanelStore } from "@/lib/workspace-layout-store";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch, ChevronRight, Copy, Sparkles } from "lucide-react";
-
-type ChatMode = "rag" | "chat";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, ChevronRight, Copy, Sparkles } from "lucide-react";
 
 const FORK_PREFIX = "__FORK__";
 
@@ -56,7 +53,6 @@ interface AiChatPanelProps {
 
 export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) {
   const router = useRouter();
-  const [mode, setMode] = useState<ChatMode>("rag");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -74,7 +70,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   precipitatedBlocksRef.current = precipitatedBlocks;
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
-  const [globalRag, setGlobalRag] = useState(false);
   const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number>>(new Set());
   const [forkMode, setForkMode] = useState(false);
   const [forkMeta, setForkMeta] = useState<Record<string, ForkMetaEntry>>({});
@@ -263,7 +258,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     try {
       const detail = await chatApi.get(id);
       setChatId(detail.id);
-      setMode(detail.mode as ChatMode);
       // Reconstruct fork dividers from stored messages
       const newForkMeta: Record<string, ForkMetaEntry> = {};
       const msgs: Message[] = detail.messages.map((m) => {
@@ -381,7 +375,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     if (!currentChatId) {
       try {
         const chat = await chatApi.create({
-          mode,
+          mode: "rag",
           workspace_id: workspaceId || undefined,
           card_id: cardId,
           title: question.slice(0, 50),
@@ -414,25 +408,16 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       return;
     }
 
-    if (mode === "chat") {
-      wsClientRef.current.send({
-        type: "chat",
-        message: question,
-        history: hist,
-        web_search: webSearch,
-      });
-    } else {
-      wsClientRef.current.send({
-        type: "rag",
-        question: question,
-        workspace_ids: globalRag ? undefined : [workspaceId],
-        card_id: cardId,
-        top_k: 5,
-        web_search: webSearch,
-        history: hist,
-        retrieval_level: retrievalLevel,
-      });
-    }
+    wsClientRef.current.send({
+      type: "rag",
+      question: question,
+      workspace_ids: [workspaceId],
+      card_id: cardId,
+      top_k: 5,
+      web_search: webSearch,
+      history: hist,
+      retrieval_level: retrievalLevel,
+    });
 
     // Set abort function to cancel via WebSocket
     abortRef.current = () => {
@@ -469,64 +454,19 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setDeleteTarget(null);
   };
 
-  const switchMode = (newMode: ChatMode) => {
-    stopStream();
-    setMode(newMode);
-    setChatId(null);
-    setMessages([]);
-    setForkMeta({});
-    setForkMode(false);
-    // Chat mode = FREE retrieval (no card search); RAG mode = restore previous
-    if (newMode === "chat") {
-      lastRagLevelRef.current = retrievalLevel;
-      setRetrievalLevel(0);
-    } else {
-      setRetrievalLevel(lastRagLevelRef.current);
-    }
-  };
-
   const rightCollapsed = usePanelStore((s) => s.rightCollapsed);
 
   return (
     <div className="flex h-full w-full flex-col border-l border-border bg-bg">
       {/* Header */}
       <div className="relative z-20 flex items-center gap-2 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-sm">
-        {/* Left: mode controls (expanded) or compact label (collapsed) */}
+        {/* Left: fork status indicators */}
         {!rightCollapsed ? (
           <>
-            <div className="flex rounded-full bg-gray-100 p-0.5">
-              <button
-                onClick={() => switchMode("rag")}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                  mode === "rag" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
-                }`}
-              >
-                知识问答
-              </button>
-              <button
-                onClick={() => switchMode("chat")}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                  mode === "chat" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
-                }`}
-              >
-                自由对话
-              </button>
+            <div className="flex items-center gap-1.5">
+              <Sparkles size={14} className="text-primary" />
+              <span className="text-xs font-medium text-text">知识问答</span>
             </div>
-
-            {mode === "rag" && (
-              <button
-                onClick={() => setGlobalRag(!globalRag)}
-                className={`ml-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition ${
-                  globalRag
-                    ? "bg-primary/10 text-primary-dark"
-                    : "text-text-secondary hover:bg-gray-100"
-                }`}
-                title={globalRag ? "搜索所有空间" : "搜索当前空间"}
-              >
-                <Globe size={10} />
-                {globalRag ? "全部空间" : "当前空间"}
-              </button>
-            )}
 
             {Object.keys(forkMeta).length > 0 && (
               <div className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] text-green-700">
@@ -544,14 +484,10 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             )}
           </>
         ) : (
-          <button
-            onClick={() => switchMode(mode === "rag" ? "chat" : "rag")}
-            className="flex items-center gap-1 rounded-lg p-1 text-text-secondary transition hover:bg-gray-100"
-            title={mode === "rag" ? "切换到自由对话" : "切换到知识问答"}
-          >
-            <Sparkles size={14} className={mode === "rag" ? "text-primary" : ""} />
-            <span className="text-[11px] font-medium">{mode === "rag" ? "知识问答" : "自由对话"}</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <Sparkles size={14} className="text-primary" />
+            <span className="text-[11px] font-medium">知识问答</span>
+          </div>
         )}
 
         {/* Right: action buttons */}
@@ -707,17 +643,8 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center text-center text-text-secondary">
                 <div className="mb-3 text-3xl font-bold text-primary/30">AI</div>
-                {mode === "rag" ? (
-                  <>
-                    <p className="text-sm font-medium">基于你的灵感卡片回答问题</p>
-                    <p className="mt-1 text-xs">提问关于你的灵感、想法或知识的问题</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-medium">自由对话</p>
-                    <p className="mt-1 text-xs">可以问任何问题，不限于卡片内容</p>
-                  </>
-                )}
+                <p className="text-sm font-medium">基于你的灵感卡片回答问题</p>
+                <p className="mt-1 text-xs">提问关于你的灵感、想法或知识的问题</p>
               </div>
             )}
 
@@ -958,9 +885,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                   placeholder={
                     forkMode
                       ? "你想深入了解什么？输入后回车创建分支..."
-                      : mode === "rag"
-                        ? "问一个关于灵感的问题..."
-                        : "输入问题..."
+                      : "问一个关于灵感的问题..."
                   }
                   className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-text-secondary"
                   style={{ minHeight: 28, maxHeight: 160, transition: "height 0.15s ease-out" }}
@@ -1004,25 +929,31 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
                       <div className="h-3.5 w-px bg-border/30" />
 
-                      {/* Retrieval depth selector (only in RAG mode) */}
-                      {mode === "rag" && (
-                        <select
-                          value={retrievalLevel ?? ""}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            const level = v === "" ? undefined : Number(v);
-                            setRetrievalLevel(level);
-                            lastRagLevelRef.current = level;
-                          }}
-                          className="inline-flex shrink-0 items-center gap-1 py-1 px-1 text-[11px] font-medium bg-transparent text-text-secondary hover:text-foreground cursor-pointer outline-none border-none"
-                          title="检索深度"
-                        >
-                          <option value="">自动</option>
-                          <option value="1">卡片</option>
-                          <option value="2">图谱</option>
-                          <option value="3">全量</option>
-                        </select>
-                      )}
+                      {/* Retrieval depth selector */}
+                      {[
+                        { label: "自动", value: undefined },
+                        { label: "卡片", value: 1 },
+                        { label: "图谱", value: 2 },
+                        { label: "全量", value: 3 },
+                      ].map((opt, idx) => (
+                        <span key={opt.label} className="flex items-center">
+                          {idx > 0 && <div className="h-3.5 w-px bg-border/30" />}
+                          <button
+                            onClick={() => {
+                              setRetrievalLevel(opt.value);
+                              lastRagLevelRef.current = opt.value;
+                            }}
+                            className={`inline-flex shrink-0 items-center gap-1 py-1 px-1.5 text-[11px] font-medium transition-colors ${
+                              retrievalLevel === opt.value
+                                ? "text-primary"
+                                : "text-text-secondary hover:text-foreground"
+                            }`}
+                            title="检索深度"
+                          >
+                            {opt.label}
+                          </button>
+                        </span>
+                      ))}
                     </>
                   )}
 
