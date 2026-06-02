@@ -19,8 +19,8 @@ interface ForkMetaEntry {
   nodeId: string;
   collapsed: boolean;
   completed: boolean;
-  closed: boolean;
   msgId?: string;
+  auto?: boolean;
 }
 
 function encodeForkContent(meta: Omit<ForkMetaEntry, "msgId">): string {
@@ -223,7 +223,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       if (!detail) return;
       const forkId = detail.forkId || `fork-${Date.now()}`;
       const title = detail.title || (detail.prompt || "").slice(0, 30) || "分支";
-      const meta: ForkMetaEntry = { title, nodeId: detail.nodeId, collapsed: false, completed: false, closed: false };
+      const meta: ForkMetaEntry = { title, nodeId: detail.nodeId, collapsed: false, completed: false };
       setForkMeta((prev) => ({ ...prev, [forkId]: meta }));
       const insertAt = pendingForkRef.current?.insertAt;
       pendingForkRef.current = null;
@@ -267,7 +267,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           if (parsed) {
             newForkMeta[forkId] = { ...parsed, msgId: m.id };
           } else {
-            newForkMeta[forkId] = { title: m.content, nodeId: "", collapsed: false, completed: false, closed: false, msgId: m.id };
+            newForkMeta[forkId] = { title: m.content, nodeId: "", collapsed: false, completed: false, msgId: m.id };
           }
           return { role: "fork-divider" as const, content: parsed?.title || m.content, forkId };
         }
@@ -653,50 +653,29 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               if (msg.role === "fork-divider" && msg.forkId) {
                 const meta = forkMeta[msg.forkId];
                 if (!meta) return null;
-                const canToggle = meta.completed || meta.closed;
-                const closeFork = () => {
-                  const closedMeta = { ...meta, completed: true, collapsed: true, closed: true };
-                  setForkMeta((prev) => ({
-                    ...prev,
-                    [msg.forkId!]: closedMeta,
-                  }));
-                  // Persist closure to backend
-                  if (meta.msgId && chatIdRef.current) {
-                    chatApi.updateMessage(chatIdRef.current, meta.msgId, "fork-divider", encodeForkContent(closedMeta)).catch((e) =>
-                      console.error("Failed to persist fork closure:", e)
-                    );
-                  }
-                };
+                const canToggle = meta.completed;
+                const isAuto = meta.auto;
                 return (
                   <div key={i} className="my-3 flex items-center gap-2">
-                    <div className={`h-px flex-1 ${meta.closed ? "bg-red-300/50" : meta.completed ? "bg-green-300/50" : "bg-green-400/70"}`} />
+                    <div className={`h-px flex-1 ${isAuto ? "border-t border-dashed border-gray-200" : meta.completed ? "bg-gray-300/50" : "border-t border-dashed border-green-400/60"}`} style={isAuto ? { background: "transparent" } : undefined} />
                     <button
                       onClick={() => canToggle && setForkMeta((prev) => ({
                         ...prev,
                         [msg.forkId!]: { ...prev[msg.forkId!], collapsed: !prev[msg.forkId!].collapsed },
                       }))}
                       className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition ${
-                        meta.closed
-                          ? "cursor-pointer border-red-300/50 bg-red-50 text-red-600 hover:bg-red-100"
+                        isAuto
+                          ? "cursor-pointer border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
                           : meta.completed
-                            ? "cursor-pointer border-green-300/50 bg-green-50 text-green-700 hover:bg-green-100"
-                            : "cursor-default border-green-400/70 bg-green-100 text-green-700 animate-[pulse_1.2s_ease-in-out_infinite]"
+                            ? "cursor-pointer border-gray-300/50 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                            : "cursor-default border-green-400/60 bg-green-50 text-green-600 animate-[pulse_1.2s_ease-in-out_infinite]"
                       }`}
                     >
-                      <GitBranch size={11} />
+                      <GitBranch size={isAuto ? 9 : 11} />
                       <span className="max-w-[200px] truncate">{meta.title}</span>
                       {canToggle && (meta.collapsed ? <ChevronDown size={11} /> : <ChevronUp size={11} />)}
                     </button>
-                    {!meta.closed && (
-                      <button
-                        onClick={closeFork}
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-green-400 transition hover:bg-red-50 hover:text-red-500"
-                        title="关闭此分支"
-                      >
-                        <X size={12} />
-                      </button>
-                    )}
-                    <div className={`h-px flex-1 ${meta.closed ? "bg-red-300/50" : meta.completed ? "bg-green-300/50" : "bg-green-400/70"}`} />
+                    <div className={`h-px flex-1 ${isAuto ? "border-t border-dashed border-gray-200" : meta.completed ? "bg-gray-300/50" : "border-t border-dashed border-green-400/60"}`} style={isAuto ? { background: "transparent" } : undefined} />
                   </div>
                 );
               }
