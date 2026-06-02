@@ -1,66 +1,54 @@
-import asyncio
 import logging
-import os
-import threading
 
-import numpy as np
-from dotenv import load_dotenv
+import httpx
 
 logger = logging.getLogger(__name__)
 
-# Load .env so HF_ENDPOINT and other non-pydantic vars reach the real environment
-load_dotenv(override=False)
-
 
 class EmbeddingService:
-    """Embedding service using BGE (BAAI) for Chinese-friendly text embeddings."""
+    """Embedding service using Ollama API with bge-m3 model."""
 
     def __init__(self):
-        self._model = None
-        self._lock = threading.Lock()
+        from app.config import settings
+        self._base_url = settings.ollama_base_url.rstrip("/")
+        self._model = settings.embedding_model
+        self._client: httpx.AsyncClient | None = None
 
-    def _load_model(self):
-        if self._model is not None:
-            return
-        with self._lock:
-            if self._model is not None:
-                return
-            try:
-                # Clear stale proxy env vars so requests/hf_hub don't try SOCKS
-                for var in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
-                    os.environ.pop(var, None)
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
+        return self._client
 
-                from sentence_transformers import SentenceTransformer
-                from app.config import settings
-
-                logger.info("Loading embedding model: %s", settings.embedding_model)
-                self._model = SentenceTransformer(settings.embedding_model)
-                logger.info("Embedding model loaded (dim=%d)", settings.embedding_dim)
-            except Exception as e:
-                logger.error("Failed to load embedding model: %s", e)
-                self._model = None
+    async def _embed_raw(self, texts: list[str]) -> list[list[float]]:
+        """Call Ollama embed API and return raw embeddings."""
+        client = self._get_client()
+        resp = await client.post(
+            f"{self._base_url}/api/embed",
+            json={"model": self._model, "input": texts},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["embeddings"]
 
     async def embed(self, text: str) -> list[float]:
-        """Generate embedding for a single text. Raises RuntimeError if model unavailable."""
-        self._load_model()
-        if self._model is None:
-            raise RuntimeError("Embedding model failed to load")
-        loop = asyncio.get_event_loop()
-        embedding = await loop.run_in_executor(
-            None, lambda: self._model.encode(text, normalize_embeddings=True)
-        )
-        return embedding.tolist()
+        """Generate embedding for a single text."""
+        embeddings = await self._embed_raw([text])
+        return embeddings[0]
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for a batch of texts."""
-        self._load_model()
-        if self._model is None:
-            raise RuntimeError("Embedding model failed to load")
-        loop = asyncio.get_event_loop()
-        embeddings = await loop.run_in_executor(
-            None, lambda: self._model.encode(texts, normalize_embeddings=True, batch_size=32)
-        )
-        return [e.tolist() for e in embeddings]
+        """Generate embeddings for a batch of texts.
+
+        Ollama handles batching internally, so we send all at once.
+        For very large batches, split into chunks of 64.
+        """
+        if not texts:
+            return []
+        CHUNK = 64
+        all_embeddings: list[list[float]] = []
+        for i in range(0, len(texts), CHUNK):
+            chunk = texts[i : i + CHUNK]
+            all_embeddings.extend(await self._embed_raw(chunk))
+        return all_embeddings
 
     @staticmethod
     def card_to_text(title: str, content: str, keywords: list[str], emotion_tag: str = "") -> str:
@@ -74,6 +62,11 @@ class EmbeddingService:
         if emotion_tag:
             parts.append(emotion_tag)
         return " ".join(parts)
+
+    async def close(self):
+        """Close the HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
 
 
 embedding_service = EmbeddingService()

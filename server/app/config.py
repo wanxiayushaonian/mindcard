@@ -22,9 +22,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24  # 24 hours
 
-    # Embedding
-    embedding_model: str = "BAAI/bge-base-zh-v1.5"
-    embedding_dim: int = 768
+    # Embedding (Ollama)
+    ollama_base_url: str = "http://localhost:11434"
+    embedding_model: str = "bge-m3"
+    embedding_dim: int = 1024
 
     # LLM — DeepSeek (default)
     deepseek_api_key: str = ""
