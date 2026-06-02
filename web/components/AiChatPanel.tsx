@@ -11,16 +11,41 @@ import { MarkdownContent } from "@/components/MarkdownContent";
 import AssistantResponse from "@/components/AssistantResponse";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { usePanelStore } from "@/lib/workspace-layout-store";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch, ChevronRight, Copy } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, FileText, GitBranch, ChevronRight, Copy, Sparkles } from "lucide-react";
 
 type ChatMode = "rag" | "chat";
 
+const FORK_PREFIX = "__FORK__";
+
+interface ForkMetaEntry {
+  title: string;
+  nodeId: string;
+  collapsed: boolean;
+  completed: boolean;
+  closed: boolean;
+  msgId?: string;
+}
+
+function encodeForkContent(meta: Omit<ForkMetaEntry, "msgId">): string {
+  return FORK_PREFIX + JSON.stringify(meta);
+}
+
+function decodeForkContent(content: string): Omit<ForkMetaEntry, "msgId"> | null {
+  if (!content.startsWith(FORK_PREFIX)) return null;
+  try {
+    return JSON.parse(content.slice(FORK_PREFIX.length));
+  } catch {
+    return null;
+  }
+}
+
 interface Message {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "fork-divider";
   content: string;
   status?: "done" | "error";
   sources?: RAGResponse["source_cards"];
   webSearchResults?: WebSearchResult[];
+  forkId?: string;
 }
 
 interface AiChatPanelProps {
@@ -52,13 +77,13 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [globalRag, setGlobalRag] = useState(false);
   const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number>>(new Set());
   const [forkMode, setForkMode] = useState(false);
-  const [branches, setBranches] = useState<{ chatId: string | null; messages: Message[]; title: string; nodeId: string; parentChatId: string | null }[]>([]);
-  const [activeBranchIdx, setActiveBranchIdx] = useState<number | null>(null); // null = main
-  const mainChatIdRef = useRef<string | null>(null);
-  const mainMessagesRef = useRef<Message[]>([]);
+  const [forkMeta, setForkMeta] = useState<Record<string, ForkMetaEntry>>({});
+  const [retrievalLevel, setRetrievalLevel] = useState<number | undefined>(undefined);
+  const lastRagLevelRef = useRef<number | undefined>(undefined);
+  const pendingForkRef = useRef<{ insertAt: number } | null>(null);
+  const activeForkIdRef = useRef<string | null>(null);
   const chatIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
-  const [pendingAutoSend, setPendingAutoSend] = useState<string | null>(null);
   const [chatPath, setChatPath] = useState<ChatPathNode[]>([]);
   const isComposingRef = useRef(false);
 
@@ -121,8 +146,27 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         });
         setIsStreaming(false);
         if (chatIdRef.current && streamContentRef.current) {
-          saveMessage(chatIdRef.current, "assistant", streamContentRef.current, webSearchResultsRef.current);
+          saveMessage(chatIdRef.current, "assistant", streamContentRef.current, webSearchResultsRef.current, activeForkIdRef.current || undefined);
         }
+        // Mark the last fork as completed (collapsible)
+        // Clear active fork ID so subsequent messages aren't tagged
+        activeForkIdRef.current = null;
+        setForkMeta((prev) => {
+          const entries = Object.entries(prev);
+          if (entries.length === 0) return prev;
+          const [lastKey, lastVal] = entries[entries.length - 1];
+          if (!lastVal.completed) {
+            // Persist completion to backend
+            if (lastVal.msgId && chatIdRef.current) {
+              const updatedMeta = { ...lastVal, completed: true };
+              chatApi.updateMessage(chatIdRef.current, lastVal.msgId, "fork-divider", encodeForkContent(updatedMeta)).catch((e) =>
+                console.error("Failed to persist fork completion:", e)
+              );
+            }
+            return { ...prev, [lastKey]: { ...lastVal, completed: true } };
+          }
+          return prev;
+        });
       } else if (event.type === "error") {
         // Error occurred
         console.error("WebSocket stream error:", event.content);
@@ -177,44 +221,42 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       });
   }, [chatId]);
 
-  // Listen for fork-complete: save current, create branch, switch, auto-send
+  // Listen for fork-complete: add inline fork divider at the correct position
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { nodeId: string; title: string; prompt: string };
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent).detail as { nodeId: string; title: string; prompt: string; forkId?: string };
       if (!detail) return;
-      // Save current conversation
-      if (activeBranchIdx === null) {
-        mainChatIdRef.current = chatIdRef.current;
-        mainMessagesRef.current = messagesRef.current;
-      } else {
-        setBranches((prev) =>
-          prev.map((b, i) => (i === activeBranchIdx ? { ...b, chatId: chatIdRef.current, messages: messagesRef.current } : b))
-        );
-      }
-      // Create new branch
-      const newBranch = { chatId: null as string | null, messages: [] as Message[], title: detail.title, nodeId: detail.nodeId, parentChatId: chatIdRef.current };
-      setBranches((prev) => [...prev, newBranch]);
-      // Switch to new branch
-      setChatId(null);
-      setMessages([]);
-      setActiveBranchIdx(branches.length);
-      // Auto-send
-      if (detail.prompt) {
-        setPendingAutoSend(detail.prompt);
+      const forkId = detail.forkId || `fork-${Date.now()}`;
+      const title = detail.title || (detail.prompt || "").slice(0, 30) || "分支";
+      const meta: ForkMetaEntry = { title, nodeId: detail.nodeId, collapsed: false, completed: false, closed: false };
+      setForkMeta((prev) => ({ ...prev, [forkId]: meta }));
+      const insertAt = pendingForkRef.current?.insertAt;
+      pendingForkRef.current = null;
+      setMessages((prev) => {
+        const divider = { role: "fork-divider" as const, content: title, forkId };
+        if (insertAt !== undefined && insertAt >= 0 && insertAt <= prev.length) {
+          const updated = [...prev];
+          updated.splice(insertAt, 0, divider);
+          return updated;
+        }
+        return [...prev, divider];
+      });
+      // Tag subsequent messages with this fork ID
+      activeForkIdRef.current = forkId;
+      // Persist fork divider to backend
+      const cid = chatIdRef.current;
+      if (cid) {
+        try {
+          const saved = await chatApi.addMessage(cid, "fork-divider", encodeForkContent(meta), undefined, forkId);
+          setForkMeta((prev) => ({ ...prev, [forkId]: { ...prev[forkId], msgId: saved.id } }));
+        } catch (e) {
+          console.error("Failed to persist fork divider:", e);
+        }
       }
     };
     window.addEventListener("topology-fork-complete", handler);
     return () => window.removeEventListener("topology-fork-complete", handler);
-  }, [activeBranchIdx, branches.length]);
-
-  // Auto-send when pending
-  useEffect(() => {
-    if (!pendingAutoSend) return;
-    const prompt = pendingAutoSend;
-    setPendingAutoSend(null);
-    const timer = setTimeout(() => doSend(prompt), 100);
-    return () => clearTimeout(timer);
-  }, [pendingAutoSend]);
+  }, []);
 
   const loadChat = async (id: string) => {
     stopStream();
@@ -222,14 +264,31 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       const detail = await chatApi.get(id);
       setChatId(detail.id);
       setMode(detail.mode as ChatMode);
-      setMessages(
-        detail.messages.map((m) => ({
+      // Reconstruct fork dividers from stored messages
+      const newForkMeta: Record<string, ForkMetaEntry> = {};
+      const msgs: Message[] = detail.messages.map((m) => {
+        if (m.role === "fork-divider" || m.content.startsWith(FORK_PREFIX)) {
+          const parsed = decodeForkContent(m.content);
+          const forkId = `fork-loaded-${m.id}`;
+          if (parsed) {
+            newForkMeta[forkId] = { ...parsed, msgId: m.id };
+          } else {
+            newForkMeta[forkId] = { title: m.content, nodeId: "", collapsed: false, completed: false, closed: false, msgId: m.id };
+          }
+          return { role: "fork-divider" as const, content: parsed?.title || m.content, forkId };
+        }
+        return {
           role: m.role as "user" | "assistant",
           content: m.content,
           webSearchResults: m.web_search_results || undefined,
-        }))
-      );
+          forkId: m.fork_id || undefined,
+        };
+      });
+      setMessages(msgs);
+      setForkMeta(newForkMeta);
       setShowHistory(false);
+      setForkMode(false);
+      activeForkIdRef.current = null;
     } catch {}
   };
 
@@ -238,50 +297,8 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setChatId(null);
     setMessages([]);
     setShowHistory(false);
-    setActiveBranchIdx(null);
-    mainChatIdRef.current = null;
-    mainMessagesRef.current = [];
-  };
-
-  const switchToMain = () => {
-    if (activeBranchIdx === null) return;
-    stopStream();
-    // Save current branch
-    setBranches((prev) =>
-      prev.map((b, i) => (i === activeBranchIdx ? { ...b, chatId: chatIdRef.current, messages: messagesRef.current } : b))
-    );
-    // Load main
-    setChatId(mainChatIdRef.current);
-    setMessages(mainMessagesRef.current);
-    setActiveBranchIdx(null);
-  };
-
-  const switchToBranch = (idx: number) => {
-    if (activeBranchIdx === idx) return;
-    stopStream();
-    // Save current
-    if (activeBranchIdx === null) {
-      mainChatIdRef.current = chatIdRef.current;
-      mainMessagesRef.current = messagesRef.current;
-    } else {
-      setBranches((prev) =>
-        prev.map((b, i) => (i === activeBranchIdx ? { ...b, chatId: chatIdRef.current, messages: messagesRef.current } : b))
-      );
-    }
-    // Load target
-    const target = branches[idx];
-    setChatId(target.chatId);
-    setMessages(target.messages);
-    setActiveBranchIdx(idx);
-  };
-
-  const removeBranch = (idx: number) => {
-    setBranches((prev) => prev.filter((_, i) => i !== idx));
-    if (activeBranchIdx === idx) {
-      switchToMain();
-    } else if (activeBranchIdx !== null && activeBranchIdx > idx) {
-      setActiveBranchIdx(activeBranchIdx - 1);
-    }
+    setForkMeta({});
+    setForkMode(false);
   };
 
   const stopStream = useCallback(() => {
@@ -290,9 +307,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setIsStreaming(false);
   }, []);
 
-  const saveMessage = async (cid: string, role: string, content: string, webSearchResults?: WebSearchResult[]) => {
+  const saveMessage = async (cid: string, role: string, content: string, webSearchResults?: WebSearchResult[], forkId?: string) => {
     try {
-      await chatApi.addMessage(cid, role, content, webSearchResults);
+      await chatApi.addMessage(cid, role, content, webSearchResults, forkId);
     } catch (e) {
       console.error("Failed to save message:", e);
     }
@@ -355,19 +372,18 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     streamContentRef.current = "";
     webSearchResultsRef.current = undefined;
 
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
+    const activeForkId = activeForkIdRef.current;
+    setMessages((prev) => [...prev, { role: "user", content: question, forkId: activeForkId || undefined }]);
     const loadingHint = webSearch ? "正在搜索网页..." : "";
-    setMessages((prev) => [...prev, { role: "assistant", content: loadingHint }]);
+    setMessages((prev) => [...prev, { role: "assistant", content: loadingHint, forkId: activeForkId || undefined }]);
 
     let currentChatId = chatId;
     if (!currentChatId) {
       try {
-        const parentChatId = activeBranchIdx !== null ? branches[activeBranchIdx]?.parentChatId : undefined;
         const chat = await chatApi.create({
           mode,
           workspace_id: workspaceId || undefined,
           card_id: cardId,
-          parent_chat_id: parentChatId || undefined,
           title: question.slice(0, 50),
         });
         currentChatId = chat.id;
@@ -379,16 +395,16 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     }
 
     if (currentChatId) {
-      saveMessage(currentChatId, "user", question);
+      saveMessage(currentChatId, "user", question, undefined, activeForkId || undefined);
     }
 
     // Reset stream state
     streamContentRef.current = "";
     webSearchResultsRef.current = undefined;
 
-    // Build history
+    // Build history (exclude fork dividers)
     const hist = messages
-      .filter((m) => m.content)
+      .filter((m) => m.content && m.role !== "fork-divider")
       .map((m) => ({ role: m.role, content: m.content }));
 
     // Send via WebSocket
@@ -414,6 +430,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         top_k: 5,
         web_search: webSearch,
         history: hist,
+        retrieval_level: retrievalLevel,
       });
     }
 
@@ -429,7 +446,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setInput("");
     if (forkMode) {
       setForkMode(false);
-      window.dispatchEvent(new CustomEvent("topology-fork-request", { detail: { prompt: question } }));
+      const forkId = `fork-${Date.now()}`;
+      activeForkIdRef.current = forkId;
+      pendingForkRef.current = { insertAt: messages.length };
+      doSend(question);
+      window.dispatchEvent(new CustomEvent("topology-fork-request", { detail: { prompt: question, forkId } }));
     } else {
       doSend(question);
     }
@@ -453,78 +474,108 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setMode(newMode);
     setChatId(null);
     setMessages([]);
+    setForkMeta({});
+    setForkMode(false);
+    // Chat mode = FREE retrieval (no card search); RAG mode = restore previous
+    if (newMode === "chat") {
+      lastRagLevelRef.current = retrievalLevel;
+      setRetrievalLevel(0);
+    } else {
+      setRetrievalLevel(lastRagLevelRef.current);
+    }
   };
+
+  const rightCollapsed = usePanelStore((s) => s.rightCollapsed);
 
   return (
     <div className="flex h-full w-full flex-col border-l border-border bg-bg">
       {/* Header */}
       <div className="relative z-20 flex items-center gap-2 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-sm">
-        <div className="flex rounded-full bg-gray-100 p-0.5">
-          <button
-            onClick={() => switchMode("rag")}
-            className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-              mode === "rag" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
-            }`}
-          >
-            知识问答
-          </button>
-          <button
-            onClick={() => switchMode("chat")}
-            className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-              mode === "chat" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
-            }`}
-          >
-            自由对话
-          </button>
-        </div>
+        {/* Left: mode controls (expanded) or compact label (collapsed) */}
+        {!rightCollapsed ? (
+          <>
+            <div className="flex rounded-full bg-gray-100 p-0.5">
+              <button
+                onClick={() => switchMode("rag")}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                  mode === "rag" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
+                }`}
+              >
+                知识问答
+              </button>
+              <button
+                onClick={() => switchMode("chat")}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                  mode === "chat" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
+                }`}
+              >
+                自由对话
+              </button>
+            </div>
 
-        {mode === "rag" && (
+            {mode === "rag" && (
+              <button
+                onClick={() => setGlobalRag(!globalRag)}
+                className={`ml-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition ${
+                  globalRag
+                    ? "bg-primary/10 text-primary-dark"
+                    : "text-text-secondary hover:bg-gray-100"
+                }`}
+                title={globalRag ? "搜索所有空间" : "搜索当前空间"}
+              >
+                <Globe size={10} />
+                {globalRag ? "全部空间" : "当前空间"}
+              </button>
+            )}
+
+            {Object.keys(forkMeta).length > 0 && (
+              <div className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] text-green-700">
+                <GitBranch size={10} />
+                {Object.keys(forkMeta).length} 分支
+              </div>
+            )}
+
+            {forkMode && (
+              <div className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 animate-pulse">
+                <GitBranch size={10} />
+                分叉模式
+                <button onClick={() => setForkMode(false)} className="ml-0.5 text-amber-400 hover:text-amber-600">×</button>
+              </div>
+            )}
+          </>
+        ) : (
           <button
-            onClick={() => setGlobalRag(!globalRag)}
-            className={`ml-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition ${
-              globalRag
-                ? "bg-primary/10 text-primary-dark"
-                : "text-text-secondary hover:bg-gray-100"
-            }`}
-            title={globalRag ? "搜索所有空间" : "搜索当前空间"}
+            onClick={() => switchMode(mode === "rag" ? "chat" : "rag")}
+            className="flex items-center gap-1 rounded-lg p-1 text-text-secondary transition hover:bg-gray-100"
+            title={mode === "rag" ? "切换到自由对话" : "切换到知识问答"}
           >
-            <Globe size={10} />
-            {globalRag ? "全部空间" : "当前空间"}
+            <Sparkles size={14} className={mode === "rag" ? "text-primary" : ""} />
+            <span className="text-[11px] font-medium">{mode === "rag" ? "知识问答" : "自由对话"}</span>
           </button>
         )}
 
-        {activeBranchIdx !== null && branches[activeBranchIdx] && (
-          <div className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] text-green-700">
-            <GitBranch size={10} />
-            <span className="max-w-[100px] truncate">{branches[activeBranchIdx].title}</span>
-          </div>
-        )}
-
-        {forkMode && (
-          <div className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 animate-pulse">
-            <GitBranch size={10} />
-            分叉模式
-            <button onClick={() => setForkMode(false)} className="ml-0.5 text-amber-400 hover:text-amber-600">×</button>
-          </div>
-        )}
-
+        {/* Right: action buttons */}
         <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className={`rounded-lg p-1.5 transition ${
-              showHistory ? "bg-primary/10 text-primary-dark" : "text-text-secondary hover:bg-gray-100"
-            }`}
-            title="历史对话"
-          >
-            <History size={15} />
-          </button>
-          <button
-            onClick={startNewChat}
-            className="rounded-lg p-1.5 text-text-secondary transition hover:bg-gray-100"
-            title="新对话"
-          >
-            <MessageSquarePlus size={15} />
-          </button>
+          {!rightCollapsed && (
+            <>
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className={`rounded-lg p-1.5 transition ${
+                  showHistory ? "bg-primary/10 text-primary-dark" : "text-text-secondary hover:bg-gray-100"
+                }`}
+                title="历史对话"
+              >
+                <History size={15} />
+              </button>
+              <button
+                onClick={startNewChat}
+                className="rounded-lg p-1.5 text-text-secondary transition hover:bg-gray-100"
+                title="新对话"
+              >
+                <MessageSquarePlus size={15} />
+              </button>
+            </>
+          )}
           <button
             onClick={onClose}
             className="rounded-lg p-1.5 text-text-secondary transition hover:bg-gray-100"
@@ -537,7 +588,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
       <div className="relative flex-1 overflow-hidden">
         {/* Breadcrumb Navigation */}
-        {chatPath.length > 0 && (
+        {!rightCollapsed && chatPath.length > 0 && (
           <div className="border-b border-border bg-surface/50 px-3 py-2">
             <div className="flex items-center gap-1 text-xs text-text-secondary overflow-x-auto">
               {chatPath.map((node, idx) => (
@@ -670,110 +721,210 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               </div>
             )}
 
-            {messages.map((msg, i) => (
-              <div key={i} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2.5 ${
-                    msg.role === "user"
-                      ? "bg-primary text-white"
-                      : "bg-surface text-text shadow-sm"
-                  }`}
-                >
-                  {msg.role === "assistant" ? (
-                    msg.content === "正在搜索网页..." ? (
-                      <div className="flex items-center gap-2 text-sm text-text-secondary">
-                        <Globe size={14} className="animate-pulse" />
-                        <span className="animate-pulse">{msg.content}</span>
-                      </div>
-                    ) : (
-                      <>
-                        <AssistantResponse
-                          content={msg.content || " "}
-                          className="text-[14px] leading-[1.75]"
-                        />
-                        {msg.status === "error" && (
-                          <p className="mt-1 text-xs text-amber-600">回答中断，内容可能不完整</p>
-                        )}
-                        {msg.content && msg.content.trim() && (
-                          <div className="mt-2 flex justify-end opacity-0 transition-opacity group-hover/msg:opacity-100">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                usePanelStore.getState().appendToEditor(msg.content);
-                                toast("已复制到编辑器", "success");
-                              }}
-                              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition hover:bg-gray-100 hover:text-foreground"
-                              title="复制到编辑器"
-                            >
-                              <Copy size={10} />
-                              复制到编辑器
-                            </button>
-                          </div>
-                        )}
-                      </>
-                    )
-                  ) : (
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
-                  )}
-                  {msg.sources && msg.sources.length > 0 && (
-                    <div className="mt-2 border-t border-border pt-2">
-                      <p className="mb-1.5 text-[10px] text-text-secondary">引用来源：</p>
-                      <div className="flex flex-col gap-1">
-                        {msg.sources.map((s) => (
-                          <button
-                            key={s.id}
-                            onClick={() => {
-                              onClose();
-                              router.push(`/workspaces/${workspaceId}/card/${s.id}`);
-                            }}
-                            className="flex items-start gap-2 rounded-lg border border-border/50 bg-gray-50/80 px-2.5 py-1.5 text-left text-[11px] transition hover:border-primary/30 hover:bg-primary/5"
-                          >
-                            <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full" style={{ background: s.color || "#B8D4E3" }} />
-                            <div className="min-w-0 flex-1">
-                              {s.title && <span className="block font-medium text-text">{s.title}</span>}
-                              <span className="line-clamp-1 text-text-secondary">{s.content}</span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {msg.webSearchResults && msg.webSearchResults.length > 0 && (
-                    <div className="mt-2 border-t border-border pt-2">
+            {messages.map((msg, i) => {
+              // Fork divider
+              if (msg.role === "fork-divider" && msg.forkId) {
+                const meta = forkMeta[msg.forkId];
+                if (!meta) return null;
+                const canToggle = meta.completed || meta.closed;
+                const closeFork = () => {
+                  const closedMeta = { ...meta, completed: true, collapsed: true, closed: true };
+                  setForkMeta((prev) => ({
+                    ...prev,
+                    [msg.forkId!]: closedMeta,
+                  }));
+                  // Persist closure to backend
+                  if (meta.msgId && chatIdRef.current) {
+                    chatApi.updateMessage(chatIdRef.current, meta.msgId, "fork-divider", encodeForkContent(closedMeta)).catch((e) =>
+                      console.error("Failed to persist fork closure:", e)
+                    );
+                  }
+                };
+                return (
+                  <div key={i} className="my-3 flex items-center gap-2">
+                    <div className={`h-px flex-1 ${meta.closed ? "bg-red-300/50" : meta.completed ? "bg-green-300/50" : "bg-green-400/70"}`} />
+                    <button
+                      onClick={() => canToggle && setForkMeta((prev) => ({
+                        ...prev,
+                        [msg.forkId!]: { ...prev[msg.forkId!], collapsed: !prev[msg.forkId!].collapsed },
+                      }))}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition ${
+                        meta.closed
+                          ? "cursor-pointer border-red-300/50 bg-red-50 text-red-600 hover:bg-red-100"
+                          : meta.completed
+                            ? "cursor-pointer border-green-300/50 bg-green-50 text-green-700 hover:bg-green-100"
+                            : "cursor-default border-green-400/70 bg-green-100 text-green-700 animate-[pulse_1.2s_ease-in-out_infinite]"
+                      }`}
+                    >
+                      <GitBranch size={11} />
+                      <span className="max-w-[200px] truncate">{meta.title}</span>
+                      {canToggle && (meta.collapsed ? <ChevronDown size={11} /> : <ChevronUp size={11} />)}
+                    </button>
+                    {!meta.closed && (
                       <button
-                        onClick={() => setExpandedSearchResults((s) => {
-                          const next = new Set(s);
-                          if (next.has(i)) next.delete(i); else next.add(i);
-                          return next;
-                        })}
-                        className="flex w-full items-center gap-1 text-[10px] text-text-secondary hover:text-text"
+                        onClick={closeFork}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-green-400 transition hover:bg-red-50 hover:text-red-500"
+                        title="关闭此分支"
                       >
-                        <Globe size={10} />
-                        <span>网页搜索结果 ({msg.webSearchResults.length})</span>
-                        {expandedSearchResults.has(i) ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                        <X size={12} />
                       </button>
-                      {expandedSearchResults.has(i) && (
-                        <div className="mt-1">
-                          {msg.webSearchResults.map((r, j) => (
-                            <div key={j} className="mb-1 rounded bg-blue-50 px-2 py-1 text-[10px]">
-                              <a
-                                href={r.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-medium text-blue-600 hover:underline"
+                    )}
+                    <div className={`h-px flex-1 ${meta.closed ? "bg-red-300/50" : meta.completed ? "bg-green-300/50" : "bg-green-400/70"}`} />
+                  </div>
+                );
+              }
+
+              // Skip messages belonging to a collapsed fork
+              // New messages have forkId directly; loaded messages use position-based detection
+              if (msg.forkId) {
+                const meta = forkMeta[msg.forkId];
+                if (meta?.collapsed) return null;
+              } else {
+                // Position-based fallback for loaded messages without forkId
+                let inCollapsedFork = false;
+                for (let j = i - 1; j >= 0; j--) {
+                  const prev = messages[j];
+                  if (prev.role === "fork-divider" && prev.forkId) {
+                    const meta = forkMeta[prev.forkId];
+                    if (meta?.collapsed) {
+                      // Check if there's another fork-divider between j and i
+                      let nextForkBetween = false;
+                      for (let k = j + 1; k < i; k++) {
+                        if (messages[k].role === "fork-divider") {
+                          nextForkBetween = true;
+                          break;
+                        }
+                      }
+                      // Also check: if no fork-divider between but the fork is completed,
+                      // this message is after the fork ended (main conversation)
+                      if (!nextForkBetween && !meta.completed) inCollapsedFork = true;
+                    }
+                    break;
+                  }
+                }
+                if (inCollapsedFork) return null;
+              }
+
+              // Regular message
+              return (
+                <div key={i} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-3 py-2.5 ${
+                      msg.role === "user"
+                        ? "bg-primary text-white"
+                        : "bg-surface text-text shadow-sm"
+                    }`}
+                  >
+                    {msg.role === "assistant" ? (
+                      msg.content === "正在搜索网页..." ? (
+                        <div className="flex items-center gap-2 text-sm text-text-secondary">
+                          <Globe size={14} className="animate-pulse" />
+                          <span className="animate-pulse">{msg.content}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <AssistantResponse
+                            content={msg.content || " "}
+                            className="text-[14px] leading-[1.75]"
+                          />
+                          {msg.status === "error" && (
+                            <p className="mt-1 text-xs text-amber-600">回答中断，内容可能不完整</p>
+                          )}
+                          {msg.content && msg.content.trim() && (
+                            <div className="mt-2 flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const msgIdx = messages.indexOf(msg);
+                                  const userMsg = msgIdx > 0 ? messages[msgIdx - 1] : null;
+                                  const prompt = userMsg?.content || "继续深入探讨";
+                                  window.dispatchEvent(new CustomEvent("topology-fork-request", { detail: { prompt } }));
+                                }}
+                                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition hover:bg-green-50 hover:text-green-600"
+                                title="从此处分叉对话"
                               >
-                                {r.title}
-                              </a>
-                              <p className="mt-0.5 line-clamp-2 text-text-secondary">{r.snippet}</p>
+                                <GitBranch size={10} />
+                                分叉
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  usePanelStore.getState().appendToEditor(msg.content);
+                                  toast("已复制到编辑器", "success");
+                                }}
+                                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition hover:bg-gray-100 hover:text-foreground"
+                                title="复制到编辑器"
+                              >
+                                <Copy size={10} />
+                                复制到编辑器
+                              </button>
                             </div>
+                          )}
+                        </>
+                      )
+                    ) : (
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                    )}
+                    {msg.sources && msg.sources.length > 0 && (
+                      <div className="mt-2 border-t border-border pt-2">
+                        <p className="mb-1.5 text-[10px] text-text-secondary">引用来源：</p>
+                        <div className="flex flex-col gap-1">
+                          {msg.sources.map((s) => (
+                            <button
+                              key={s.id}
+                              onClick={() => {
+                                onClose();
+                                router.push(`/workspaces/${workspaceId}/card/${s.id}`);
+                              }}
+                              className="flex items-start gap-2 rounded-lg border border-border/50 bg-gray-50/80 px-2.5 py-1.5 text-left text-[11px] transition hover:border-primary/30 hover:bg-primary/5"
+                            >
+                              <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full" style={{ background: s.color || "#B8D4E3" }} />
+                              <div className="min-w-0 flex-1">
+                                {s.title && <span className="block font-medium text-text">{s.title}</span>}
+                                <span className="line-clamp-1 text-text-secondary">{s.content}</span>
+                              </div>
+                            </button>
                           ))}
                         </div>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    )}
+                    {msg.webSearchResults && msg.webSearchResults.length > 0 && (
+                      <div className="mt-2 border-t border-border pt-2">
+                        <button
+                          onClick={() => setExpandedSearchResults((s) => {
+                            const next = new Set(s);
+                            if (next.has(i)) next.delete(i); else next.add(i);
+                            return next;
+                          })}
+                          className="flex w-full items-center gap-1 text-[10px] text-text-secondary hover:text-text"
+                        >
+                          <Globe size={10} />
+                          <span>网页搜索结果 ({msg.webSearchResults.length})</span>
+                          {expandedSearchResults.has(i) ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                        </button>
+                        {expandedSearchResults.has(i) && (
+                          <div className="mt-1">
+                            {msg.webSearchResults.map((r, j) => (
+                              <div key={j} className="mb-1 rounded bg-blue-50 px-2 py-1 text-[10px]">
+                                <a
+                                  href={r.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-medium text-blue-600 hover:underline"
+                                >
+                                  {r.title}
+                                </a>
+                                <p className="mt-0.5 line-clamp-2 text-text-secondary">{r.snippet}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             <div ref={messagesEndRef} />
           </div>
@@ -821,39 +972,65 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               {/* Toolbar */}
               <div className="border-t border-border/35 px-2.5 py-1.5">
                 <div className="flex items-center gap-1.5">
-                  {/* Web search toggle */}
-                  <button
-                    onClick={() => setWebSearch(!webSearch)}
-                    className={`inline-flex shrink-0 items-center gap-1 py-1 px-1.5 text-[11px] font-medium transition-colors ${
-                      webSearch ? "text-primary" : "text-text-secondary hover:text-foreground"
-                    }`}
-                    title={webSearch ? "关闭网页搜索" : "开启网页搜索"}
-                  >
-                    <Globe size={12} />
-                    联网
-                  </button>
+                  {!rightCollapsed && (
+                    <>
+                      {/* Web search toggle */}
+                      <button
+                        onClick={() => setWebSearch(!webSearch)}
+                        className={`inline-flex shrink-0 items-center gap-1 py-1 px-1.5 text-[11px] font-medium transition-colors ${
+                          webSearch ? "text-primary" : "text-text-secondary hover:text-foreground"
+                        }`}
+                        title={webSearch ? "关闭网页搜索" : "开启网页搜索"}
+                      >
+                        <Globe size={12} />
+                        联网
+                      </button>
 
-                  <div className="h-3.5 w-px bg-border/30" />
+                      <div className="h-3.5 w-px bg-border/30" />
 
-                  {/* Fork toggle */}
-                  <button
-                    onClick={() => setForkMode(!forkMode)}
-                    className={`inline-flex shrink-0 items-center gap-1 py-1 px-1.5 text-[11px] font-medium transition-colors ${
-                      forkMode
-                        ? "text-green-600"
-                        : "text-text-secondary hover:text-foreground"
-                    }`}
-                    title="创建知识分支"
-                  >
-                    <GitBranch size={12} />
-                    分叉
-                  </button>
+                      {/* Fork toggle */}
+                      <button
+                        onClick={() => setForkMode(!forkMode)}
+                        className={`inline-flex shrink-0 items-center gap-1 py-1 px-1.5 text-[11px] font-medium transition-colors ${
+                          forkMode
+                            ? "text-green-600"
+                            : "text-text-secondary hover:text-foreground"
+                        }`}
+                        title="创建知识分支"
+                      >
+                        <GitBranch size={12} />
+                        分叉
+                      </button>
+
+                      <div className="h-3.5 w-px bg-border/30" />
+
+                      {/* Retrieval depth selector (only in RAG mode) */}
+                      {mode === "rag" && (
+                        <select
+                          value={retrievalLevel ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const level = v === "" ? undefined : Number(v);
+                            setRetrievalLevel(level);
+                            lastRagLevelRef.current = level;
+                          }}
+                          className="inline-flex shrink-0 items-center gap-1 py-1 px-1 text-[11px] font-medium bg-transparent text-text-secondary hover:text-foreground cursor-pointer outline-none border-none"
+                          title="检索深度"
+                        >
+                          <option value="">自动</option>
+                          <option value="1">卡片</option>
+                          <option value="2">图谱</option>
+                          <option value="3">全量</option>
+                        </select>
+                      )}
+                    </>
+                  )}
 
                   {/* Spacer */}
                   <div className="flex-1" />
 
-                  {/* Model Selector */}
-                  <ModelSelector compact />
+                  {/* Model Selector - hidden when collapsed */}
+                  {!rightCollapsed && <ModelSelector compact />}
 
                   {/* Send / Stop button */}
                   {isStreaming ? (
@@ -883,44 +1060,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               </div>
             </div>
           </div>
-
-          {/* Conversation tabs */}
-          {(branches.length > 0 || activeBranchIdx !== null) && (
-            <div className="flex items-center gap-1 border-t border-border bg-surface/50 px-3 py-1.5">
-              <button
-                onClick={switchToMain}
-                className={`rounded px-2 py-0.5 text-[11px] font-medium transition ${
-                  activeBranchIdx === null
-                    ? "bg-primary text-white"
-                    : "text-text-secondary hover:bg-gray-100"
-                }`}
-              >
-                主
-              </button>
-              {branches.map((b, i) => (
-                <div key={i} className="group relative flex items-center">
-                  <button
-                    onClick={() => switchToBranch(i)}
-                    className={`rounded px-2 py-0.5 text-[11px] transition ${
-                      activeBranchIdx === i
-                        ? "bg-green-500 text-white"
-                        : "text-text-secondary hover:bg-gray-100"
-                    }`}
-                    title={b.title}
-                  >
-                    {i + 1}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeBranch(i); }}
-                    className="absolute -right-1 -top-1 hidden h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-300 text-[8px] text-white hover:bg-red-400 group-hover:flex"
-                    title="关闭分支"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 

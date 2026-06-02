@@ -40,6 +40,7 @@ export interface RAGMessage {
   card_id?: string;
   top_k?: number;
   web_search?: boolean;
+  retrieval_level?: number;  // 0=FREE, 1=CARD, 2=GRAPH, 3=FULL, undefined=auto
   history?: Array<{ role: string; content: string }>;
 }
 
