@@ -386,8 +386,8 @@ Respond in JSON format:
         if retrieval_level is not None:
             level = RetrievalLevel(retrieval_level)
         else:
-            # Default: GRAPH when workspace_ids provided, FREE otherwise
-            level = RetrievalLevel.GRAPH if workspace_ids else RetrievalLevel.FREE
+            # Default: FREE (pure LLM chat); user can select deeper levels explicitly
+            level = RetrievalLevel.FREE
 
         ws_ids = [uuid.UUID(w) for w in workspace_ids] if workspace_ids else []
 
@@ -407,9 +407,10 @@ Respond in JSON format:
         entity_ctx = retrieval_dispatcher.build_entity_context_string(retrieval_result)
         topo_ctx = retrieval_dispatcher.build_topology_context_string(retrieval_result)
 
+        # Fall back to FREE if no cards found at higher levels
         if not context_cards and level != RetrievalLevel.FREE:
-            yield "没有找到相关的灵感卡片。"
-            return
+            level = RetrievalLevel.FREE
+            retrieval_result.level_used = RetrievalLevel.FREE
 
         # Build context from cards
         if context_cards:

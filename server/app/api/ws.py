@@ -302,14 +302,17 @@ async def chat_websocket(websocket: WebSocket):
 
                     # Detect topic drift before streaming
                     if chat_id:
-                        ws_id = workspace_ids[0] if workspace_ids else None
-                        drift = await detect_topic_drift(db, chat_id, question, ws_id)
-                        if drift:
-                            await safe_send({
-                                "type": "auto_fork",
-                                "node_id": drift["node_id"],
-                                "title": drift["title"],
-                            })
+                        try:
+                            ws_id = workspace_ids[0] if workspace_ids else None
+                            drift = await detect_topic_drift(db, chat_id, question, ws_id)
+                            if drift:
+                                await safe_send({
+                                    "type": "auto_fork",
+                                    "node_id": drift["node_id"],
+                                    "title": drift["title"],
+                                })
+                        except Exception as e:
+                            logger.warning("Topic drift detection failed: %s", e)
 
                     current_task = asyncio.create_task(
                         handle_rag(db, question, workspace_ids, card_id, top_k, web_search, history, retrieval_level, chat_id)
