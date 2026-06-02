@@ -148,6 +148,25 @@ async def create_chat(
     )
     db.add(chat)
     await db.flush()
+
+    # Auto-bind to topology node if workspace_id is provided
+    if workspace_uuid and not chat.tree_node_id and req.title:
+        try:
+            from app.services.topology import topology_service
+
+            node = await topology_service.auto_bind_chat_to_node(
+                db, workspace_uuid, req.title
+            )
+            if node:
+                chat.tree_node_id = node.id
+                await db.flush()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Auto-bind chat to node failed: %s", e
+            )
+
     await db.commit()
     await db.refresh(chat)
     return ChatResponse(
