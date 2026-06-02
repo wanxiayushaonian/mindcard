@@ -51,11 +51,16 @@ class UpdateExtractionLanguageRequest(BaseModel):
 
 
 def _resolve_api_key_for_provider(provider_name: str) -> str:
-    """Get the configured API key for a provider via the registry's env_key."""
-    spec = PROVIDERS.get(provider_name)
-    if not spec:
-        return ""
-    return os.environ.get(spec.env_key, "") or os.environ.get(spec.env_key.lower(), "")
+    """Get the configured API key for a provider from settings."""
+    key_map = {
+        "deepseek": settings.deepseek_api_key,
+        "openai": settings.openai_api_key,
+        "claude": settings.anthropic_api_key,
+        "gemini": settings.gemini_api_key,
+        "moonshot": settings.moonshot_api_key,
+        "custom": settings.custom_api_key,
+    }
+    return key_map.get(provider_name, "") or ""
 
 
 def _resolve_base_url_for_provider(provider_name: str) -> str | None:
