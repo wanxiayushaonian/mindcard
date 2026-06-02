@@ -423,6 +423,7 @@ export interface ChatMessage {
   role: string;
   content: string;
   web_search_results?: WebSearchResult[];
+  fork_id?: string;
   created_at: string;
 }
 
@@ -450,10 +451,15 @@ export const chatApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  addMessage: (chatId: string, role: string, content: string, webSearchResults?: WebSearchResult[]) =>
+  addMessage: (chatId: string, role: string, content: string, webSearchResults?: WebSearchResult[], forkId?: string) =>
     request<ChatMessage>(`/api/chats/${chatId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, content, web_search_results: webSearchResults }),
+      body: JSON.stringify({ role, content, web_search_results: webSearchResults, fork_id: forkId }),
+    }),
+  updateMessage: (chatId: string, msgId: string, role: string, content: string) =>
+    request<ChatMessage>(`/api/chats/${chatId}/messages/${msgId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role, content }),
     }),
   delete: (chatId: string) =>
     request<{ ok: boolean }>(`/api/chats/${chatId}`, { method: "DELETE" }),

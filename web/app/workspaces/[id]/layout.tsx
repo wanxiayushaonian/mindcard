@@ -33,8 +33,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const [showEdit, setShowEdit] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const [showAiChat, setShowAiChat] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const showAiChat = usePanelStore((s) => s.showAiChat);
+  const setShowAiChat = usePanelStore((s) => s.setShowAiChat);
 
   // Cmd+K / Ctrl+K to open search
   useEffect(() => {
@@ -73,11 +74,6 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   // AI chat only available on card list and card detail pages
   const wsBase = `/workspaces/${workspaceId}`;
   const canShowAiChat = pathname === wsBase || pathname.startsWith(`${wsBase}/card/`);
-
-  // Close AI chat when navigating to a page that doesn't support it
-  useEffect(() => {
-    if (!canShowAiChat) setShowAiChat(false);
-  }, [canShowAiChat]);
 
   const navItems = [
     { label: "洞察", href: `/workspaces/${workspaceId}/insights`, highlight: false, icon: <Lightbulb size={14} /> },
@@ -201,7 +197,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           workspaceId={workspaceId}
           canShowAiChat={canShowAiChat}
           showAiChat={showAiChat}
-          onToggleAiChat={() => setShowAiChat((v) => !v)}
+          onToggleAiChat={() => setShowAiChat(!showAiChat)}
         >
           {children}
         </PanelLayout>
@@ -470,7 +466,7 @@ function PanelLayout({
       >
         <button
           onClick={toggleLeft}
-          className="absolute right-2 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-surface/90 text-text-secondary shadow backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
+          className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg bg-surface/90 text-text-secondary shadow backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
           title={leftCollapsed ? "展开卡片列表" : "收起卡片列表"}
         >
           {leftCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
@@ -495,7 +491,7 @@ function PanelLayout({
       >
         <button
           onClick={toggleRight}
-          className="absolute left-2 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-surface/90 text-text-secondary shadow backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
+          className="absolute left-2 top-1/2 z-30 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg bg-surface/90 text-text-secondary shadow backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
           title={rightCollapsed ? "展开AI对话" : "收起AI对话"}
         >
           {rightCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}

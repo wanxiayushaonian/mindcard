@@ -137,7 +137,7 @@ export default function WorkspacePage() {
   // Handle fork request from AiChatPanel
   useEffect(() => {
     const handler = async (e: Event) => {
-      const detail = (e as CustomEvent).detail as { prompt: string };
+      const detail = (e as CustomEvent).detail as { prompt: string; forkId?: string };
       if (!detail?.prompt) return;
       try {
         const { title } = await aiApi.generateTitle(detail.prompt);
@@ -153,7 +153,7 @@ export default function WorkspacePage() {
         }, { revalidate: true });
         // Notify AiChatPanel that fork is complete
         window.dispatchEvent(new CustomEvent("topology-fork-complete", {
-          detail: { nodeId: node.id, title: node.title, prompt: detail.prompt },
+          detail: { nodeId: node.id, title: node.title, prompt: detail.prompt, forkId: detail.forkId },
         }));
         toast("已创建分支: " + (node.title || detail.prompt.slice(0, 30)), "success");
       } catch (err: any) {

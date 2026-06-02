@@ -3,9 +3,11 @@ import { create } from "zustand";
 interface PanelState {
   leftCollapsed: boolean;
   rightCollapsed: boolean;
+  showAiChat: boolean;
   editorContent: string;
   toggleLeft: () => void;
   toggleRight: () => void;
+  setShowAiChat: (show: boolean) => void;
   setEditorContent: (content: string) => void;
   appendToEditor: (content: string) => void;
 }
@@ -25,9 +27,11 @@ function saveEditorContent(content: string) {
 export const usePanelStore = create<PanelState>((set, get) => ({
   leftCollapsed: false,
   rightCollapsed: false,
+  showAiChat: true,
   editorContent: "",
   toggleLeft: () => set((s) => ({ leftCollapsed: !s.leftCollapsed })),
   toggleRight: () => set((s) => ({ rightCollapsed: !s.rightCollapsed })),
+  setShowAiChat: (show) => set({ showAiChat: show }),
   setEditorContent: (content) => {
     saveEditorContent(content);
     set({ editorContent: content });
