@@ -58,10 +58,10 @@ function ThinkingBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="my-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10">
+    <div className="my-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-100/50 dark:hover:bg-amber-900/20 rounded-lg transition"
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-100/50 dark:hover:bg-blue-900/20 rounded-lg transition"
       >
         {expanded ? (
           <ChevronDown className="w-3.5 h-3.5" />
@@ -70,13 +70,13 @@ function ThinkingBlock({ text }: { text: string }) {
         )}
         <span className="font-medium">思考过程</span>
         {!expanded && (
-          <span className="text-amber-400 dark:text-amber-600 ml-1 truncate">
+          <span className="text-blue-400 dark:text-blue-600 ml-1 truncate">
             {text.slice(0, 60)}...
           </span>
         )}
       </button>
       {expanded && (
-        <div className="px-3 pb-3 pt-1 text-xs text-amber-700 dark:text-amber-300 leading-relaxed border-t border-amber-200 dark:border-amber-800">
+        <div className="px-3 pb-3 pt-1 text-xs text-blue-700 dark:text-blue-300 leading-relaxed border-t border-blue-200 dark:border-blue-800">
           <MarkdownRenderer content={text} variant="prose" className="text-[12px]" />
         </div>
       )}
