@@ -92,6 +92,87 @@ Obsidian是一个强大的知识管理工具。
 """
 
 
+BRANCH_DETECTION_INSTRUCTION = """
+话题分叉判断规则：
+如果你判断用户的新话题与当前分支的主题明显不同，需要创建新分支，
+请在回复的最开头输出标记：[BRANCH: 简短说明新话题]
+然后正常回复。
+
+示例：
+- 当前分支讨论"RAG 原理"，用户问"向量检索怎么优化" → 不分叉（同一话题）
+- 当前分支讨论"RAG 原理"，用户问"怎么做红烧肉" → [BRANCH: 烹饪] 完全不同的话题
+- 当前分支讨论"Python 语法"，用户问"机器学习入门" → [BRANCH: 机器学习] 相关但值得独立探索
+
+注意：
+- 只在话题真正偏离时才标记，不要过于敏感
+- 如果只是当前话题的深入或延伸，不要分叉
+- 如果用户明确说"换个话题"或"另一个问题"，考虑分叉
+- 不要在连续几条消息内反复触发分叉
+- 确保新分支的标签与同级已有分支不同
+"""
+
+
+async def build_branch_context(
+    db: AsyncSession,
+    chat_id: str,
+    current_fork_id: str | None,
+    workspace_id: str | None,
+) -> str:
+    """Build branch context string for system prompt injection.
+
+    Includes: parent_context, cross-branch insights, shared memory.
+    """
+    from app.models.branch_insight import BranchInsight
+    from app.models.workspace_memory import WorkspaceMemory
+    from app.models.chat import ChatMessage
+
+    parts = []
+
+    # 1. Parent context from fork divider metadata
+    if current_fork_id:
+        result = await db.execute(
+            select(ChatMessage).where(
+                ChatMessage.fork_id == current_fork_id,
+                ChatMessage.role == "fork-divider",
+            ).limit(1)
+        )
+        fork_divider = result.scalar_one_or_none()
+        if fork_divider and fork_divider.metadata_:
+            parent_ctx = fork_divider.metadata_.get("parent_context_summary")
+            if parent_ctx:
+                parts.append(f"<parent_context>\n{parent_ctx}\n</parent_context>")
+
+    # 2. Unconsumed cross-branch insights
+    result = await db.execute(
+        select(BranchInsight).where(
+            BranchInsight.target_chat_id == chat_id,
+            BranchInsight.consumed == False,
+        )
+    )
+    insights = result.scalars().all()
+    if insights:
+        insight_text = "\n".join(f"- {i.content}" for i in insights)
+        parts.append(f"<cross_branch_insights>\n来自其他分支的发现：\n{insight_text}\n</cross_branch_insights>")
+        # Mark as consumed
+        for insight in insights:
+            insight.consumed = True
+        await db.commit()
+
+    # 3. Shared memory
+    if workspace_id:
+        result = await db.execute(
+            select(WorkspaceMemory).where(
+                WorkspaceMemory.workspace_id == workspace_id,
+            )
+        )
+        memories = result.scalars().all()
+        if memories:
+            memory_text = "\n\n".join(f"## {m.title}\n{m.body}" for m in memories)
+            parts.append(f"<shared_memory>\n{memory_text}\n</shared_memory>")
+
+    return "\n\n".join(parts) if parts else ""
+
+
 class RAGService:
     """RAG pipeline: retrieve relevant cards → build context → LLM answer."""
 
@@ -149,7 +230,7 @@ class RAGService:
         search_context = ""
         web_search_results = []
         if web_search:
-            search_results = web_search_service.search(question, max_results=8)
+            search_results = await web_search_service.search(question, max_results=8)
             web_search_results = search_results
             if search_results:
                 search_context = "\n\n" + web_search_service.format_results(search_results)
@@ -332,7 +413,7 @@ Respond in JSON format:
         # Optional web search
         user_message = message
         if web_search:
-            search_results = web_search_service.search(message, max_results=8)
+            search_results = await web_search_service.search(message, max_results=8)
             if search_results:
                 user_message = message + "\n\n" + web_search_service.format_results(search_results)
 
@@ -350,7 +431,7 @@ Respond in JSON format:
         # Optional web search - yield results immediately
         user_message = message
         if web_search:
-            search_results = web_search_service.search(message, max_results=8)
+            search_results = await web_search_service.search(message, max_results=8)
             if search_results:
                 user_message = message + "\n\n" + web_search_service.format_results(search_results)
                 # Yield web search results immediately for frontend display
@@ -377,6 +458,7 @@ Respond in JSON format:
         history: list[dict[str, str]] | None = None,
         retrieval_level: int | None = None,
         chat_id: str | None = None,
+        current_fork_id: str | None = None,
     ) -> AsyncGenerator[str | dict, None]:
         """Streaming RAG answer: retrieve cards via RetrievalDispatcher, stream LLM, yield sources dict at end."""
         from app.schemas.retrieval import RetrievalLevel
@@ -424,7 +506,7 @@ Respond in JSON format:
         search_context = ""
         web_search_results = []
         if web_search:
-            search_results = web_search_service.search(question, max_results=8)
+            search_results = await web_search_service.search(question, max_results=8)
             web_search_results = search_results
             if search_results:
                 search_context = "\n\n" + web_search_service.format_results(search_results)
@@ -498,6 +580,20 @@ Respond in JSON format:
             system_parts.append(f"\n相关灵感卡片：\n{context}")
         if search_context:
             system_parts.append(search_context)
+
+        # Inject branch context (parent_context, insights, shared_memory)
+        branch_context = await build_branch_context(
+            db, chat_id,
+            current_fork_id=current_fork_id,
+            workspace_id=workspace_ids[0] if workspace_ids else None,
+        )
+        if branch_context:
+            system_parts.append(branch_context)
+
+        # Add branch detection instruction if auto-fork is enabled
+        from app.config import settings
+        if getattr(settings, "auto_fork_enabled", True):
+            system_parts.append(BRANCH_DETECTION_INSTRUCTION)
 
         system_prompt = "\n\n".join(system_parts)
 
