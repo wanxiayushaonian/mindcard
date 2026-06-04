@@ -49,4 +49,5 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     web_search_results: Mapped[list | None] = mapped_column(JSON, nullable=True)
     fork_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # fork group identifier
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
