@@ -47,6 +47,17 @@ class UpdateExtractionLanguageRequest(BaseModel):
     language: str  # 'zh' | 'en'
 
 
+class ExtractionProviderResponse(BaseModel):
+    provider: str
+    model: str
+    available_providers: list[str]
+
+
+class UpdateExtractionProviderRequest(BaseModel):
+    provider: str
+    model: str | None = None
+
+
 # ── Helpers ──
 
 
@@ -204,3 +215,200 @@ async def get_extraction_language(
 
     language = user_setting.extraction_language if user_setting else "zh"
     return {"language": language}
+
+
+@router.get("/extraction-provider", response_model=ExtractionProviderResponse)
+async def get_extraction_provider():
+    """Get the current extraction LLM provider config."""
+    available = []
+    for name, spec in PROVIDERS.items():
+        api_key = _resolve_api_key_for_provider(name)
+        if api_key:
+            available.append(name)
+
+    return ExtractionProviderResponse(
+        provider=llm_service.extraction_provider_name,
+        model=llm_service.extraction_model_name or "(默认)",
+        available_providers=available,
+    )
+
+
+@router.put("/extraction-provider")
+async def update_extraction_provider(
+    req: UpdateExtractionProviderRequest,
+    user: User = Depends(get_current_user),
+):
+    """Switch the extraction LLM provider (writes to .env)."""
+    if req.provider not in PROVIDERS:
+        raise HTTPException(400, f"Unknown provider: {req.provider}")
+
+    api_key = _resolve_api_key_for_provider(req.provider)
+    if not api_key:
+        raise HTTPException(400, f"Provider '{req.provider}' has no API key configured")
+
+    # Update .env file
+    _update_env("EXTRACTION_LLM_PROVIDER", req.provider)
+    if req.model:
+        _update_env("EXTRACTION_LLM_MODEL", req.model)
+    elif req.model == "":
+        _update_env("EXTRACTION_LLM_MODEL", "")
+
+    # Update runtime config
+    settings.extraction_llm_provider = req.provider
+    settings.extraction_llm_model = req.model or ""
+    llm_service.reset_extraction_provider()
+
+    return {"ok": True, "provider": req.provider, "model": req.model or "(默认)"}
+
+
+# ── Web Search Settings ──
+
+class WebSearchSettingsResponse(BaseModel):
+    provider: str
+    api_key_set: bool
+    base_url: str
+    max_results: int
+    timeout: int
+    proxy: str
+    providers: list[dict]
+
+
+class UpdateWebSearchSettingsRequest(BaseModel):
+    provider: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+    max_results: int | None = None
+    timeout: int | None = None
+    proxy: str | None = None
+
+
+@router.get("/web-search", response_model=WebSearchSettingsResponse)
+async def get_web_search_settings():
+    """Get current web search configuration."""
+    from app.services.web_search import PROVIDER_META
+
+    return WebSearchSettingsResponse(
+        provider=settings.web_search_provider,
+        api_key_set=bool(settings.web_search_api_key),
+        base_url=settings.web_search_base_url,
+        max_results=settings.web_search_max_results,
+        timeout=settings.web_search_timeout,
+        proxy=settings.web_search_proxy,
+        providers=PROVIDER_META,
+    )
+
+
+@router.put("/web-search")
+async def update_web_search_settings(
+    req: UpdateWebSearchSettingsRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update web search configuration."""
+    if req.provider is not None:
+        valid_names = {p["name"] for p in [
+            {"name": "duckduckgo"}, {"name": "brave"}, {"name": "tavily"},
+            {"name": "searxng"}, {"name": "jina"}, {"name": "kagi"},
+        ]}
+        if req.provider not in valid_names:
+            raise HTTPException(400, f"Unknown provider: {req.provider}")
+        _update_env("WEB_SEARCH_PROVIDER", req.provider)
+        settings.web_search_provider = req.provider
+
+    if req.api_key is not None:
+        _update_env("WEB_SEARCH_API_KEY", req.api_key)
+        settings.web_search_api_key = req.api_key
+
+    if req.base_url is not None:
+        _update_env("WEB_SEARCH_BASE_URL", req.base_url)
+        settings.web_search_base_url = req.base_url
+
+    if req.max_results is not None:
+        clamped = max(1, min(req.max_results, 10))
+        _update_env("WEB_SEARCH_MAX_RESULTS", str(clamped))
+        settings.web_search_max_results = clamped
+
+    if req.timeout is not None:
+        clamped = max(1, min(req.timeout, 120))
+        _update_env("WEB_SEARCH_TIMEOUT", str(clamped))
+        settings.web_search_timeout = clamped
+
+    if req.proxy is not None:
+        _update_env("WEB_SEARCH_PROXY", req.proxy)
+        settings.web_search_proxy = req.proxy
+
+    return {
+        "ok": True,
+        "provider": settings.web_search_provider,
+        "max_results": settings.web_search_max_results,
+        "timeout": settings.web_search_timeout,
+    }
+
+
+def _update_env(key: str, value: str) -> None:
+    """Update or add a key in the .env file."""
+    env_path = ".env"
+    lines: list[str] = []
+    found = False
+
+    try:
+        with open(env_path) as f:
+            for line in f:
+                if line.strip().startswith(f"{key}="):
+                    lines.append(f"{key}={value}\n")
+                    found = True
+                else:
+                    lines.append(line)
+    except FileNotFoundError:
+        pass
+
+    if not found:
+        lines.append(f"{key}={value}\n")
+
+    with open(env_path, "w") as f:
+        f.writelines(lines)
+
+
+# ── Fork Settings ──
+
+
+class ForkSettingsResponse(BaseModel):
+    auto_fork_enabled: bool
+    fork_context_strategy: str
+
+
+class UpdateForkSettingsRequest(BaseModel):
+    auto_fork_enabled: bool | None = None
+    fork_context_strategy: str | None = None
+
+
+@router.get("/fork", response_model=ForkSettingsResponse)
+async def get_fork_settings():
+    """Get current chat fork configuration."""
+    return ForkSettingsResponse(
+        auto_fork_enabled=settings.auto_fork_enabled,
+        fork_context_strategy=settings.fork_context_strategy,
+    )
+
+
+@router.put("/fork")
+async def update_fork_settings(
+    req: UpdateForkSettingsRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update chat fork configuration."""
+    valid_strategies = {"none", "inherit", "compress"}
+
+    if req.auto_fork_enabled is not None:
+        _update_env("AUTO_FORK_ENABLED", str(req.auto_fork_enabled).lower())
+        settings.auto_fork_enabled = req.auto_fork_enabled
+
+    if req.fork_context_strategy is not None:
+        if req.fork_context_strategy not in valid_strategies:
+            raise HTTPException(
+                400,
+                f"Invalid strategy: {req.fork_context_strategy}. Must be one of: {valid_strategies}",
+            )
+        _update_env("FORK_CONTEXT_STRATEGY", req.fork_context_strategy)
+        settings.fork_context_strategy = req.fork_context_strategy
+
+    return {"ok": True}

@@ -277,6 +277,15 @@ export const cardApi = {
     }),
   delete: (id: string) =>
     request<{ ok: boolean }>(`/api/cards/${id}`, { method: "DELETE" }),
+  deletePreview: (id: string) =>
+    request<{
+      card_title: string;
+      relations: number;
+      tree_nodes: number;
+      entities: number;
+      graph_relations: number;
+      comments: number;
+    }>(`/api/cards/${id}/delete-preview`),
   getRelated: (id: string) => request<Card[]>(`/api/cards/${id}/relations`),
   addRelation: (cardId: string, relatedCardId: string, relationType = "manual") =>
     request<{ ok: boolean }>(`/api/cards/${cardId}/relations`, {
@@ -463,6 +472,14 @@ export const chatApi = {
     }),
   delete: (chatId: string) =>
     request<{ ok: boolean }>(`/api/chats/${chatId}`, { method: "DELETE" }),
+  deletePreview: (chatId: string) =>
+    request<{
+      chat_title: string;
+      messages: number;
+      child_chats: number;
+      tree_node_title: string | null;
+      node_will_archive: boolean;
+    }>(`/api/chats/${chatId}/delete-preview`),
   getChatPath: (chatId: string) =>
     request<{ path: ChatPathNode[] }>(`/api/chats/${chatId}/path`),
 };
@@ -623,6 +640,35 @@ export const settingsApi = {
       method: "PUT",
       body: JSON.stringify({ language }),
     }),
+  getExtractionProvider: () =>
+    request<{ provider: string; model: string; available_providers: string[] }>("/api/settings/extraction-provider"),
+  updateExtractionProvider: (provider: string, model?: string) =>
+    request<{ ok: boolean; provider: string; model: string }>("/api/settings/extraction-provider", {
+      method: "PUT",
+      body: JSON.stringify({ provider, model }),
+    }),
+  getWebSearchSettings: () =>
+    request<{
+      provider: string;
+      api_key_set: boolean;
+      base_url: string;
+      max_results: number;
+      timeout: number;
+      proxy: string;
+      providers: { name: string; label: string; credential: string }[];
+    }>("/api/settings/web-search"),
+  updateWebSearchSettings: (data: {
+    provider?: string;
+    api_key?: string;
+    base_url?: string;
+    max_results?: number;
+    timeout?: number;
+    proxy?: string;
+  }) =>
+    request<{ ok: boolean; provider: string; max_results: number; timeout: number }>(
+      "/api/settings/web-search",
+      { method: "PUT", body: JSON.stringify(data) }
+    ),
 };
 
 // --- Topology Tree ---
@@ -793,4 +839,58 @@ export const graphApi = {
 
   getStats: (workspaceId: string) =>
     request<GraphStats>(`/api/graph/stats?workspace_id=${workspaceId}`),
+};
+
+// --- Branch Insights ---
+export interface Insight {
+  id: string;
+  chat_id: string;
+  target_chat_id: string;
+  content: string;
+  consumed: boolean;
+  created_at: string;
+}
+
+export const insightApi = {
+  create: (chatId: string, targetChatId: string, content: string) =>
+    request<Insight>(`/api/chats/${chatId}/insights`, {
+      method: "POST",
+      body: JSON.stringify({ target_chat_id: targetChatId, content }),
+    }),
+  list: (chatId: string, consumed?: boolean) =>
+    request<Insight[]>(`/api/chats/${chatId}/insights${consumed !== undefined ? `?consumed=${consumed}` : ""}`),
+};
+
+// --- Workspace Memories ---
+export interface Memory {
+  slug: string;
+  title: string;
+  body: string;
+}
+
+export const memoryApi = {
+  list: (workspaceId: string) =>
+    request<Memory[]>(`/api/workspaces/${workspaceId}/memories`),
+  upsert: (workspaceId: string, data: { slug: string; title: string; body: string }) =>
+    request<Memory>(`/api/workspaces/${workspaceId}/memories`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  delete: (workspaceId: string, slug: string) =>
+    request<{ ok: boolean }>(`/api/workspaces/${workspaceId}/memories/${slug}`, { method: "DELETE" }),
+};
+
+// --- Fork Settings ---
+export interface ForkSettings {
+  auto_fork_enabled: boolean;
+  fork_context_strategy: string;
+}
+
+export const forkSettingsApi = {
+  get: () => request<ForkSettings>("/api/settings/fork"),
+  update: (data: { auto_fork_enabled?: boolean; fork_context_strategy?: string }) =>
+    request<{ ok: boolean }>("/api/settings/fork", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
 };

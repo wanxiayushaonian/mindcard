@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Cpu, Key, ArrowLeft, Languages } from "lucide-react";
+import { Cpu, Key, ArrowLeft, Languages, GitFork } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/settings/models", label: "模型设置", icon: Cpu },
   { href: "/settings/api-keys", label: "API Key", icon: Key },
   { href: "/settings/extraction", label: "图谱提取", icon: Languages },
+  { href: "/settings/fork", label: "对话分叉", icon: GitFork },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
