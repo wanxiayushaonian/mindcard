@@ -9,6 +9,7 @@ from .api_key import ApiKey
 from .topic import Topic, TopicCard
 from .topology import TreeNode, NodeCard, NodeRef
 from .graph import GraphEntity, GraphRelation, EntityCard, GNNTrainingLog, TripleFeedback
+from .branch_insight import BranchInsight
 
 __all__ = [
     "User",
@@ -32,4 +33,5 @@ __all__ = [
     "EntityCard",
     "GNNTrainingLog",
     "TripleFeedback",
+    "BranchInsight",
 ]
