@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode } from "@/lib/api";
@@ -9,8 +9,10 @@ import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
 import AssistantResponse from "@/components/AssistantResponse";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { ForkDivider } from "@/components/ForkDivider";
+import { ForkBreadcrumb } from "@/components/ForkBreadcrumb";
 import { usePanelStore } from "@/lib/workspace-layout-store";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, ChevronRight, Copy, Sparkles } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, ChevronRight, Copy, Sparkles, Loader2 } from "lucide-react";
 
 const FORK_PREFIX = "__FORK__";
 
@@ -21,6 +23,8 @@ interface ForkMetaEntry {
   completed: boolean;
   msgId?: string;
   auto?: boolean;
+  depth?: number;
+  parentForkId?: string;
 }
 
 function encodeForkContent(meta: Omit<ForkMetaEntry, "msgId">): string {
@@ -56,10 +60,31 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [chatId, setChatId] = useState<string | null>(null);
+  const [chatId, setChatIdRaw] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatSession[]>([]);
+
+  // Persist active chatId per workspace
+  const chatStorageKey = `mindcard-active-chat-${workspaceId || "global"}`;
+  const setChatId = (id: string | null) => {
+    setChatIdRaw(id);
+    if (id) {
+      localStorage.setItem(chatStorageKey, id);
+    } else {
+      localStorage.removeItem(chatStorageKey);
+    }
+  };
   const [showHistory, setShowHistory] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
+  const [deletePreview, setDeletePreview] = useState<{
+    chat_title: string; messages: number; child_chats: number;
+    tree_node_title: string | null; node_will_archive: boolean;
+  } | null>(null);
+
+  // Fetch preview when delete target changes
+  useEffect(() => {
+    if (!deleteTarget) { setDeletePreview(null); return; }
+    chatApi.deletePreview(deleteTarget.id).then(setDeletePreview).catch(() => setDeletePreview(null));
+  }, [deleteTarget]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
   const wsClientRef = useRef<UnifiedWSClient | null>(null);
@@ -95,6 +120,54 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Build breadcrumb path from active fork
+  const breadcrumbPath = useMemo(() => {
+    interface BreadcrumbNode { forkId: string | null; label: string; depth: number; }
+    if (!activeForkIdRef.current) return [{ forkId: null as string | null, label: "主对话", depth: 0 }];
+
+    const path: BreadcrumbNode[] = [
+      { forkId: null, label: "主对话", depth: 0 },
+    ];
+
+    // Find the active fork's parent chain
+    let currentId: string | null = activeForkIdRef.current;
+    const chain: BreadcrumbNode[] = [];
+
+    while (currentId) {
+      const meta: ForkMetaEntry | undefined = forkMeta[currentId];
+      if (!meta) break;
+      chain.unshift({
+        forkId: currentId,
+        label: meta.title || "分支",
+        depth: meta.depth || 0,
+      });
+      currentId = meta.parentForkId || null;
+    }
+
+    return [...path, ...chain];
+  }, [forkMeta, messages]);
+
+  const handleForkNavigate = useCallback((forkId: string | null) => {
+    activeForkIdRef.current = forkId;
+    // Collapse all forks, then expand the target path
+    setForkMeta((prev) => {
+      const next = { ...prev };
+      // Collapse all
+      for (const key of Object.keys(next)) {
+        next[key] = { ...next[key], collapsed: true };
+      }
+      // Expand the target and its ancestors
+      let currentId = forkId;
+      while (currentId) {
+        if (next[currentId]) {
+          next[currentId] = { ...next[currentId], collapsed: false };
+        }
+        currentId = next[currentId]?.parentForkId || null;
+      }
+      return next;
+    });
+  }, []);
 
   // Initialize WebSocket client
   useEffect(() => {
@@ -158,11 +231,51 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             })
             .catch((e) => console.error("Failed to save auto-fork divider:", e));
         }
+      } else if (event.type === "fork_created" && event.fork_id) {
+        // Server-created fork (from [BRANCH: ...] marker)
+        const forkId = event.fork_id;
+        const title = event.branch_label || "新分支";
+        const depth = event.depth || 0;
+        const meta: Omit<ForkMetaEntry, "msgId"> = {
+          title,
+          nodeId: "",
+          collapsed: false,
+          completed: true,
+          depth,
+        };
+        setMessages((prev) => [
+          ...prev,
+          { role: "fork-divider" as const, content: encodeForkContent(meta), forkId },
+        ]);
+        setForkMeta((prev) => ({ ...prev, [forkId]: { ...meta, completed: true } }));
+        activeForkIdRef.current = forkId;
+        // Persist divider to backend
+        if (chatIdRef.current) {
+          chatApi.addMessage(chatIdRef.current, "fork-divider", encodeForkContent(meta), undefined, forkId)
+            .then((saved) => {
+              setForkMeta((p) => ({ ...p, [forkId]: { ...p[forkId], msgId: saved.id } }));
+            })
+            .catch((e) => console.error("Failed to save fork divider:", e));
+        }
+        toast.success(`话题偏移，已创建分支: ${title}`);
+      } else if (event.type === "content_replace" && event.content) {
+        // Server replaced the streamed content (e.g., stripped [BRANCH: ...] marker)
+        setMessages((prev) => {
+          const updated = [...prev];
+          const lastIdx = updated.length - 1;
+          if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+            updated[lastIdx] = { ...updated[lastIdx], content: event.content! };
+          }
+          return updated;
+        });
+        streamContentRef.current = event.content;
       } else if (event.type === "done") {
         // Stream completed
         setMessages((prev) => {
           const updated = [...prev];
-          updated[updated.length - 1] = { ...updated[updated.length - 1], status: "done" };
+          const last = updated[updated.length - 1];
+          const finalContent = last.content || "模型未返回内容，请重试。";
+          updated[updated.length - 1] = { ...last, content: finalContent, status: last.content ? "done" : "error" };
           return updated;
         });
         setIsStreaming(false);
@@ -279,7 +392,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     return () => window.removeEventListener("topology-fork-complete", handler);
   }, []);
 
-  const loadChat = async (id: string) => {
+  const loadChat = async (id: string): Promise<boolean> => {
     stopStream();
     try {
       const detail = await chatApi.get(id);
@@ -309,8 +422,25 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       setShowHistory(false);
       setForkMode(false);
       activeForkIdRef.current = null;
-    } catch {}
+      return true;
+    } catch {
+      return false;
+    }
   };
+
+  // Restore last active chat on mount
+  useEffect(() => {
+    if (!workspaceId) return;
+    const savedId = localStorage.getItem(chatStorageKey);
+    if (savedId && !chatId) {
+      loadChat(savedId).then((ok) => {
+        if (!ok) {
+          // Chat was deleted or invalid — clear stale localStorage entry
+          localStorage.removeItem(chatStorageKey);
+        }
+      });
+    }
+  }, [workspaceId]);
 
   const startNewChat = () => {
     stopStream();
@@ -440,6 +570,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       web_search: webSearch,
       history: hist,
       retrieval_level: retrievalLevel,
+      current_fork_id: activeForkIdRef.current || undefined,
     });
 
     // Set abort function to cancel via WebSocket
@@ -535,17 +666,19 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               </button>
             </>
           )}
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-text-secondary transition hover:bg-gray-100"
-            title="关闭"
-          >
-            <X size={15} />
-          </button>
+          {!rightCollapsed && (
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-text-secondary transition hover:bg-gray-100"
+              title="关闭 AI 对话面板"
+            >
+              <X size={15} />
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="relative flex-1 overflow-hidden">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         {/* Breadcrumb Navigation */}
         {!rightCollapsed && chatPath.length > 0 && (
           <div className="border-b border-border bg-surface/50 px-3 py-2">
@@ -651,9 +784,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           </div>
         )}
 
-        {/* Chat area */}
-        <div className="flex h-full flex-col">
-          <div className="flex-1 overflow-y-auto px-3 py-4">
+        {/* Chat area — absolute inset-0 to bypass flex height chain */}
+        <div className="absolute inset-0 flex flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center text-center text-text-secondary">
                 <div className="mb-3 text-3xl font-bold text-primary/30">AI</div>
@@ -662,35 +795,33 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               </div>
             )}
 
+            <ForkBreadcrumb
+              path={breadcrumbPath}
+              onNavigate={handleForkNavigate}
+            />
+
             {messages.map((msg, i) => {
               // Fork divider
               if (msg.role === "fork-divider" && msg.forkId) {
                 const meta = forkMeta[msg.forkId];
                 if (!meta) return null;
-                const canToggle = meta.completed;
-                const isAuto = meta.auto;
+                // Count messages in this fork
+                const forkMsgCount = messages.filter(
+                  (m, j) => j > i && (m.forkId === msg.forkId || (!m.forkId && !messages.slice(i + 1, j).some(k => k.role === "fork-divider")))
+                ).length;
                 return (
-                  <div key={i} className="my-3 flex items-center gap-2">
-                    <div className={`h-px flex-1 ${isAuto ? "border-t border-dashed border-gray-200" : meta.completed ? "bg-gray-300/50" : "border-t border-dashed border-green-400/60"}`} style={isAuto ? { background: "transparent" } : undefined} />
-                    <button
-                      onClick={() => canToggle && setForkMeta((prev) => ({
-                        ...prev,
-                        [msg.forkId!]: { ...prev[msg.forkId!], collapsed: !prev[msg.forkId!].collapsed },
-                      }))}
-                      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition ${
-                        isAuto
-                          ? "cursor-pointer border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
-                          : meta.completed
-                            ? "cursor-pointer border-gray-300/50 bg-gray-50 text-gray-600 hover:bg-gray-100"
-                            : "cursor-default border-green-400/60 bg-green-50 text-green-600 animate-[pulse_1.2s_ease-in-out_infinite]"
-                      }`}
-                    >
-                      <GitBranch size={isAuto ? 9 : 11} />
-                      <span className="max-w-[200px] truncate">{meta.title}</span>
-                      {canToggle && (meta.collapsed ? <ChevronDown size={11} /> : <ChevronUp size={11} />)}
-                    </button>
-                    <div className={`h-px flex-1 ${isAuto ? "border-t border-dashed border-gray-200" : meta.completed ? "bg-gray-300/50" : "border-t border-dashed border-green-400/60"}`} style={isAuto ? { background: "transparent" } : undefined} />
-                  </div>
+                  <ForkDivider
+                    key={i}
+                    forkId={msg.forkId}
+                    label={meta.title}
+                    depth={meta.depth || 0}
+                    messageCount={forkMsgCount}
+                    collapsed={meta.collapsed}
+                    onToggle={(fid) => setForkMeta((prev) => ({
+                      ...prev,
+                      [fid]: { ...prev[fid], collapsed: !prev[fid].collapsed },
+                    }))}
+                  />
                 );
               }
 
@@ -740,6 +871,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                         <div className="flex items-center gap-2 text-sm text-text-secondary">
                           <Globe size={14} className="animate-pulse" />
                           <span className="animate-pulse">{msg.content}</span>
+                        </div>
+                      ) : isStreaming && i === messages.length - 1 && !msg.content ? (
+                        <div className="flex items-center gap-2 text-sm text-text-secondary">
+                          <Loader2 size={14} className="animate-spin text-primary" />
+                          <span className="animate-pulse">思考中...</span>
                         </div>
                       ) : (
                         <>
@@ -988,16 +1124,26 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       </div>
 
       {/* Delete confirmation modal */}
-      {deleteTarget && (
-        <ConfirmModal
-          title="删除对话"
-          message={`确定删除「${deleteTarget.title || "新对话"}」？删除后无法恢复。`}
-          confirmText="删除"
-          danger
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      )}
+      {deleteTarget && (() => {
+        const title = deletePreview?.chat_title || deleteTarget.title || "新对话";
+        const impacts: string[] = [];
+        if (deletePreview) {
+          if (deletePreview.messages > 0) impacts.push(`${deletePreview.messages} 条消息`);
+          if (deletePreview.child_chats > 0) impacts.push(`${deletePreview.child_chats} 个分支对话`);
+          if (deletePreview.node_will_archive) impacts.push(`拓扑节点「${deletePreview.tree_node_title}」将被归档`);
+        }
+        const impactText = impacts.length > 0 ? `\n将同时删除：${impacts.join("、")}` : "";
+        return (
+          <ConfirmModal
+            title="删除对话"
+            message={`确定删除「${title}」？删除后无法恢复。${impactText}`}
+            confirmText="删除"
+            danger
+            onConfirm={confirmDelete}
+            onCancel={() => setDeleteTarget(null)}
+          />
+        );
+      })()}
 
     </div>
   );

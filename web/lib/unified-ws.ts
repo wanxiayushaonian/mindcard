@@ -12,6 +12,8 @@ export type StreamEventType =
   | "sources"
   | "web_search_results"
   | "auto_fork"
+  | "fork_created"
+  | "content_replace"
   | "done"
   | "error"
   | "cancelled"
@@ -24,6 +26,9 @@ export interface StreamEvent {
   source_cards?: any[];
   node_id?: string;
   title?: string;
+  fork_id?: string;
+  branch_label?: string;
+  depth?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -34,6 +39,7 @@ export interface ChatMessage {
   message: string;
   history?: Array<{ role: string; content: string }>;
   web_search?: boolean;
+  current_fork_id?: string;
 }
 
 export interface RAGMessage {
@@ -45,6 +51,7 @@ export interface RAGMessage {
   web_search?: boolean;
   retrieval_level?: number;  // 0=FREE, 1=CARD, 2=GRAPH, 3=FULL, undefined=auto
   history?: Array<{ role: string; content: string }>;
+  current_fork_id?: string;
 }
 
 export interface CancelMessage {
