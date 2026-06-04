@@ -14,10 +14,12 @@ class ChatCreate(BaseModel):
 
 
 class ChatForkRequest(BaseModel):
-    """Request to fork a conversation into a sub-conversation."""
+    """Request to fork a conversation."""
     topic: str = ""  # Optional focus topic for the fork
-    mode: str = "rag"  # Mode for the new sub-conversation
-    title: str = ""  # Title for the forked conversation
+    mode: str = "rag"
+    title: str = ""
+    context_strategy: str = "compress"  # none | inherit | compress
+    fork_id: str | None = None  # parent fork_id for nested forks
 
 
 class ChatSummarizeRequest(BaseModel):
@@ -81,5 +83,5 @@ class ChatResponse(BaseModel):
 
 class ChatForkResponse(BaseModel):
     """Response after forking a conversation."""
-    chat: ChatResponse
-    context_summary: str  # The context passed to the forked conversation
+    fork_id: str
+    context_summary: str

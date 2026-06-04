@@ -314,15 +314,89 @@ async def delete_chat(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Delete a chat session and all its messages."""
+    """Delete a chat session and all its messages.
+
+    TreeNodes are soft-deleted (archived) rather than hard-deleted
+    to avoid cascade-deleting child nodes.
+    """
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
     if chat.user_id != user.id:
         raise HTTPException(status_code=403, detail="无权访问此对话")
+
+    # Detach chat from TreeNode before deletion to avoid SET NULL confusion
+    node_id = chat.tree_node_id
+    chat.tree_node_id = None
+    await db.flush()
+
+    # Soft-delete the TreeNode if it has no other chats attached
+    if node_id:
+        node = await db.get(TreeNode, node_id)
+        if node:
+            # Check if other chats still reference this node
+            other_chats = await db.execute(
+                select(AiChat.id).where(
+                    AiChat.tree_node_id == node_id,
+                    AiChat.id != chat.id,
+                ).limit(1)
+            )
+            if not other_chats.scalar_one_or_none():
+                node.status = "archived"
+                logger.info("Archived TreeNode %s (no remaining chats)", node_id)
+
     await db.delete(chat)
     await db.commit()
+    logger.info("Deleted chat %s", chat_id)
     return {"ok": True}
+
+
+@router.get("/{chat_id}/delete-preview")
+async def delete_chat_preview(
+    chat_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Preview what will be affected by deleting a chat."""
+    chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    if chat.user_id != user.id:
+        raise HTTPException(status_code=403, detail="无权访问此对话")
+
+    from sqlalchemy import func
+
+    # Count messages
+    msg_count = await db.execute(
+        select(func.count()).where(ChatMessage.chat_id == chat_id)
+    )
+    # Count child chats (forks)
+    child_count = await db.execute(
+        select(func.count()).where(AiChat.parent_chat_id == chat_id)
+    )
+    # Check tree node
+    node_title = None
+    node_will_archive = False
+    if chat.tree_node_id:
+        node = await db.get(TreeNode, chat.tree_node_id)
+        if node:
+            node_title = node.title
+            # Will archive if no other chats reference this node
+            other = await db.execute(
+                select(AiChat.id).where(
+                    AiChat.tree_node_id == chat.tree_node_id,
+                    AiChat.id != chat.id,
+                ).limit(1)
+            )
+            node_will_archive = not other.scalar_one_or_none()
+
+    return {
+        "chat_title": chat.title or "未命名对话",
+        "messages": msg_count.scalar() or 0,
+        "child_chats": child_count.scalar() or 0,
+        "tree_node_title": node_title,
+        "node_will_archive": node_will_archive,
+    }
 
 
 # ── Fork & Summarize ──
@@ -336,8 +410,8 @@ async def fork_chat(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Fork a conversation into a sub-conversation, creating a child topology node."""
-    import time
+    """Fork a conversation by inserting an inline fork divider with compressed context."""
+    from app.services.fork_compress import fork_compressor
 
     parent_chat = await db.get(AiChat, parse_uuid(chat_id))
     if not parent_chat:
@@ -345,112 +419,57 @@ async def fork_chat(
     if parent_chat.user_id != user.id:
         raise HTTPException(status_code=403, detail="无权访问此对话")
 
-    # Get parent's topology node
-    parent_node_id = parent_chat.tree_node_id
-    if not parent_node_id:
-        # Parent chat has no node - create root node for workspace first
-        root_result = await db.execute(
-            select(TreeNode).where(
-                TreeNode.workspace_id == parent_chat.workspace_id,
-                TreeNode.parent_id == None,
-                TreeNode.node_type == "root"
-            )
-        )
-        root_node = root_result.scalar_one_or_none()
-        if not root_node:
-            # Create root node
-            root_node = TreeNode(
-                workspace_id=parent_chat.workspace_id,
-                title="知识探索",
-                node_type="root",
-                status="active",
-                embedding=[0.0] * 768  # Placeholder embedding
-            )
-            db.add(root_node)
-            await db.flush()
-
-        # Bind parent chat to root
-        parent_chat.tree_node_id = root_node.id
-        parent_node_id = root_node.id
-
-    # Create child topology node
-    child_node = TreeNode(
-        workspace_id=parent_chat.workspace_id,
-        parent_id=parent_node_id,
-        title=req.title or req.topic[:50] if req.topic else "新分支",
-        node_type="branch",
-        status="active",
-        embedding=[0.0] * 768  # Will be updated when cards are added
-    )
-    db.add(child_node)
-    await db.flush()
-
-    # Fetch recent messages for context
+    # Fetch messages for compression (last 50)
     result = await db.execute(
         select(ChatMessage)
-        .where(ChatMessage.chat_id == parent_chat.id)
+        .where(
+            ChatMessage.chat_id == parent_chat.id,
+            ChatMessage.role.in_(["user", "assistant"]),
+        )
         .order_by(ChatMessage.created_at.desc())
-        .limit(20)
+        .limit(50)
     )
-    recent_messages = list(reversed(result.scalars().all()))
+    messages = [{"role": m.role, "content": m.content} for m in reversed(result.scalars().all())]
 
-    # Build context summary
-    context_lines = []
-    for msg in recent_messages:
-        role_label = "用户" if msg.role == "user" else "AI"
-        context_lines.append(f"{role_label}: {msg.content[:200]}")
-    context_summary = "\n".join(context_lines)
+    # Use ForkCompressor
+    context_summary = await fork_compressor.compress(messages, strategy=req.context_strategy)
 
-    # If a topic is specified, prepend it to the context
-    if req.topic:
-        context_summary = f"## 聚焦主题: {req.topic}\n\n{context_summary}"
+    # Determine depth and parent_fork_id
+    depth = 0
+    parent_fork_id = req.fork_id
+    if parent_fork_id:
+        depth_result = await db.execute(
+            select(ChatMessage.metadata_["depth"]).where(
+                ChatMessage.fork_id == parent_fork_id,
+                ChatMessage.role == "fork-divider",
+            ).limit(1)
+        )
+        parent_depth = depth_result.scalar()
+        depth = (parent_depth or 0) + 1
 
-    # Auto-generate title if not provided
-    title = req.title
-    if not title:
-        title = req.topic[:50] if req.topic else f"分支: {parent_chat.title[:40]}"
+    # Create fork_id
+    new_fork_id = f"fork-{uuid.uuid4().hex[:12]}"
 
-    # Create sub-conversation
-    local_id = f"fork_{int(time.time() * 1000)}"
-    forked = AiChat(
-        local_id=local_id,
-        user_id=user.id,
-        mode=req.mode,
-        title=title,
-        workspace_id=parent_chat.workspace_id,
-        card_id=parent_chat.card_id,
-        parent_chat_id=parent_chat.id,
-        tree_node_id=child_node.id,
+    # Insert fork-divider message with metadata
+    divider = ChatMessage(
+        chat_id=parent_chat.id,
+        role="fork-divider",
+        content="",
+        fork_id=new_fork_id,
+        metadata_={
+            "fork_id": new_fork_id,
+            "branch_label": req.topic or "手动分支",
+            "parent_context_summary": context_summary,
+            "depth": depth,
+            "parent_fork_id": parent_fork_id,
+        },
     )
-    db.add(forked)
-    await db.flush()
-
-    # Link node back to chat
-    child_node.chat_id = forked.id
-
-    # Add context as the first system message
-    context_msg = ChatMessage(
-        chat_id=forked.id,
-        role="assistant",
-        content=f"这是从「{parent_chat.title}」分叉出来的对话。\n\n以下是之前的对话上下文：\n\n{context_summary}",
-    )
-    db.add(context_msg)
+    db.add(divider)
     await db.commit()
-    await db.refresh(forked)
 
     return ChatForkResponse(
-        chat=ChatResponse(
-            id=forked.id,
-            mode=forked.mode,
-            workspace_id=forked.workspace_id,
-            card_id=forked.card_id,
-            parent_chat_id=forked.parent_chat_id,
-            tree_node_id=forked.tree_node_id,
-            title=forked.title,
-            created_at=forked.created_at,
-            messages=[ChatMessageResponse.model_validate(context_msg)],
-        ),
-        context_summary=context_summary,
+        fork_id=new_fork_id,
+        context_summary=context_summary or "",
     )
 
 
@@ -579,7 +598,7 @@ async def _generate_summary_card(
 
             # Generate title if not provided
             if not title:
-                title_raw = await llm_service.complete_simple(
+                title_raw = await llm_service.extraction_complete_simple(
                     "请用不超过20个字概括以下内容的主题，作为标题。只输出标题文字本身。",
                     summary[:500],
                     max_tokens=32,
@@ -588,7 +607,7 @@ async def _generate_summary_card(
 
             # Extract keywords if not provided
             if not keywords:
-                kw_raw = await llm_service.complete_simple(
+                kw_raw = await llm_service.extraction_complete_simple(
                     "从以下内容中提取3-5个核心关键字，用逗号分隔。",
                     summary[:500],
                     max_tokens=64,
