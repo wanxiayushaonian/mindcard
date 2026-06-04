@@ -7,6 +7,8 @@ Inspired by DeepTutor's unified WebSocket architecture.
 import asyncio
 import json
 import logging
+import re
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -14,14 +16,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.chat import AiChat, ChatMessage
-from app.models.topology import TreeNode
-from app.services.embedding import embedding_service
+from app.models.chat import ChatMessage
 from app.services.rag import rag_service
 from app.services.topology import topology_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+BRANCH_PATTERN = re.compile(r'^\[BRANCH:\s*(.+?)\]\s*')
 
 
 @router.websocket("/ws")
@@ -80,79 +82,89 @@ async def chat_websocket(websocket: WebSocket):
         except Exception:
             closed = True
 
-    async def detect_topic_drift(
+    async def handle_branch_marker(
         db: AsyncSession,
         chat_id: str,
-        current_message: str,
-        workspace_id: str | None,
-    ) -> dict | None:
-        """Detect topic drift by comparing with previous user message.
+        full_response: str,
+        current_fork_id: str | None,
+    ) -> tuple[str, str | None]:
+        """Parse [BRANCH: ...] marker from LLM response.
 
-        Returns drift info dict if drift detected, None otherwise.
+        Returns (clean_response, fork_id). fork_id is set if a fork was created.
         """
-        if not workspace_id or not chat_id:
-            return None
+        from app.config import settings
+        from app.services.fork_compress import fork_compressor
+        from app.services.split_guard import split_guard
 
-        # Get previous user messages in this chat
+        match = BRANCH_PATTERN.match(full_response)
+        if not match:
+            return full_response, current_fork_id
+
+        branch_label = match.group(1).strip()
+        clean_response = full_response[match.end():]
+
+        # Check auto-fork enabled
+        if not getattr(settings, "auto_fork_enabled", True):
+            return clean_response, current_fork_id
+
+        # SplitGuard check
+        if not await split_guard.can_fork(db, chat_id, current_fork_id, branch_label):
+            await safe_send({"type": "toast", "content": f"分叉被保护机制阻止：{branch_label}"})
+            return clean_response, current_fork_id
+
+        # Determine depth and parent_fork_id
+        depth = 0
+        parent_fork_id = current_fork_id
+        if current_fork_id:
+            result = await db.execute(
+                select(ChatMessage.metadata_["depth"]).where(
+                    ChatMessage.fork_id == current_fork_id,
+                    ChatMessage.role == "fork-divider",
+                ).limit(1)
+            )
+            parent_depth = result.scalar()
+            depth = (parent_depth or 0) + 1
+
+        # Compress parent context
         result = await db.execute(
-            select(ChatMessage)
-            .where(ChatMessage.chat_id == chat_id)
-            .where(ChatMessage.role == "user")
-            .order_by(ChatMessage.created_at.desc())
-            .limit(1)
+            select(ChatMessage).where(
+                ChatMessage.chat_id == chat_id,
+                ChatMessage.role.in_(["user", "assistant"]),
+            ).order_by(ChatMessage.created_at)
         )
-        prev_msg = result.scalar_one_or_none()
-        if not prev_msg:
-            return None  # First message, no drift possible
+        messages = [{"role": m.role, "content": m.content} for m in result.scalars().all()]
+        strategy = getattr(settings, "fork_context_strategy", "compress")
+        summary = await fork_compressor.compress(messages, strategy=strategy)
 
-        # Embed both messages
-        prev_embedding = await embedding_service.embed(prev_msg.content)
-        curr_embedding = await embedding_service.embed(current_message)
-        if not prev_embedding or not curr_embedding:
-            return None
+        # Create fork_id
+        new_fork_id = f"fork-{uuid.uuid4().hex[:12]}"
 
-        # Calculate similarity
-        dist = topology_service._cosine_distance(prev_embedding, curr_embedding)
-        similarity = 1.0 - dist
-
-        if similarity >= 0.5:
-            return None  # No drift
-
-        # Drift detected — create child node
-        chat = await db.get(AiChat, chat_id)
-        if not chat or not chat.tree_node_id:
-            return None
-
-        current_node = await db.get(TreeNode, chat.tree_node_id)
-        if not current_node:
-            return None
-
-        title = current_message[:50].strip()
-        if len(current_message) > 50:
-            title += "..."
-
-        child_node = TreeNode(
-            workspace_id=workspace_id,
-            parent_id=current_node.id,
-            node_type="branch",
-            title=title,
-            description="",
-            summary="",
-            status="active",
-            embedding=curr_embedding,
+        # Insert fork-divider message
+        divider = ChatMessage(
+            chat_id=chat_id,
+            role="fork-divider",
+            content="",
+            fork_id=new_fork_id,
+            metadata_={
+                "fork_id": new_fork_id,
+                "branch_label": branch_label,
+                "parent_context_summary": summary,
+                "depth": depth,
+                "parent_fork_id": parent_fork_id,
+            },
         )
-        db.add(child_node)
-        await db.flush()
+        db.add(divider)
+        await db.commit()
 
-        # Bind chat to new child node
-        chat.tree_node_id = child_node.id
-        await db.flush()
+        # Notify frontend
+        await safe_send({
+            "type": "fork_created",
+            "fork_id": new_fork_id,
+            "branch_label": branch_label,
+            "depth": depth,
+        })
 
-        return {
-            "node_id": str(child_node.id),
-            "title": title,
-            "parent_id": str(current_node.id),
-        }
+        return clean_response, new_fork_id
 
     async def handle_chat(
         message: str,
@@ -160,19 +172,36 @@ async def chat_websocket(websocket: WebSocket):
         web_search: bool,
         chat_id: str | None = None,
         workspace_id: str | None = None,
+        current_fork_id: str | None = None,
     ):
         """Handle general chat without RAG."""
         try:
+            # Collect full response for branch marker parsing
+            full_response = ""
+
             async for chunk in rag_service.chat_stream(message, history=history, web_search=web_search):
                 if isinstance(chunk, dict):
                     # Web search results or other metadata
                     await safe_send(chunk)
                 else:
-                    # Text content
+                    # Text content — accumulate for marker parsing
+                    full_response += chunk
                     await safe_send({
                         "type": "content",
                         "content": chunk,
                     })
+
+            # Parse branch marker from the full response
+            if chat_id and full_response:
+                try:
+                    async for db_session in get_db():
+                        clean_response, new_fork_id = await handle_branch_marker(
+                            db_session, chat_id, full_response, current_fork_id,
+                        )
+                        break
+                except Exception as e:
+                    logger.warning("Branch marker parsing failed: %s", e)
+
             await safe_send({"type": "done"})
 
             # Async summary update (fire-and-forget)
@@ -200,9 +229,13 @@ async def chat_websocket(websocket: WebSocket):
         history: list[dict[str, str]] | None,
         retrieval_level: int | None = None,
         chat_id: str | None = None,
+        current_fork_id: str | None = None,
     ):
         """Handle RAG query."""
         try:
+            # Collect full response for branch marker parsing
+            full_response = ""
+
             async for chunk in rag_service.ask_stream(
                 db,
                 question,
@@ -218,11 +251,22 @@ async def chat_websocket(websocket: WebSocket):
                     # Sources, web search results, or other metadata
                     await safe_send(chunk)
                 else:
-                    # Text content
+                    # Text content — accumulate for marker parsing
+                    full_response += chunk
                     await safe_send({
                         "type": "content",
                         "content": chunk,
                     })
+
+            # Parse branch marker from the full response
+            if chat_id and full_response:
+                try:
+                    clean_response, new_fork_id = await handle_branch_marker(
+                        db, chat_id, full_response, current_fork_id,
+                    )
+                except Exception as e:
+                    logger.warning("Branch marker parsing failed: %s", e)
+
             await safe_send({"type": "done"})
 
             # Async summary update (fire-and-forget)
@@ -261,26 +305,13 @@ async def chat_websocket(websocket: WebSocket):
                 web_search = msg.get("web_search", False)
                 chat_id = msg.get("chat_id")
                 workspace_id = msg.get("workspace_id")
-
-                # Detect topic drift before streaming
-                if chat_id and workspace_id:
-                    try:
-                        async for db in get_db():
-                            drift = await detect_topic_drift(db, chat_id, message, workspace_id)
-                            if drift:
-                                await safe_send({
-                                    "type": "auto_fork",
-                                    "node_id": drift["node_id"],
-                                    "title": drift["title"],
-                                })
-                            break
-                    except Exception as e:
-                        logger.warning("Topic drift detection failed: %s", e)
+                current_fork_id = msg.get("current_fork_id")
 
                 current_task = asyncio.create_task(
                     handle_chat(
                         message, history, web_search,
                         chat_id=chat_id, workspace_id=workspace_id,
+                        current_fork_id=current_fork_id,
                     )
                 )
 
@@ -299,23 +330,14 @@ async def chat_websocket(websocket: WebSocket):
                     history = msg.get("history")
                     retrieval_level = msg.get("retrieval_level")
                     chat_id = msg.get("chat_id")
-
-                    # Detect topic drift before streaming
-                    if chat_id:
-                        try:
-                            ws_id = workspace_ids[0] if workspace_ids else None
-                            drift = await detect_topic_drift(db, chat_id, question, ws_id)
-                            if drift:
-                                await safe_send({
-                                    "type": "auto_fork",
-                                    "node_id": drift["node_id"],
-                                    "title": drift["title"],
-                                })
-                        except Exception as e:
-                            logger.warning("Topic drift detection failed: %s", e)
+                    current_fork_id = msg.get("current_fork_id")
 
                     current_task = asyncio.create_task(
-                        handle_rag(db, question, workspace_ids, card_id, top_k, web_search, history, retrieval_level, chat_id)
+                        handle_rag(
+                            db, question, workspace_ids, card_id, top_k,
+                            web_search, history, retrieval_level, chat_id,
+                            current_fork_id=current_fork_id,
+                        )
                     )
                     break
 
