@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # General
     debug: bool = False
+    log_level: str = "INFO"
 
     # Database
     database_url: str = "postgresql+asyncpg://mindcard:mindcard@localhost:5432/mindcard"
@@ -54,6 +55,10 @@ class Settings(BaseSettings):
     default_llm_provider: str = "claude"  # Changed from deepseek to claude
     default_llm_model: str = ""  # empty = provider's default model
 
+    # LLM for lightweight tasks (title generation, keyword extraction)
+    extraction_llm_provider: str = ""  # empty = use default_llm_provider
+    extraction_llm_model: str = ""  # empty = use provider's default model
+
     # CORS
     cors_origins: str = "*"
 
@@ -69,6 +74,14 @@ class Settings(BaseSettings):
     search_top_k: int = 20
     rag_top_k: int = 5
 
+    # Web Search
+    web_search_provider: str = "duckduckgo"  # duckduckgo, brave, tavily, searxng, jina, kagi
+    web_search_api_key: str = ""
+    web_search_base_url: str = ""  # for SearXNG
+    web_search_max_results: int = 5
+    web_search_timeout: int = 30
+    web_search_proxy: str = ""  # HTTP/SOCKS proxy for web search requests
+
     # GNN Training
     gnn_training_mode: str = "auto"  # "auto", "local_cpu", "local_gpu", "remote_gpu"
     gnn_training_trigger_cards: int = 100
@@ -81,6 +94,11 @@ class Settings(BaseSettings):
     # Modal Labs (Remote GPU)
     modal_app_name: str = ""
     modal_api_key: str = ""
+
+    # Fork system
+    auto_fork_enabled: bool = True
+    fork_context_strategy: str = "compress"  # none | inherit | compress
+    split_guard_min_messages: int = 5
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
