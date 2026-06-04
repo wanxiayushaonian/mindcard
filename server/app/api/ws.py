@@ -23,7 +23,7 @@ from app.services.topology import topology_service
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-BRANCH_PATTERN = re.compile(r'^\[BRANCH:\s*(.+?)\]\s*')
+BRANCH_PATTERN = re.compile(r'^\s*\[BRANCH:\s*(.+?)\]\s*')
 
 
 @router.websocket("/ws")
@@ -96,12 +96,13 @@ async def chat_websocket(websocket: WebSocket):
         from app.services.fork_compress import fork_compressor
         from app.services.split_guard import split_guard
 
-        match = BRANCH_PATTERN.match(full_response)
+        stripped = full_response.lstrip()
+        match = BRANCH_PATTERN.match(stripped)
         if not match:
             return full_response, current_fork_id
 
         branch_label = match.group(1).strip()
-        clean_response = full_response[match.end():]
+        clean_response = stripped[match.end():]
 
         # Check auto-fork enabled
         if not getattr(settings, "auto_fork_enabled", True):
@@ -130,9 +131,9 @@ async def chat_websocket(websocket: WebSocket):
             select(ChatMessage).where(
                 ChatMessage.chat_id == chat_id,
                 ChatMessage.role.in_(["user", "assistant"]),
-            ).order_by(ChatMessage.created_at)
+            ).order_by(ChatMessage.created_at.desc()).limit(50)
         )
-        messages = [{"role": m.role, "content": m.content} for m in result.scalars().all()]
+        messages = [{"role": m.role, "content": m.content} for m in reversed(result.scalars().all())]
         strategy = getattr(settings, "fork_context_strategy", "compress")
         summary = await fork_compressor.compress(messages, strategy=strategy)
 
@@ -199,6 +200,9 @@ async def chat_websocket(websocket: WebSocket):
                             db_session, chat_id, full_response, current_fork_id,
                         )
                         break
+                    # If a fork was created, send the clean response (without marker)
+                    if new_fork_id and new_fork_id != current_fork_id:
+                        await safe_send({"type": "content_replace", "content": clean_response})
                 except Exception as e:
                     logger.warning("Branch marker parsing failed: %s", e)
 
@@ -264,6 +268,9 @@ async def chat_websocket(websocket: WebSocket):
                     clean_response, new_fork_id = await handle_branch_marker(
                         db, chat_id, full_response, current_fork_id,
                     )
+                    # If a fork was created, send the clean response (without marker)
+                    if new_fork_id and new_fork_id != current_fork_id:
+                        await safe_send({"type": "content_replace", "content": clean_response})
                 except Exception as e:
                     logger.warning("Branch marker parsing failed: %s", e)
 
