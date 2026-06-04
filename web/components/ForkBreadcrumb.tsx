@@ -23,7 +23,7 @@ export function ForkBreadcrumb({ path, onNavigate }: ForkBreadcrumbProps) {
   if (path.length <= 1) return null;
 
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-1 px-3 py-2 text-sm border-b border-gray-100 dark:border-gray-800 bg-surface/95 backdrop-blur-sm overflow-x-auto">
+    <div className="flex items-center gap-1 px-3 py-2 text-sm border-b border-gray-100 dark:border-gray-800 bg-surface/95 backdrop-blur-sm overflow-x-auto">
       {path.map((node, i) => (
         <div key={node.forkId ?? "root"} className="flex items-center gap-1 shrink-0">
           {i > 0 && <span className="text-gray-300">&rsaquo;</span>}

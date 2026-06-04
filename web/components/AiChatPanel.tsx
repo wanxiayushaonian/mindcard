@@ -793,6 +793,10 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
         {/* Chat area — absolute inset-0 to bypass flex height chain */}
         <div className="absolute inset-0 flex flex-col">
+          <ForkBreadcrumb
+            path={breadcrumbPath}
+            onNavigate={handleForkNavigate}
+          />
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center text-center text-text-secondary">
@@ -801,11 +805,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 <p className="mt-1 text-xs">提问关于你的灵感、想法或知识的问题</p>
               </div>
             )}
-
-            <ForkBreadcrumb
-              path={breadcrumbPath}
-              onNavigate={handleForkNavigate}
-            />
 
             {messages.map((msg, i) => {
               // Fork divider
