@@ -860,9 +860,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               return (
                 <div key={i} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div
-                    className={`max-w-[85%] rounded-2xl px-3 py-2.5 ${
+                    className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 backdrop-blur-sm ${
                       msg.role === "user"
-                        ? "bg-primary text-white"
+                        ? "bg-primary/20 text-foreground border border-primary/30 shadow-sm"
                         : "bg-surface text-text shadow-sm"
                     }`}
                   >
