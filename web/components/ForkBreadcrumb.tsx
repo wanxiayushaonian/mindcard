@@ -23,15 +23,16 @@ export function ForkBreadcrumb({ path, onNavigate }: ForkBreadcrumbProps) {
   if (path.length <= 1) return null;
 
   return (
-    <div className="flex items-center gap-1 px-3 py-2 text-sm border-b border-gray-100 dark:border-gray-800 overflow-x-auto">
+    <div className="sticky top-0 z-10 flex items-center gap-1 px-3 py-2 text-sm border-b border-gray-100 dark:border-gray-800 bg-surface/95 backdrop-blur-sm overflow-x-auto">
       {path.map((node, i) => (
         <div key={node.forkId ?? "root"} className="flex items-center gap-1 shrink-0">
           {i > 0 && <span className="text-gray-300">&rsaquo;</span>}
           <button
-            className={`flex items-center gap-1 px-2 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${
+            type="button"
+            className={`flex items-center gap-1 px-2 py-0.5 rounded transition ${
               i === path.length - 1
-                ? "font-medium text-gray-800 dark:text-gray-200"
-                : "text-gray-500"
+                ? "font-medium text-gray-800 dark:text-gray-200 cursor-default"
+                : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
             }`}
             onClick={() => onNavigate(node.forkId)}
           >

@@ -102,6 +102,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const lastRagLevelRef = useRef<number | undefined>(undefined);
   const pendingForkRef = useRef<{ insertAt: number } | null>(null);
   const activeForkIdRef = useRef<string | null>(null);
+  const [activeForkIdState, setActiveForkIdState] = useState<string | null>(null);
   const chatIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const [chatPath, setChatPath] = useState<ChatPathNode[]>([]);
@@ -124,14 +125,14 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   // Build breadcrumb path from active fork
   const breadcrumbPath = useMemo(() => {
     interface BreadcrumbNode { forkId: string | null; label: string; depth: number; }
-    if (!activeForkIdRef.current) return [{ forkId: null as string | null, label: "主对话", depth: 0 }];
+    if (!activeForkIdState) return [{ forkId: null as string | null, label: "主对话", depth: 0 }];
 
     const path: BreadcrumbNode[] = [
       { forkId: null, label: "主对话", depth: 0 },
     ];
 
     // Find the active fork's parent chain
-    let currentId: string | null = activeForkIdRef.current;
+    let currentId: string | null = activeForkIdState;
     const chain: BreadcrumbNode[] = [];
 
     while (currentId) {
@@ -146,10 +147,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     }
 
     return [...path, ...chain];
-  }, [forkMeta, messages]);
+  }, [forkMeta, messages, activeForkIdState]);
 
   const handleForkNavigate = useCallback((forkId: string | null) => {
     activeForkIdRef.current = forkId;
+    setActiveForkIdState(forkId);
     // Collapse all forks, then expand the target path
     setForkMeta((prev) => {
       const next = { ...prev };
@@ -223,6 +225,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         ]);
         setForkMeta((prev) => ({ ...prev, [forkId]: { ...meta, completed: false } }));
         activeForkIdRef.current = forkId;
+        setActiveForkIdState(forkId);
         // Persist divider to backend
         if (chatIdRef.current) {
           chatApi.addMessage(chatIdRef.current, "fork-divider", encodeForkContent(meta), undefined, forkId)
@@ -249,6 +252,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         ]);
         setForkMeta((prev) => ({ ...prev, [forkId]: { ...meta, completed: true } }));
         activeForkIdRef.current = forkId;
+        setActiveForkIdState(forkId);
         // Persist divider to backend
         if (chatIdRef.current) {
           chatApi.addMessage(chatIdRef.current, "fork-divider", encodeForkContent(meta), undefined, forkId)
@@ -377,6 +381,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       });
       // Tag subsequent messages with this fork ID
       activeForkIdRef.current = forkId;
+      setActiveForkIdState(forkId);
       // Persist fork divider to backend
       const cid = chatIdRef.current;
       if (cid) {
@@ -422,6 +427,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       setShowHistory(false);
       setForkMode(false);
       activeForkIdRef.current = null;
+      setActiveForkIdState(null);
       return true;
     } catch {
       return false;
@@ -587,6 +593,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       setForkMode(false);
       const forkId = `fork-${Date.now()}`;
       activeForkIdRef.current = forkId;
+      setActiveForkIdState(forkId);
       pendingForkRef.current = { insertAt: messages.length };
       doSend(question);
       window.dispatchEvent(new CustomEvent("topology-fork-request", { detail: { prompt: question, forkId } }));
