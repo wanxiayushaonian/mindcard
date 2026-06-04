@@ -10,9 +10,87 @@
 
 经过深入对比 Stello 和 MindCard，发现：
 
-- **MindCard 已有的能力**：话题漂移检测（embedding 余弦相似度）、拓扑树（PostgreSQL TreeNode）、记忆提取（summarize_chat → 知识卡片）
-- **MindCard 缺失的能力**：分叉时的上下文压缩（目前是截断拼接）、跨分支通信（分支间完全隔离）
-- **Stello 的真正价值**：不是它的引擎框架，而是两个设计模式 — LLM 上下文压缩和跨分支 insight 机制
+- **MindCard 的漂移检测不够可靠** — 当前使用 embedding 余弦相似度（阈值 0.5），只和上一条消息比较，不理解对话意图，会产生误判
+- **分叉上下文压缩质量差** — 截断 200 字 × 最近 20 条拼接，长对话效果很差
+- **没有跨分支通信** — 分支间完全隔离
+- **Stello 的真正价值**：LLM 判断分叉时机、LLM 上下文压缩、跨分支 insight 机制
+
+## 改进 0：LLM 驱动的分叉检测（替代 embedding 余弦相似度）
+
+### 现状问题
+
+`topic_drift.py` 用余弦相似度比较相邻两条用户消息，阈值 0.5。问题：
+- 只看表面语义，不懂意图（"机器学习"和"反向传播"可能相似度低但是同一话题）
+- 只和上一条比较，不看对话整体轨迹
+- 阈值是拍脑袋的，没有校准
+- 自动触发后直接改拓扑树，用户无法审查
+
+### 改进方案：LLM 响应中嵌入分叉信号
+
+**核心思路**：不额外调用 LLM，而是在 LLM 生成回复时让它同时判断是否需要分叉。
+
+**system prompt 追加指令**：
+```
+话题分叉判断规则：
+如果你判断用户的新话题与当前分支的主题明显不同，需要创建新分支，
+请在回复的最开头输出标记：[BRANCH: 简短说明新话题]
+然后正常回复。
+
+示例：
+- 当前分支讨论"RAG 原理"，用户问"向量检索怎么优化" → 不分叉（同一话题）
+- 当前分支讨论"RAG 原理"，用户问"怎么做红烧肉" → [BRANCH: 烹饪] 完全不同的话题
+- 当前分支讨论"Python 语法"，用户问"机器学习入门" → [BRANCH: 机器学习] 相关但值得独立探索
+
+注意：
+- 只在话题真正偏离时才标记，不要过于敏感
+- 如果只是当前话题的深入或延伸，不要分叉
+- 如果用户明确说"换个话题"或"另一个问题"，考虑分叉
+```
+
+**服务端解析**（修改 `ws.py`）：
+```python
+import re
+
+BRANCH_PATTERN = re.compile(r'^\[BRANCH:\s*(.+?)\]\s*')
+
+async def handle_stream_complete(chat_id, full_response):
+    match = BRANCH_PATTERN.match(full_response)
+    if match:
+        branch_reason = match.group(1)
+        clean_response = full_response[match.end():]
+        
+        # 创建子对话（带 LLM 压缩的父上下文）
+        child_chat = await create_fork(chat_id, branch_reason, strategy="compress")
+        
+        # 发送 auto_fork 事件给前端
+        await ws.send_json({
+            "type": "auto_fork",
+            "node_id": str(child_chat.tree_node_id),
+            "title": branch_reason,
+            "child_chat_id": str(child_chat.id),
+        })
+    else:
+        clean_response = full_response
+    
+    # 保存助手消息（不含 [BRANCH: ...] 标记）
+    await save_message(chat_id, "assistant", clean_response)
+```
+
+**前端处理**：
+- 收到 `auto_fork` 事件时，在消息列表中插入分支树节点（替代旧的 fork divider）
+- 自动跳转到新分支，或提示用户"检测到话题偏移，已创建新分支"
+- 用户可以在设置中关闭自动分叉
+
+### 与 Stello 的对比
+
+| 方面 | Stello | MindCard（改进后） |
+|------|--------|-------------------|
+| 分叉判断 | LLM 工具调用 | LLM 响应标记 |
+| 额外延迟 | 无（工具调用在响应中） | 无（标记在响应中） |
+| 解析方式 | 工具调用解析 | 正则匹配 |
+| 用户控制 | 无内置控制 | 可设置关闭自动分叉 |
+
+效果相当，实现更简单。
 
 ## 改进 1：分叉上下文压缩
 
@@ -212,10 +290,12 @@ FORK_CONTEXT_STRATEGY=compress  # none | inherit | compress
 
 ## 实现顺序
 
-1. **fork_compress.py** — LLM 压缩服务
-2. **chat.py fork_chat** — 改用压缩服务
-3. **AiChat 模型** — 添加 system_context 字段
-4. **ws.py** — 发送消息时注入 system_context 和 insight
-5. **BranchInsight 模型 + API** — 跨分支通信
-6. **AiChatPanel** — 移除 forkMode，新增分支按钮 + 分支树 UI
-7. **洞察 UI** — 洞察指示器 + 面板
+1. **LLM 分叉标记** — 修改 system prompt，解析 `[BRANCH: ...]` 标记，替代 `topic_drift.py`
+2. **fork_compress.py** — LLM 压缩服务
+3. **chat.py fork_chat** — 改用压缩服务，支持 LLM 触发的自动分叉
+4. **AiChat 模型** — 添加 system_context 字段
+5. **ws.py** — 流式完成时解析分叉标记 + 注入 system_context
+6. **BranchInsight 模型 + API** — 跨分支通信
+7. **AiChatPanel** — 移除 forkMode，新增分支按钮 + 分支树 UI + 自动分叉提示
+8. **洞察 UI** — 洞察指示器 + 面板
+9. **设置** — 自动分叉开关
