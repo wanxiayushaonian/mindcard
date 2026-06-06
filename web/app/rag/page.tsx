@@ -42,6 +42,15 @@ function RAGContent() {
   const [history, setHistory] = useState<ChatSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
+  const [deletePreview, setDeletePreview] = useState<{
+    chat_title: string; messages: number; child_chats: number;
+    node_title: string | null; node_will_archive: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!deleteTarget) { setDeletePreview(null); return; }
+    chatApi.deletePreview(deleteTarget.id).then(setDeletePreview).catch(() => setDeletePreview(null));
+  }, [deleteTarget]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
   const streamContentRef = useRef("");
@@ -557,16 +566,26 @@ function RAGContent() {
       </div>
 
       {/* Delete confirmation modal */}
-      {deleteTarget && (
-        <ConfirmModal
-          title="删除对话"
-          message={`确定删除「${deleteTarget.title || "新对话"}」？删除后无法恢复。`}
-          confirmText="删除"
-          danger
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      )}
+      {deleteTarget && (() => {
+        const title = deletePreview?.chat_title || deleteTarget.title || "新对话";
+        const impacts: string[] = [];
+        if (deletePreview) {
+          if (deletePreview.messages > 0) impacts.push(`${deletePreview.messages} 条消息`);
+          if (deletePreview.child_chats > 0) impacts.push(`${deletePreview.child_chats} 个分支对话`);
+          if (deletePreview.node_will_archive) impacts.push(`拓扑节点「${deletePreview.node_title}」将被归档`);
+        }
+        const impactText = impacts.length > 0 ? `\n将同时删除：${impacts.join("、")}` : "";
+        return (
+          <ConfirmModal
+            title="删除对话"
+            message={`确定删除「${title}」？删除后无法恢复。${impactText}`}
+            confirmText="删除"
+            danger
+            onConfirm={confirmDelete}
+            onCancel={() => setDeleteTarget(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

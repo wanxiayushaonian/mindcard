@@ -11,17 +11,17 @@ const DEPTH_COLORS = [
 ];
 
 interface ForkDividerProps {
-  forkId: string;
+  childChatId: string;
   label: string;
   depth: number;
   messageCount: number;
   collapsed: boolean;
   parentContextSummary?: string;
-  onToggle: (forkId: string) => void;
+  onToggle: (childChatId: string) => void;
 }
 
 export function ForkDivider({
-  forkId,
+  childChatId,
   label,
   depth,
   messageCount,
@@ -34,7 +34,7 @@ export function ForkDivider({
   return (
     <div
       className={`border-l-4 ${colorClass} pl-3 py-2 my-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-r`}
-      onClick={() => onToggle(forkId)}
+      onClick={() => onToggle(childChatId)}
     >
       <div className="flex items-center gap-2">
         {collapsed ? (

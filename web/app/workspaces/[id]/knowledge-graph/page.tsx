@@ -23,26 +23,17 @@ import {
   type GraphStats,
 } from "@/lib/api";
 
-// Generate consistent color for entity type using hash
+// Generate consistent color for entity type using hash → HSL
 function getEntityColor(type: string): string {
-  const colors = [
-    "#3b82f6", // blue
-    "#22c55e", // green
-    "#f97316", // orange
-    "#a855f7", // purple
-    "#ef4444", // red
-    "#06b6d4", // cyan
-    "#f59e0b", // amber
-    "#ec4899", // pink
-    "#8b5cf6", // violet
-    "#14b8a6", // teal
-  ];
-
   let hash = 0;
   for (let i = 0; i < type.length; i++) {
     hash = type.charCodeAt(i) + ((hash << 5) - hash);
   }
-  return colors[Math.abs(hash) % colors.length];
+  // Golden ratio spacing ensures visually distinct hues for similar hashes
+  const hue = ((Math.abs(hash) * 137.508) % 360); // golden angle
+  const saturation = 55 + (Math.abs(hash >> 8) % 20); // 55-75%
+  const lightness = 45 + (Math.abs(hash >> 16) % 15); // 45-60%
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
 interface SimNode extends SimulationNodeDatum {

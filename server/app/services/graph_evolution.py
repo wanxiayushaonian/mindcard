@@ -40,15 +40,15 @@ SEED_EXAMPLES_ZH = [
         ],
     },
     {
-        "text": "GCN aggregates neighbor node features through adjacency matrix for semi-supervised learning.",
+        "text": "伊凡·伊里奇一生追求虚假的社会生活，直到临终才领悟真实的生命意义。",
         "entities": [
-            {"name": "GCN", "type": "算法"},
-            {"name": "adjacency matrix", "type": "数据结构"},
-            {"name": "semi-supervised learning", "type": "任务"},
+            {"name": "伊凡·伊里奇", "type": "人物"},
+            {"name": "虚假的社会生活", "type": "概念"},
+            {"name": "真实的生命意义", "type": "概念"},
         ],
         "triples": [
-            ["GCN", "uses", "adjacency matrix"],
-            ["GCN", "enables", "semi-supervised learning"],
+            ["伊凡·伊里奇", "追求", "虚假的社会生活"],
+            ["伊凡·伊里奇", "领悟", "真实的生命意义"],
         ],
     },
 ]
@@ -84,15 +84,15 @@ SEED_EXAMPLES_EN = [
         ],
     },
     {
-        "text": "GCN aggregates neighbor node features through adjacency matrix for semi-supervised learning.",
+        "text": "Ivan Ilyich pursued a superficial social life until his death revealed its meaninglessness.",
         "entities": [
-            {"name": "GCN", "type": "algorithm"},
-            {"name": "adjacency matrix", "type": "data structure"},
-            {"name": "semi-supervised learning", "type": "task"},
+            {"name": "Ivan Ilyich", "type": "person"},
+            {"name": "superficial social life", "type": "concept"},
+            {"name": "meaninglessness", "type": "concept"},
         ],
         "triples": [
-            ["GCN", "uses", "adjacency matrix"],
-            ["GCN", "enables", "semi-supervised learning"],
+            ["Ivan Ilyich", "pursued", "superficial social life"],
+            ["death", "revealed", "meaninglessness"],
         ],
     },
 ]
@@ -152,55 +152,45 @@ Return a JSON array. Each object has "name" and "type".
 IMPORTANT: Return ONLY the JSON array, e.g. [{{"name": "entity name", "type": "type"}}]"""
 
     def build_few_shot_re_prompt(self, language: str = "zh") -> str:
-        """Build a few-shot prompt for relation extraction.
-
-        Args:
-            language: 'zh' for Chinese or 'en' for English
-        """
-        seed_examples = SEED_EXAMPLES_ZH if language == "zh" else SEED_EXAMPLES_EN
-        bad_examples = BAD_EXAMPLES_ZH if language == "zh" else BAD_EXAMPLES_EN
-
-        good = ""
-        for ex in seed_examples[:3]:
-            triples_str = json.dumps(ex["triples"], ensure_ascii=False)
-            good += (
-                f"\nText: {ex['text']}\n"
-                f"Entities: {json.dumps(ex['entities'])}\n"
-                f"Triples: {triples_str}\n"
-            )
-
-        bad_str = "\n".join(f"  AVOID: {b}" for b in bad_examples)
-
+        """Build a domain-agnostic prompt for relation extraction."""
         if language == "zh":
-            return f"""你是一个关系抽取系统。
+            return """任务：从文本中提取已知实体之间的关系。
 
-良好示例:
-{good}
-不良模式（避免这些）:
-{bad_str}
+你将收到一段文本和一组已识别的实体。请找出这些实体之间在文本中体现的具体关系。
 
-有效关系类型: contains, uses, depends_on, example_of, contradicts, extends
+要求：
+1. 头实体和尾实体必须来自给定实体列表（名称精确匹配）
+2. 关系用文本中体现的动词或动词短语，简洁具体（2-6字）
+3. 只提取文本中明确表达或直接可推断的关系
+4. 只输出 JSON 数组，不要任何解释、分析或思考过程
 
-规则:
-- 头实体和尾实体必须来自实体列表（精确匹配）
-- 使用最具体的关系类型
-- 只返回 JSON 数组 [头实体, 关系, 尾实体]
-- 如果没有找到关系，返回 []"""
+输出格式：
+[["实体A", "关系", "实体B"]]
+
+示例（仅展示格式）：
+输入实体：["小明", "清华大学", "计算机科学"]
+输出：[["小明", "就读于", "清华大学"], ["小明", "主修", "计算机科学"]]
+
+如果没有关系，输出：[]"""
         else:
-            return f"""You are a relation extraction system.
+            return """Task: Extract relations between known entities from text.
 
-Good examples:
-{good}
-Bad patterns (avoid these):
-{bad_str}
+You will receive a text and a set of identified entities. Find specific relations between these entities as expressed in the text.
 
-Valid relation types: contains, uses, depends_on, example_of, contradicts, extends
+Requirements:
+1. Head and tail entities must come from the given entity list (exact name match)
+2. Use concise, specific verb phrases (2-4 words) reflecting the text
+3. Only extract explicitly stated or directly inferable relations
+4. Output ONLY a JSON array — no explanation, analysis, or thinking
 
-Rules:
-- Head and tail MUST be from the entity list (exact match)
-- Use the most specific relation type
-- Return ONLY a JSON array of [head, relation, tail]
-- If no relations found, return []"""
+Output format:
+[["entityA", "relation", "entityB"]]
+
+Example (format only):
+Input entities: ["Alice", "MIT", "computer science"]
+Output: [["Alice", "studies_at", "MIT"], ["Alice", "majors_in", "computer science"]]
+
+If no relations found, output: []"""
 
     async def collect_good_samples(
         self, workspace_id: uuid.UUID, db: AsyncSession, limit: int = 100

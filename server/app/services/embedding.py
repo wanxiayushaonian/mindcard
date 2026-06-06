@@ -16,7 +16,7 @@ class EmbeddingService:
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(120.0), trust_env=False)
         return self._client
 
     async def _embed_raw(self, texts: list[str]) -> list[list[float]]:

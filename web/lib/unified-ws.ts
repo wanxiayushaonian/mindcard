@@ -27,6 +27,7 @@ export interface StreamEvent {
   node_id?: string;
   title?: string;
   fork_id?: string;
+  chat_id?: string;           // fork_created now sends chat_id of child AiChat
   branch_label?: string;
   depth?: number;
   metadata?: Record<string, unknown>;
@@ -52,6 +53,7 @@ export interface RAGMessage {
   retrieval_level?: number;  // 0=FREE, 1=CARD, 2=GRAPH, 3=FULL, undefined=auto
   history?: Array<{ role: string; content: string }>;
   current_fork_id?: string;
+  chat_id?: string;
 }
 
 export interface CancelMessage {
@@ -212,7 +214,7 @@ export class UnifiedWSClient {
  * Create WebSocket URL from API base URL
  */
 export function createWSUrl(path: string): string {
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   // Convert http(s) to ws(s)

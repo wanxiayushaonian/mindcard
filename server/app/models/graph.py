@@ -47,7 +47,7 @@ class GraphRelation(Base):
     head_id: Mapped[str] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("graph_entities.id", ondelete="CASCADE"), nullable=False
     )
-    relation: Mapped[str] = mapped_column(String(128), nullable=False)
+    relation: Mapped[str] = mapped_column(Text, nullable=False)
     tail_id: Mapped[str] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("graph_entities.id", ondelete="CASCADE"), nullable=False
     )

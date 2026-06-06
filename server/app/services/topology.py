@@ -1,6 +1,6 @@
 """Topology auto-classification service.
 
-Automatically assigns cards to the most relevant tree node based on
+Automatically assigns cards to the most relevant tree node (AiChat) based on
 embedding similarity, and maintains node centroids.
 """
 
@@ -13,7 +13,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.card import Card
-from app.models.topology import NodeCard, TreeNode
+from app.models.chat import AiChat
+from app.models.topology import NodeCard
 from app.services.embedding import embedding_service
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ class TopologyService:
     async def assign_card_to_node(
         self, db: AsyncSession, card: Card, default_node_id: uuid.UUID | None = None
     ):
-        """Find the best-matching tree node for a card and attach it.
+        """Find the best-matching tree node (AiChat) for a card and attach it.
 
         If default_node_id is provided, checks similarity with that node first.
         Only assigns to default node if similarity > 0.7 (or if embeddings are missing).
@@ -45,22 +46,25 @@ class TopologyService:
             {"ws_id": str(card.workspace_id)},
         )
 
-        # Find the root node for this workspace
+        # Find the root node (AiChat with parent_id=None) for this workspace
         root_result = await db.execute(
-            select(TreeNode)
-            .where(TreeNode.workspace_id == card.workspace_id)
-            .where(TreeNode.parent_id.is_(None))
+            select(AiChat)
+            .where(AiChat.workspace_id == card.workspace_id)
+            .where(AiChat.parent_id.is_(None))
             .limit(1)
         )
         root_node = root_result.scalar_one_or_none()
 
         # Ensure root exists
         if not root_node:
-            root_node = TreeNode(
+            root_node = AiChat(
                 id=uuid.uuid4(),
+                local_id=f"root-{card.workspace_id}",
                 workspace_id=card.workspace_id,
+                user_id=card.creator_id,
                 node_type="root",
                 title="主线",
+                mode="rag",
             )
             db.add(root_node)
             await db.flush()
@@ -68,7 +72,7 @@ class TopologyService:
         # Handle default_node_id if provided
         if default_node_id:
             default_node_result = await db.execute(
-                select(TreeNode).where(TreeNode.id == default_node_id)
+                select(AiChat).where(AiChat.id == default_node_id)
             )
             default_node = default_node_result.scalar_one_or_none()
 
@@ -80,12 +84,12 @@ class TopologyService:
                         # High similarity - assign to default node
                         existing = await db.execute(
                             select(NodeCard).where(
-                                NodeCard.node_id == default_node.id,
+                                NodeCard.chat_id == default_node.id,
                                 NodeCard.card_id == card.id,
                             )
                         )
                         if not existing.scalar_one_or_none():
-                            db.add(NodeCard(node_id=default_node.id, card_id=card.id))
+                            db.add(NodeCard(chat_id=default_node.id, card_id=card.id))
                             await db.flush()
                             await self._recalculate_node_centroid(db, default_node.id)
                             logger.info(
@@ -98,12 +102,12 @@ class TopologyService:
                     # Missing embeddings - assign directly to default node
                     existing = await db.execute(
                         select(NodeCard).where(
-                            NodeCard.node_id == default_node.id,
+                            NodeCard.chat_id == default_node.id,
                             NodeCard.card_id == card.id,
                         )
                     )
                     if not existing.scalar_one_or_none():
-                        db.add(NodeCard(node_id=default_node.id, card_id=card.id))
+                        db.add(NodeCard(chat_id=default_node.id, card_id=card.id))
                         await db.flush()
                         await self._recalculate_node_centroid(db, default_node.id)
                         logger.info(
@@ -120,23 +124,23 @@ class TopologyService:
             )
             existing = await db.execute(
                 select(NodeCard).where(
-                    NodeCard.node_id == root_node.id,
+                    NodeCard.chat_id == root_node.id,
                     NodeCard.card_id == card.id,
                 )
             )
             if not existing.scalar_one_or_none():
-                db.add(NodeCard(node_id=root_node.id, card_id=card.id))
+                db.add(NodeCard(chat_id=root_node.id, card_id=card.id))
                 await db.flush()
             return
 
         # Find best matching non-root node with embedding
         result = await db.execute(
-            select(TreeNode)
-            .where(TreeNode.workspace_id == card.workspace_id)
-            .where(TreeNode.id != root_node.id)
-            .where(TreeNode.embedding.isnot(None))
-            .where(TreeNode.status != "archived")
-            .order_by(TreeNode.embedding.cosine_distance(card.embedding))
+            select(AiChat)
+            .where(AiChat.workspace_id == card.workspace_id)
+            .where(AiChat.id != root_node.id)
+            .where(AiChat.embedding.isnot(None))
+            .where(AiChat.chat_status != "archived")
+            .order_by(AiChat.embedding.cosine_distance(card.embedding))
             .limit(1)
         )
         best_node = result.scalar_one_or_none()
@@ -151,7 +155,7 @@ class TopologyService:
         # Check if card is already associated with the target node
         existing = await db.execute(
             select(NodeCard).where(
-                NodeCard.node_id == target_node.id,
+                NodeCard.chat_id == target_node.id,
                 NodeCard.card_id == card.id,
             )
         )
@@ -159,7 +163,7 @@ class TopologyService:
             return
 
         # Attach card to node
-        db.add(NodeCard(node_id=target_node.id, card_id=card.id))
+        db.add(NodeCard(chat_id=target_node.id, card_id=card.id))
         await db.flush()
 
         # Recalculate the node's centroid
@@ -175,7 +179,7 @@ class TopologyService:
         result = await db.execute(
             select(Card.embedding)
             .join(NodeCard, NodeCard.card_id == Card.id)
-            .where(NodeCard.node_id == node_id)
+            .where(NodeCard.chat_id == node_id)
             .where(Card.embedding.isnot(None))
         )
         embeddings = [row[0] for row in result.all()]
@@ -188,36 +192,41 @@ class TopologyService:
         if norm > 0:
             mean = mean / norm
 
-        node = await db.get(TreeNode, node_id)
+        node = await db.get(AiChat, node_id)
         if node:
             node.embedding = mean.tolist()
             node.updated_at = datetime.now(timezone.utc)
             await db.flush()
 
     async def auto_bind_chat_to_node(
-        self, db: AsyncSession, workspace_id: uuid.UUID, first_message: str
-    ) -> TreeNode | None:
-        """Find or create a TreeNode for a new chat based on the first message.
+        self, db: AsyncSession, chat: AiChat, first_message: str
+    ) -> None:
+        """Find or set parent_id on an AiChat based on the first message.
 
         Embeds the first message, finds the best-matching non-root node in the
-        workspace, and returns it if similarity >= 0.7.  Otherwise creates a new
-        branch node under root.
+        workspace, and sets chat.parent_id if similarity >= 0.7.  Otherwise
+        attaches the chat under the root node (creating root if needed).
         """
         if not first_message:
-            return None
+            return
+
+        workspace_id = chat.workspace_id
+        if not workspace_id:
+            return
 
         query_embedding = await embedding_service.embed(first_message)
         if not query_embedding:
-            return None
+            return
 
         # Find best matching non-root node with embedding
         stmt = (
-            select(TreeNode)
-            .where(TreeNode.workspace_id == workspace_id)
-            .where(TreeNode.node_type != "root")
-            .where(TreeNode.embedding.isnot(None))
-            .where(TreeNode.status != "archived")
-            .order_by(TreeNode.embedding.cosine_distance(query_embedding))
+            select(AiChat)
+            .where(AiChat.workspace_id == workspace_id)
+            .where(AiChat.node_type != "root")
+            .where(AiChat.embedding.isnot(None))
+            .where(AiChat.chat_status != "archived")
+            .where(AiChat.id != chat.id)  # exclude self
+            .order_by(AiChat.embedding.cosine_distance(query_embedding))
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -227,40 +236,48 @@ class TopologyService:
             dist = self._cosine_distance(query_embedding, best_node.embedding)
             similarity = 1.0 - dist
             if similarity >= 0.7:
-                return best_node
+                chat.parent_id = best_node.id
+                chat.node_type = "leaf"
+                chat.embedding = query_embedding
+                chat.updated_at = datetime.now(timezone.utc)
+                await db.flush()
+                logger.info(
+                    "Chat %s auto-bound to node %s '%s' (similarity=%.4f)",
+                    chat.id, best_node.id, best_node.title, similarity,
+                )
+                return
 
-        # No good match — create a new branch node under root
-        root_stmt = select(TreeNode).where(
-            TreeNode.workspace_id == workspace_id,
-            TreeNode.node_type == "root",
+        # No good match — attach under root (create root if needed)
+        root_stmt = select(AiChat).where(
+            AiChat.workspace_id == workspace_id,
+            AiChat.node_type == "root",
         )
         root_result = await db.execute(root_stmt)
         root = root_result.scalar_one_or_none()
-        parent_id = root.id if root else None
 
-        # Generate title from first message (truncate)
-        title = first_message[:50].strip()
-        if len(first_message) > 50:
-            title += "..."
+        if not root:
+            root = AiChat(
+                id=uuid.uuid4(),
+                local_id=f"root-{workspace_id}",
+                workspace_id=workspace_id,
+                user_id=chat.user_id,
+                node_type="root",
+                title="主线",
+                mode="rag",
+            )
+            db.add(root)
+            await db.flush()
 
-        new_node = TreeNode(
-            workspace_id=workspace_id,
-            parent_id=parent_id,
-            node_type="branch",
-            title=title,
-            description="",
-            summary="",
-            status="active",
-            embedding=query_embedding,
-        )
-        db.add(new_node)
+        chat.parent_id = root.id
+        chat.node_type = "leaf"
+        chat.embedding = query_embedding
+        chat.updated_at = datetime.now(timezone.utc)
         await db.flush()
-        return new_node
 
     async def rebuild_node_embeddings(self, db: AsyncSession, workspace_id: uuid.UUID):
-        """Rebuild centroids for all tree nodes in a workspace."""
+        """Rebuild centroids for all tree nodes (AiChats) in a workspace."""
         result = await db.execute(
-            select(TreeNode).where(TreeNode.workspace_id == workspace_id)
+            select(AiChat).where(AiChat.workspace_id == workspace_id)
         )
         nodes = list(result.scalars().all())
 
@@ -269,7 +286,7 @@ class TopologyService:
 
         logger.info("Rebuilt embeddings for %d nodes in workspace %s", len(nodes), workspace_id)
 
-    async def mark_core_entities(self, db: AsyncSession, tree_node_id: uuid.UUID) -> None:
+    async def mark_core_entities(self, db: AsyncSession, node_id: uuid.UUID) -> None:
         """Mark top-3 entities by frequency as core entities for a topology node."""
         from collections import Counter
 
@@ -279,7 +296,7 @@ class TopologyService:
 
         # Get cards assigned to this node
         cards_result = await db.execute(
-            select(NodeCard).where(NodeCard.node_id == tree_node_id)
+            select(NodeCard).where(NodeCard.chat_id == node_id)
         )
         node_cards = cards_result.scalars().all()
         if not node_cards:
@@ -296,8 +313,8 @@ class TopologyService:
         core_ids = [eid for eid, _ in entity_freq.most_common(3)]
         if core_ids:
             await db.execute(
-                sa_update(TreeNode)
-                .where(TreeNode.id == tree_node_id)
+                sa_update(AiChat)
+                .where(AiChat.id == node_id)
                 .values(core_entity_ids=core_ids)
             )
             await db.flush()
@@ -306,10 +323,10 @@ class TopologyService:
         self, db: AsyncSession, chat_id: str
     ) -> None:
         """Generate and update node summary from recent chat messages."""
-        from app.models.chat import AiChat, ChatMessage
+        from app.models.chat import ChatMessage
 
         chat = await db.get(AiChat, chat_id)
-        if not chat or not chat.tree_node_id:
+        if not chat:
             return
 
         # Get last few messages
@@ -340,11 +357,8 @@ class TopologyService:
 
         summary = await llm_service.complete([{"role": "user", "content": prompt}])
 
-        # Update node
-        node = await db.get(TreeNode, chat.tree_node_id)
-        if node:
-            node.summary = summary.strip()
-            await db.flush()
+        chat.summary = summary.strip()
+        await db.flush()
 
     @staticmethod
     def _cosine_distance(a: list[float], b: list[float]) -> float:

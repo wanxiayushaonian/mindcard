@@ -1,16 +1,18 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.card import Card, CardRelation
-from app.models.chat import AiChat
-from app.models.user import User, UserSetting
+from app.models.user import User
 from app.schemas.card import CardCreate, CardListResponse, CardRelationCreate, CardResponse, CardUpdate
-from app.services.embedding import embedding_service
 from app.utils.activity import create_activity
 from app.utils.auth import can_edit_card, get_current_user, get_workspace_membership, require_role
 from app.utils.cursor import decode_cursor, encode_cursor
@@ -19,53 +21,13 @@ from app.utils.helpers import parse_uuid
 router = APIRouter()
 
 
-async def _generate_embedding(card_id: UUID, default_node_id: UUID | None = None):
+async def _generate_embedding(card_id: UUID, default_chat_id: UUID | None = None):
     """Generate and update embedding for a card (runs in background)."""
-    import logging
+    from app.utils.card_tasks import generate_card_embedding
 
-    logger = logging.getLogger(__name__)
     logger.info("Starting embedding generation for card %s", card_id)
     try:
-        from app.database import async_session
-
-        async with async_session() as db:
-            db_card = await db.get(Card, card_id)
-            if not db_card:
-                logger.warning("Card %s not found for embedding generation", card_id)
-                return
-            text = embedding_service.card_to_text(db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag)
-            logger.info("Embedding card %s: text length=%d", card_id, len(text))
-            embedding = await embedding_service.embed(text)
-            db_card.embedding = embedding
-            await db.commit()
-            logger.info("Embedding saved for card %s (dim=%d)", card_id, len(embedding))
-            # Assign to topic
-            from app.services.topic import topic_service
-            await topic_service.assign_card_to_topic(db, db_card)
-            await db.commit()
-            # Auto-classify into topology tree
-            from app.services.topology import topology_service
-            await topology_service.assign_card_to_node(db, db_card, default_node_id)
-            await db.commit()
-            # Extract knowledge graph triples
-            try:
-                from app.services.triple_extractor import triple_extractor
-                from app.services.entity_linker import EntityLinker
-
-                # Default to Chinese extraction (no user context in background task)
-                extraction_language = "zh"
-
-                entities, triples = await triple_extractor.extract(
-                    db_card.content, db_card.workspace_id, extraction_language
-                )
-                if entities and triples:
-                    linker = EntityLinker(db)
-                    await linker.link_triples(
-                        entities, triples, db_card.id, db_card.workspace_id
-                    )
-                    await db.commit()
-            except Exception as e:
-                logger.warning("Triple extraction failed for card %s: %s", card_id, e)
+        await generate_card_embedding(card_id, default_chat_id)
     except Exception as e:
         logger.warning("Embedding generation failed for card %s: %s", card_id, e)
 
@@ -97,7 +59,7 @@ async def list_cards(
         query = query.where(Card.keywords.any(keyword))
 
     sort_col = {"created_at": Card.created_at, "updated_at": Card.updated_at, "title": Card.title}.get(sort_by, Card.created_at)
-    desc = order == "desc"
+    descending = order == "desc"
 
     if cursor:
         val_str, id_str = decode_cursor(cursor)
@@ -110,13 +72,13 @@ async def list_cards(
         else:
             cursor_val = val_str
 
-        if desc:
+        if descending:
             query = query.where(tuple_(sort_col, Card.id) < (cursor_val, cursor_id))
         else:
             query = query.where(tuple_(sort_col, Card.id) > (cursor_val, cursor_id))
 
     # Deterministic ordering: sort_col + id tiebreaker
-    if desc:
+    if descending:
         query = query.order_by(sort_col.desc(), Card.id.desc())
     else:
         query = query.order_by(sort_col.asc(), Card.id.asc())
@@ -145,34 +107,33 @@ async def create_card(
     membership = await get_workspace_membership(req.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
-    # Get chat's topology node as default
-    chat_node_id = None
+    # Get chat as default node for card attachment
+    default_chat_id = None
     if req.chat_id:
-        chat_result = await db.execute(
-            select(AiChat.tree_node_id).where(AiChat.id == parse_uuid(req.chat_id))
-        )
-        chat_node_id = chat_result.scalar_one_or_none()
+        default_chat_id = parse_uuid(req.chat_id)
 
     # Create card (exclude chat_id as it's not a Card model field)
     card_data = req.model_dump(exclude={"chat_id"})
+    logger.info("Creating card: title=%r, keywords=%r, content_len=%d", req.title, req.keywords, len(req.content))
     card = Card(**card_data, creator_id=user.id)
     db.add(card)
     await db.flush()
 
     # Auto-attach card to workspace root node in topology tree
-    from app.models.topology import NodeCard, TreeNode as TopoNode
+    from app.models.chat import AiChat
+    from app.models.topology import NodeCard
 
     root_result = await db.execute(
-        select(TopoNode).where(
-            TopoNode.workspace_id == parse_uuid(req.workspace_id),
-            TopoNode.parent_id.is_(None),
+        select(AiChat).where(
+            AiChat.workspace_id == parse_uuid(req.workspace_id),
+            AiChat.parent_id.is_(None),
         ).limit(1)
     )
     root_node = root_result.scalar_one_or_none()
     if root_node:
-        db.add(NodeCard(node_id=root_node.id, card_id=card.id))
+        db.add(NodeCard(chat_id=root_node.id, card_id=card.id))
 
-    background_tasks.add_task(_generate_embedding, card.id, chat_node_id)
+    background_tasks.add_task(_generate_embedding, card.id, default_chat_id)
     await create_activity(
         db, workspace_id=req.workspace_id, actor_id=user.id,
         action="card.created", target_type="card", target_id=str(card.id),
@@ -238,9 +199,87 @@ async def delete_card(
     membership = await get_workspace_membership(card.workspace_id, user, db)
     if not can_edit_card(membership, card, user):
         raise HTTPException(status_code=403, detail="只能删除自己创建的卡片")
+
+    # Collect entity IDs linked to this card before deletion
+    from sqlalchemy import select
+    from app.models.graph import EntityCard, GraphEntity, GraphRelation
+
+    entity_ids_result = await db.execute(
+        select(EntityCard.entity_id).where(EntityCard.card_id == card.id)
+    )
+    linked_entity_ids = [row[0] for row in entity_ids_result.all()]
+
+    # Delete the card (CASCADE handles: CardRelation, NodeCard, EntityCard, TopicCard, Comment)
     await db.delete(card)
+    await db.flush()
+
+    # Clean up orphan entities: those with no remaining EntityCard links
+    orphan_count = 0
+    if linked_entity_ids:
+        for eid in linked_entity_ids:
+            remaining = await db.execute(
+                select(EntityCard.entity_id).where(EntityCard.entity_id == eid).limit(1)
+            )
+            if not remaining.scalar_one_or_none():
+                # Entity has no more card links — delete it (CASCADE handles GraphRelation)
+                entity = await db.get(GraphEntity, eid)
+                if entity:
+                    await db.delete(entity)
+                    orphan_count += 1
+
     await db.commit()
+    logger.info("Deleted card %s, cleaned %d orphan entities", card_id, orphan_count)
     return {"ok": True}
+
+
+@router.get("/{card_id}/delete-preview")
+async def delete_card_preview(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Preview what will be affected by deleting a card."""
+    card = await db.get(Card, parse_uuid(card_id))
+    if not card:
+        raise HTTPException(status_code=404, detail="卡片不存在")
+    await get_workspace_membership(card.workspace_id, user, db)
+
+    from sqlalchemy import func, select
+    from app.models.graph import EntityCard, GraphRelation
+    from app.models.topology import NodeCard
+    from app.models.comment import Comment
+
+    # Count relations
+    rel_count = await db.execute(
+        select(func.count()).where(
+            (CardRelation.card_id == card_id) | (CardRelation.related_card_id == card_id)
+        )
+    )
+    # Count tree node attachments
+    node_count = await db.execute(
+        select(func.count()).where(NodeCard.card_id == card_id)
+    )
+    # Count entity links
+    entity_count = await db.execute(
+        select(func.count()).where(EntityCard.card_id == card_id)
+    )
+    # Count graph relations sourced from this card
+    graph_rel_count = await db.execute(
+        select(func.count()).where(GraphRelation.source_card_id == card_id)
+    )
+    # Count comments
+    comment_count = await db.execute(
+        select(func.count()).where(Comment.card_id == card_id)
+    )
+
+    return {
+        "card_title": card.title or "未命名",
+        "relations": rel_count.scalar() or 0,
+        "topology_nodes": node_count.scalar() or 0,
+        "entities": entity_count.scalar() or 0,
+        "graph_relations": graph_rel_count.scalar() or 0,
+        "comments": comment_count.scalar() or 0,
+    }
 
 
 @router.post("/{card_id}/relations")

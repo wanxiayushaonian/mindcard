@@ -23,10 +23,21 @@ function parseThinkingSegments(content: string): ContentSegment[] {
   let match;
 
   while ((match = regex.exec(content)) !== null) {
-    // Content before the thinking block
+    // Content before the thinking block — treat as thinking if it looks like reasoning
     if (match.index > lastIndex) {
       const before = content.slice(lastIndex, match.index).trim();
       if (before) {
+        // Heuristic: if the text before <thinking> looks like Chinese reasoning
+        // (contains analytical keywords), merge it into the thinking block
+        const isReasoning = /[，。]/.test(before) && before.length > 30 &&
+          /分析|判断|用户|需要|问题|理解|意图|规划|内容|考虑/.test(before);
+        if (isReasoning) {
+          // Merge into the thinking block content
+          const thinkingText = before + "\n\n" + match[1].trim();
+          segments.push({ type: "thinking", text: thinkingText });
+          lastIndex = match.index + match[0].length;
+          continue;
+        }
         segments.push({ type: "content", text: before });
       }
     }

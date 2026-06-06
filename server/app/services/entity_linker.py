@@ -87,6 +87,12 @@ class EntityLinker:
         workspace_id: uuid.UUID,
     ) -> uuid.UUID:
         """Return an existing entity ID if a similar one exists, otherwise create one."""
+        # Truncate to DB column limits
+        name = (name or "").strip()[:128]
+        entity_type = (entity_type or "").strip()[:64] if entity_type else None
+        if not name:
+            name = "未知实体"
+
         if embedding:
             existing = await self._find_similar_entity(name, embedding, workspace_id)
             if existing:

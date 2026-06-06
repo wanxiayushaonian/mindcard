@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.chat import ChatMessage
+from app.models.chat import AiChat, ChatMessage
 from app.services.rag import rag_service
 from app.services.topology import topology_service
 
@@ -87,6 +87,7 @@ async def chat_websocket(websocket: WebSocket):
         chat_id: str,
         full_response: str,
         current_fork_id: str | None,
+        workspace_id: str | None = None,
     ) -> tuple[str, str | None]:
         """Parse [BRANCH: ...] marker from LLM response.
 
@@ -113,23 +114,15 @@ async def chat_websocket(websocket: WebSocket):
             await safe_send({"type": "toast", "content": f"分叉被保护机制阻止：{branch_label}"})
             return clean_response, current_fork_id
 
-        # Determine depth and parent_fork_id
-        depth = 0
-        parent_fork_id = current_fork_id
-        if current_fork_id:
-            result = await db.execute(
-                select(ChatMessage.metadata_["depth"]).where(
-                    ChatMessage.fork_id == current_fork_id,
-                    ChatMessage.role == "fork-divider",
-                ).limit(1)
-            )
-            parent_depth = result.scalar()
-            depth = (parent_depth or 0) + 1
+        # Get parent chat for workspace_id and parent_id
+        parent_chat = await db.get(AiChat, uuid.UUID(chat_id))
+        if not parent_chat:
+            return clean_response, current_fork_id
 
         # Compress parent context
         result = await db.execute(
             select(ChatMessage).where(
-                ChatMessage.chat_id == chat_id,
+                ChatMessage.chat_id == uuid.UUID(chat_id),
                 ChatMessage.role.in_(["user", "assistant"]),
             ).order_by(ChatMessage.created_at.desc()).limit(50)
         )
@@ -137,21 +130,28 @@ async def chat_websocket(websocket: WebSocket):
         strategy = getattr(settings, "fork_context_strategy", "compress")
         summary = await fork_compressor.compress(messages, strategy=strategy)
 
-        # Create fork_id
-        new_fork_id = f"fork-{uuid.uuid4().hex[:12]}"
+        # Create child AiChat
+        child_chat = AiChat(
+            workspace_id=parent_chat.workspace_id,
+            parent_id=parent_chat.id,
+            user_id=parent_chat.user_id,
+            mode="rag",
+            title=branch_label,
+            node_type="branch",
+        )
+        db.add(child_chat)
+        await db.flush()
 
-        # Insert fork-divider message
+        # Insert fork-divider in parent chat
         divider = ChatMessage(
-            chat_id=chat_id,
+            chat_id=parent_chat.id,
             role="fork-divider",
             content="",
-            fork_id=new_fork_id,
             metadata_={
-                "fork_id": new_fork_id,
+                "child_chat_id": str(child_chat.id),
                 "branch_label": branch_label,
                 "parent_context_summary": summary,
-                "depth": depth,
-                "parent_fork_id": parent_fork_id,
+                "depth": 0,
             },
         )
         db.add(divider)
@@ -160,12 +160,12 @@ async def chat_websocket(websocket: WebSocket):
         # Notify frontend
         await safe_send({
             "type": "fork_created",
-            "fork_id": new_fork_id,
+            "chat_id": str(child_chat.id),
             "branch_label": branch_label,
-            "depth": depth,
+            "depth": 0,
         })
 
-        return clean_response, new_fork_id
+        return clean_response, str(child_chat.id)
 
     async def handle_chat(
         message: str,
@@ -197,7 +197,7 @@ async def chat_websocket(websocket: WebSocket):
                 try:
                     async for db_session in get_db():
                         clean_response, new_fork_id = await handle_branch_marker(
-                            db_session, chat_id, full_response, current_fork_id,
+                            db_session, chat_id, full_response, current_fork_id, workspace_id,
                         )
                         break
                     # If a fork was created, send the clean response (without marker)
@@ -224,7 +224,6 @@ async def chat_websocket(websocket: WebSocket):
             })
 
     async def handle_rag(
-        db: AsyncSession,
         question: str,
         workspace_ids: list[str] | None,
         card_id: str | None,
@@ -235,55 +234,57 @@ async def chat_websocket(websocket: WebSocket):
         chat_id: str | None = None,
         current_fork_id: str | None = None,
     ):
-        """Handle RAG query."""
+        """Handle RAG query. Creates its own DB session to avoid lifecycle issues."""
         try:
-            # Collect full response for branch marker parsing
-            full_response = ""
+            async for db in get_db():
+                # Collect full response for branch marker parsing
+                full_response = ""
 
-            async for chunk in rag_service.ask_stream(
-                db,
-                question,
-                workspace_ids=workspace_ids,
-                card_id=card_id,
-                top_k=top_k,
-                web_search=web_search,
-                history=history,
-                retrieval_level=retrieval_level,
-                chat_id=chat_id,
-            ):
-                if isinstance(chunk, dict):
-                    # Sources, web search results, or other metadata
-                    await safe_send(chunk)
-                else:
-                    # Text content — accumulate for marker parsing
-                    full_response += chunk
-                    await safe_send({
-                        "type": "content",
-                        "content": chunk,
-                    })
+                async for chunk in rag_service.ask_stream(
+                    db,
+                    question,
+                    workspace_ids=workspace_ids,
+                    card_id=card_id,
+                    top_k=top_k,
+                    web_search=web_search,
+                    history=history,
+                    retrieval_level=retrieval_level,
+                    chat_id=chat_id,
+                ):
+                    if isinstance(chunk, dict):
+                        # Sources, web search results, or other metadata
+                        await safe_send(chunk)
+                    else:
+                        # Text content — accumulate for marker parsing
+                        full_response += chunk
+                        await safe_send({
+                            "type": "content",
+                            "content": chunk,
+                        })
 
-            # Parse branch marker from the full response
-            if chat_id and full_response:
-                try:
-                    clean_response, new_fork_id = await handle_branch_marker(
-                        db, chat_id, full_response, current_fork_id,
-                    )
-                    # If a fork was created, send the clean response (without marker)
-                    if new_fork_id and new_fork_id != current_fork_id:
-                        await safe_send({"type": "content_replace", "content": clean_response})
-                except Exception as e:
-                    logger.warning("Branch marker parsing failed: %s", e)
+                # Parse branch marker from the full response
+                if chat_id and full_response:
+                    try:
+                        clean_response, new_fork_id = await handle_branch_marker(
+                            db, chat_id, full_response, current_fork_id,
+                            workspace_ids[0] if workspace_ids else None,
+                        )
+                        # If a fork was created, send the clean response (without marker)
+                        if new_fork_id and new_fork_id != current_fork_id:
+                            await safe_send({"type": "content_replace", "content": clean_response})
+                    except Exception as e:
+                        logger.warning("Branch marker parsing failed: %s", e)
+
+                # Async summary update
+                if chat_id:
+                    try:
+                        await topology_service.update_node_summary_from_chat(db, chat_id)
+                        await db.commit()
+                    except Exception as e:
+                        logger.warning("Auto summary update failed: %s", e)
+                break
 
             await safe_send({"type": "done"})
-
-            # Async summary update (fire-and-forget)
-            if chat_id:
-                try:
-                    async for db_session in get_db():
-                        await topology_service.update_node_summary_from_chat(db_session, chat_id)
-                        break
-                except Exception as e:
-                    logger.warning("Auto summary update failed: %s", e)
         except Exception as e:
             logger.error(f"RAG stream error: {e}", exc_info=True)
             await safe_send({
@@ -327,26 +328,23 @@ async def chat_websocket(websocket: WebSocket):
                 if current_task and not current_task.done():
                     current_task.cancel()
 
-                # Get database session
-                async for db in get_db():
-                    question = msg.get("question", "")
-                    workspace_ids = msg.get("workspace_ids")
-                    card_id = msg.get("card_id")
-                    top_k = msg.get("top_k", 5)
-                    web_search = msg.get("web_search", False)
-                    history = msg.get("history")
-                    retrieval_level = msg.get("retrieval_level")
-                    chat_id = msg.get("chat_id")
-                    current_fork_id = msg.get("current_fork_id")
+                question = msg.get("question", "")
+                workspace_ids = msg.get("workspace_ids")
+                card_id = msg.get("card_id")
+                top_k = msg.get("top_k", 5)
+                web_search = msg.get("web_search", False)
+                history = msg.get("history")
+                retrieval_level = msg.get("retrieval_level")
+                chat_id = msg.get("chat_id")
+                current_fork_id = msg.get("current_fork_id")
 
-                    current_task = asyncio.create_task(
-                        handle_rag(
-                            db, question, workspace_ids, card_id, top_k,
-                            web_search, history, retrieval_level, chat_id,
-                            current_fork_id=current_fork_id,
-                        )
+                current_task = asyncio.create_task(
+                    handle_rag(
+                        question, workspace_ids, card_id, top_k,
+                        web_search, history, retrieval_level, chat_id,
+                        current_fork_id=current_fork_id,
                     )
-                    break
+                )
 
             elif msg_type == "cancel":
                 if current_task and not current_task.done():

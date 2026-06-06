@@ -264,25 +264,20 @@ class RetrievalDispatcher:
         self, chat_id: str, workspace_id: uuid.UUID, db: AsyncSession
     ) -> dict:
         """Get topology path context for a chat session."""
-        from app.models.topology import TreeNode, NodeCard, NodeRef
+        from app.models.topology import NodeCard
         from app.models.card import Card
         from app.models.chat import AiChat
 
-        # Find the tree node bound to this chat
-        chat_result = await db.execute(
-            select(AiChat.tree_node_id).where(AiChat.id == chat_id)
-        )
-        tree_node_id = chat_result.scalar_one_or_none()
+        chat_uuid = uuid.UUID(chat_id) if isinstance(chat_id, str) else chat_id
 
-        if not tree_node_id:
-            return {"path": [], "node_card_titles": [], "cross_refs": []}
-
-        # Walk up the tree to root, collecting ancestor IDs
+        # Walk up the parent_id chain to root
         ancestor_ids: list[uuid.UUID] = []
-        current_id = tree_node_id
-        while current_id:
+        current_id: uuid.UUID | None = chat_uuid
+        max_depth = 20
+        while current_id and max_depth > 0:
+            max_depth -= 1
             node_result = await db.execute(
-                select(TreeNode).where(TreeNode.id == current_id)
+                select(AiChat).where(AiChat.id == current_id)
             )
             node = node_result.scalar_one_or_none()
             if not node:
@@ -293,7 +288,7 @@ class RetrievalDispatcher:
         # Fetch all ancestors in one query
         path = []
         if ancestor_ids:
-            result = await db.execute(select(TreeNode).where(TreeNode.id.in_(ancestor_ids)))
+            result = await db.execute(select(AiChat).where(AiChat.id.in_(ancestor_ids)))
             nodes_map = {n.id: n for n in result.scalars().all()}
             for aid in ancestor_ids:
                 node = nodes_map.get(aid)
@@ -306,38 +301,18 @@ class RetrievalDispatcher:
 
         path.reverse()  # root first
 
-        # Get cards bound to current node
+        # Get cards bound to current chat
         cards_result = await db.execute(
             select(Card.title)
             .join(NodeCard, NodeCard.card_id == Card.id)
-            .where(NodeCard.node_id == tree_node_id)
+            .where(NodeCard.chat_id == chat_uuid)
         )
         node_card_titles = [row[0] for row in cards_result.all() if row[0]]
-
-        # Get cross-branch references
-        refs_result = await db.execute(
-            select(NodeRef).where(NodeRef.source_node_id == tree_node_id)
-        )
-        cross_refs = []
-        refs = refs_result.scalars().all()
-        # Batch-fetch all target nodes for cross-refs
-        if refs:
-            target_ids = [ref.target_node_id for ref in refs]
-            targets_result = await db.execute(select(TreeNode).where(TreeNode.id.in_(target_ids)))
-            targets_map = {t.id: t for t in targets_result.scalars().all()}
-            for ref in refs:
-                target = targets_map.get(ref.target_node_id)
-                if target:
-                    cross_refs.append({
-                        "target_title": target.title or "",
-                        "ref_type": ref.ref_type,
-                        "reason": ref.reason or "",
-                    })
 
         return {
             "path": path,
             "node_card_titles": node_card_titles,
-            "cross_refs": cross_refs,
+            "cross_refs": [],
         }
 
     # ── Auto-level detection ─────────────────────────────────────────────

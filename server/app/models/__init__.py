@@ -7,7 +7,7 @@ from .notification import Notification
 from .activity import ActivityLog
 from .api_key import ApiKey
 from .topic import Topic, TopicCard
-from .topology import TreeNode, NodeCard, NodeRef
+from .topology import NodeCard, NodeRef
 from .graph import GraphEntity, GraphRelation, EntityCard, GNNTrainingLog, TripleFeedback
 from .branch_insight import BranchInsight
 
@@ -25,7 +25,6 @@ __all__ = [
     "ApiKey",
     "Topic",
     "TopicCard",
-    "TreeNode",
     "NodeCard",
     "NodeRef",
     "GraphEntity",

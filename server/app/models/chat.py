@@ -2,14 +2,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import JSON, TIMESTAMP, UUID
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSON, JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.config import settings
 from app.database import Base
-
-if TYPE_CHECKING:
-    from app.models.topology import TreeNode
 
 
 class AiChat(Base):
@@ -26,16 +25,32 @@ class AiChat(Base):
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    parent_chat_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ai_chats.id", ondelete="SET NULL"), nullable=True, index=True
+    # Topology: self-referencing parent
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ai_chats.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    tree_node_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tree_nodes.id", ondelete="SET NULL"), nullable=True, index=True
-    )
-    tree_node: Mapped["TreeNode | None"] = relationship("TreeNode", foreign_keys=[tree_node_id], back_populates="chats")
     mode: Mapped[str] = mapped_column(String(8), default="rag")  # 'rag' | 'chat'
     title: Mapped[str] = mapped_column(String(128), default="")
+    # Fields inherited from former TreeNode model
+    node_type: Mapped[str] = mapped_column(String(20), default="branch")  # root | branch | leaf
+    description: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    chat_status: Mapped[str] = mapped_column(String(20), default="active")  # active | completed | archived
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
+    extra: Mapped[dict] = mapped_column(JSONB, default=dict)
+    core_entity_ids: Mapped[list[str] | None] = mapped_column(ARRAY(UUID(as_uuid=True)), default=list)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+    # Self-referencing relationships
+    children: Mapped[list["AiChat"]] = relationship(
+        back_populates="parent", cascade="all, delete-orphan", foreign_keys="AiChat.parent_id"
+    )
+    parent: Mapped["AiChat | None"] = relationship(
+        back_populates="children", remote_side="AiChat.id", foreign_keys="AiChat.parent_id"
+    )
 
 
 class ChatMessage(Base):

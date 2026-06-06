@@ -15,9 +15,8 @@ from app.services.web_search import web_search_service
 
 logger = logging.getLogger(__name__)
 
-MARKDOWN_SYSTEM_PROMPT = """你是一个知识问答助手。
-
-# ⚠️ 关键要求：必须输出标准Markdown格式
+# Shared markdown formatting instructions (used by all prompts)
+_MARKDOWN_FORMAT_INSTRUCTIONS = """# ⚠️ 关键要求：必须输出标准Markdown格式
 
 你的回答将被Markdown渲染器解析。如果格式不正确，用户将看到混乱的文本。
 
@@ -56,7 +55,7 @@ MARKDOWN_SYSTEM_PROMPT = """你是一个知识问答助手。
 ## 段落格式规则
 
 - 段落之间用**一个空行**分隔
-- 不要把标题、列表、段落挤在同一行
+- 不要把标题、列表、段落挤在同一一行
 
 ## 完整示例对比
 
@@ -88,25 +87,30 @@ Obsidian是一个强大的知识管理工具。
 5. ✓ 列表前后都有空行
 6. ✓ 段落之间有空行分隔
 
-**记住：格式错误会让用户看到乱码般的文本！**
+**记住：格式错误会让用户看到乱码般的文本！**"""
+
+MARKDOWN_SYSTEM_PROMPT = f"""你是一个知识问答助手。
+
+{_MARKDOWN_FORMAT_INSTRUCTIONS}
 
 ## 思考与回答分离（强制）
 
-在回答之前，你需要先分析用户的问题。把你的分析推理过程放在 `<thinking>` 块中，只把最终回答输出在外面。
+你的回复必须严格按以下顺序输出，**第一个字符必须是 `<`**：
 
-**格式：**
 ```
 <thinking>
-你的分析过程：理解用户意图、判断是否需要分叉、规划回答要点等。
+你的所有分析推理过程：理解用户意图、判断是否需要分叉、规划回答要点等。
 </thinking>
 
 最终回答内容（Markdown格式）
 ```
 
-**规则：**
-- `<thinking>` 块内的内容用户会看到，但会以折叠形式展示
-- 最终回答必须完整、独立可读，不依赖 thinking 内容
-- 不要在最终回答中重复 thinking 中的分析过程
+**绝对规则（违反将导致渲染错误）：**
+1. `<thinking>` 标签必须是回复的**第一个内容**，前面不能有任何文字
+2. 所有分析、推理、意图判断必须放在 `<thinking>` 块内
+3. `</thinking>` 之后只输出最终回答，不要再有分析性文字
+4. 最终回答必须完整、独立可读，不依赖 thinking 内容
+5. 不要在最终回答中重复 thinking 中的分析过程
 """
 
 
@@ -135,16 +139,19 @@ async def build_branch_context(
     chat_id: str,
     current_fork_id: str | None,
     workspace_id: str | None,
-) -> str:
+) -> tuple[str, list]:
     """Build branch context string for system prompt injection.
 
     Includes: parent_context, cross-branch insights, shared memory.
+    Returns (context_string, unconsumed_insight_ids) — caller should call
+    mark_insights_consumed() only after the stream succeeds.
     """
     from app.models.branch_insight import BranchInsight
     from app.models.workspace_memory import WorkspaceMemory
     from app.models.chat import ChatMessage
 
     parts = []
+    consumed_ids = []
 
     # 1. Parent context from fork divider metadata
     if current_fork_id:
@@ -160,7 +167,7 @@ async def build_branch_context(
             if parent_ctx:
                 parts.append(f"<parent_context>\n{parent_ctx}\n</parent_context>")
 
-    # 2. Unconsumed cross-branch insights
+    # 2. Unconsumed cross-branch insights (read-only, don't consume yet)
     result = await db.execute(
         select(BranchInsight).where(
             BranchInsight.target_chat_id == chat_id,
@@ -171,10 +178,7 @@ async def build_branch_context(
     if insights:
         insight_text = "\n".join(f"- {i.content}" for i in insights)
         parts.append(f"<cross_branch_insights>\n来自其他分支的发现：\n{insight_text}\n</cross_branch_insights>")
-        # Mark as consumed
-        for insight in insights:
-            insight.consumed = True
-        await db.commit()
+        consumed_ids = [i.id for i in insights]
 
     # 3. Shared memory
     if workspace_id:
@@ -188,7 +192,21 @@ async def build_branch_context(
             memory_text = "\n\n".join(f"## {m.title}\n{m.body}" for m in memories)
             parts.append(f"<shared_memory>\n{memory_text}\n</shared_memory>")
 
-    return "\n\n".join(parts) if parts else ""
+    return ("\n\n".join(parts) if parts else ""), consumed_ids
+
+
+async def mark_insights_consumed(db: AsyncSession, insight_ids: list) -> None:
+    """Mark insights as consumed after successful stream."""
+    if not insight_ids:
+        return
+    from app.models.branch_insight import BranchInsight
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(BranchInsight)
+        .where(BranchInsight.id.in_(insight_ids))
+        .values(consumed=True)
+    )
+    await db.commit()
 
 
 class RAGService:
@@ -255,52 +273,7 @@ class RAGService:
 
         system_prompt = f"""你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
 
-# ⚠️ 关键要求：必须输出标准Markdown格式
-
-你的回答将被Markdown渲染器解析。如果格式不正确，用户将看到混乱的文本。
-
-## 标题格式规则（强制）
-
-**正确写法：**
-```markdown
-## 标题文字
-```
-- `##` 和标题文字之间**必须有一个空格**
-- 标题前后**必须有空行**
-
-**错误写法（会导致渲染失败）：**
-```markdown
-##标题文字          ❌ 缺少空格
-## 标题文字继续内容   ❌ 标题后没有换行
-```
-
-## 列表格式规则（强制）
-
-**正确写法：**
-```markdown
-- 列表项一
-- 列表项二
-```
-- `-` 和文字之间**必须有一个空格**
-- 每个列表项**必须单独一行**
-- 列表前后**必须有空行**
-
-**错误写法（会导致渲染失败）：**
-```markdown
--列表项           ❌ 缺少空格
-- 列表项一- 列表项二  ❌ 多个项在同一行
-```
-
-## 输出前自检清单
-
-在生成每一段内容时，请确认：
-1. ✓ 每个 `##` 后面都有空格
-2. ✓ 每个标题前后都有空行
-3. ✓ 每个 `-` 后面都有空格
-4. ✓ 每个列表项都单独一行
-5. ✓ 列表前后都有空行
-
-**记住：格式错误会让用户看到乱码般的文本！**
+{_MARKDOWN_FORMAT_INSTRUCTIONS}
 
 相关灵感卡片：
 {context}
@@ -541,54 +514,7 @@ Respond in JSON format:
         if level == RetrievalLevel.FREE:
             system_parts = [MARKDOWN_SYSTEM_PROMPT]
         else:
-            system_parts = ["""你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。
-
-# ⚠️ 关键要求：必须输出标准Markdown格式
-
-你的回答将被Markdown渲染器解析。如果格式不正确，用户将看到混乱的文本。
-
-## 标题格式规则（强制）
-
-**正确写法：**
-```markdown
-## 标题文字
-```
-- `##` 和标题文字之间**必须有一个空格**
-- 标题前后**必须有空行**
-
-**错误写法（会导致渲染失败）：**
-```markdown
-##标题文字          ❌ 缺少空格
-## 标题文字继续内容   ❌ 标题后没有换行
-```
-
-## 列表格式规则（强制）
-
-**正确写法：**
-```markdown
-- 列表项一
-- 列表项二
-```
-- `-` 和文字之间**必须有一个空格**
-- 每个列表项**必须单独一行**
-- 列表前后**必须有空行**
-
-**错误写法（会导致渲染失败）：**
-```markdown
--列表项           ❌ 缺少空格
-- 列表项一- 列表项二  ❌ 多个项在同一行
-```
-
-## 输出前自检清单
-
-在生成每一段内容时，请确认：
-1. ✓ 每个 `##` 后面都有空格
-2. ✓ 每个标题前后都有空行
-3. ✓ 每个 `-` 后面都有空格
-4. ✓ 每个列表项都单独一行
-5. ✓ 列表前后都有空行
-
-**记住：格式错误会让用户看到乱码般的文本！**"""]
+            system_parts = [f"你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。\n\n{_MARKDOWN_FORMAT_INSTRUCTIONS}"]
 
         if entity_ctx:
             system_parts.append(entity_ctx)
@@ -600,7 +526,7 @@ Respond in JSON format:
             system_parts.append(search_context)
 
         # Inject branch context (parent_context, insights, shared_memory)
-        branch_context = await build_branch_context(
+        branch_context, insight_ids = await build_branch_context(
             db, chat_id,
             current_fork_id=current_fork_id,
             workspace_id=workspace_ids[0] if workspace_ids else None,
@@ -622,6 +548,9 @@ Respond in JSON format:
         messages.append({"role": "user", "content": question})
         async for chunk in llm_service.stream(messages):
             yield chunk
+
+        # Consume insights only after successful stream
+        await mark_insights_consumed(db, insight_ids)
 
         # 4. Yield sources as a dict (the endpoint layer will serialize it)
         source_cards = [

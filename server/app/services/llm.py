@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from app.config import settings
 from app.providers.base import LLMProvider
 from app.providers.factory import make_provider
+
+logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -23,6 +26,7 @@ class LLMService:
             base_url=base_url,
             model=settings.default_llm_model or None,
         )
+        self._extraction_provider: LLMProvider | None = None
 
     @staticmethod
     def _resolve_credentials(provider_name: str) -> tuple[str, str | None]:
@@ -62,6 +66,30 @@ class LLMService:
     def current_provider(self) -> LLMProvider:
         return self._provider
 
+    @property
+    def extraction_provider(self) -> LLMProvider:
+        """Provider for lightweight extraction tasks (title, keywords)."""
+        if self._extraction_provider is None:
+            self._extraction_provider = self._build_extraction_provider()
+        return self._extraction_provider
+
+    @property
+    def extraction_provider_name(self) -> str:
+        return settings.extraction_llm_provider or settings.default_llm_provider
+
+    @property
+    def extraction_model_name(self) -> str:
+        return settings.extraction_llm_model or ""
+
+    def _build_extraction_provider(self) -> LLMProvider:
+        provider_name = settings.extraction_llm_provider or settings.default_llm_provider
+        api_key, base_url = self._resolve_credentials(provider_name)
+        return make_provider(provider_name, api_key, base_url, settings.extraction_llm_model or None)
+
+    def reset_extraction_provider(self) -> None:
+        """Reset the cached extraction provider (after config change)."""
+        self._extraction_provider = None
+
     # ------------------------------------------------------------------
     # Original interface — unchanged signatures
     # ------------------------------------------------------------------
@@ -95,6 +123,34 @@ class LLMService:
             messages, max_tokens=max_tokens, temperature=temperature, timeout=timeout
         )
         return result.strip()
+
+    async def extraction_complete_simple(
+        self,
+        system_prompt: str,
+        user_content: str,
+        max_tokens: int = 256,
+        temperature: float = 0.5,
+        timeout: float = 30,
+    ) -> str:
+        """Like complete_simple but uses the extraction-specific provider."""
+        provider = self.extraction_provider
+        provider_name = self.extraction_provider_name
+        model_name = getattr(provider, 'model', '?')
+        logger.info("extraction_complete_simple: provider=%s, model=%s", provider_name, model_name)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        try:
+            result = await provider.chat(
+                messages, max_tokens=max_tokens, temperature=temperature, timeout=timeout
+            )
+            if not result.strip():
+                logger.warning("extraction_complete_simple: empty response from %s/%s", provider_name, model_name)
+            return result.strip()
+        except Exception as e:
+            logger.error("extraction_complete_simple failed: %s %s: %s", provider_name, model_name, e)
+            raise
 
     async def stream(
         self,

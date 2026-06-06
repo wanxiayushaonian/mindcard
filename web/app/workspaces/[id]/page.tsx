@@ -128,28 +128,46 @@ export default function WorkspacePage() {
   }, [listResp]);
 
   // Refresh card list when a card is precipitated from AI chat panel
+  // and associate it with the current topology node if one is selected
   useEffect(() => {
-    const handler = () => revalidate();
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent).detail as { cardId?: string } | undefined;
+      if (detail?.cardId && currentNodeIdRef.current) {
+        try {
+          await topologyApi.addCard(currentNodeIdRef.current, detail.cardId);
+          // Refresh topology cache so nodeCardIds includes the new card
+          mutate(`topology-${workspaceId}`);
+        } catch (err) {
+          console.error("Failed to associate card with node:", err);
+        }
+      }
+      revalidate();
+    };
     window.addEventListener("card-precipitated", handler);
     return () => window.removeEventListener("card-precipitated", handler);
-  }, [revalidate]);
+  }, [revalidate, workspaceId]);
 
   // Handle fork request from AiChatPanel
   useEffect(() => {
     const handler = async (e: Event) => {
-      const detail = (e as CustomEvent).detail as { prompt: string; forkId?: string };
+      const detail = (e as CustomEvent).detail as { prompt: string; forkId?: string; chatId?: string };
       if (!detail?.prompt) return;
       try {
         const { title } = await aiApi.generateTitle(detail.prompt);
+        // Use the current chat as parent — NOT the tree selection (currentNodeId)
+        const parentId = detail.chatId || currentNodeIdRef.current || undefined;
         const node = await topologyApi.create({
           workspace_id: workspaceId,
-          parent_id: currentNodeIdRef.current || undefined,
+          parent_id: parentId,
           title: title || detail.prompt.slice(0, 50),
         });
         setCurrentNodeId(node.id);
-        // Optimistically update the topology cache
+        // Optimistically update the topology cache — add node AND update parent's child_ids
         mutate(`topology-${workspaceId}`, (current: TreeNode[] | undefined) => {
-          return current ? [...current, node] : [node];
+          if (!current) return [node];
+          return current.map((n) =>
+            n.id === parentId ? { ...n, child_ids: [...(n.child_ids || []), node.id] } : n
+          ).concat([node]);
         }, { revalidate: true });
         // Notify AiChatPanel that fork is complete
         window.dispatchEvent(new CustomEvent("topology-fork-complete", {

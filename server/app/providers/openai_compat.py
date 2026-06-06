@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 class OpenAICompatProvider(LLMProvider):
     """Single implementation for all OpenAI-compatible chat completion APIs."""
 
+    # Reasoning models (DeepSeek R1/V4, OpenAI o1/o3, etc.) need extra tokens
+    # for internal reasoning before producing output.
+    _REASONING_MODEL_PREFIXES = ("deepseek-r", "deepseek-v4", "o1", "o3", "o4")
+
+    def _is_reasoning_model(self) -> bool:
+        return any(self.model.startswith(p) for p in self._REASONING_MODEL_PREFIXES)
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -27,6 +34,10 @@ class OpenAICompatProvider(LLMProvider):
     ) -> str:
         if not self.api_key:
             return "LLM API key not configured."
+
+        # Reasoning models need higher max_tokens to have room for actual output
+        if self._is_reasoning_model() and max_tokens < 1024:
+            max_tokens = max(max_tokens * 4, 1024)
 
         payload: dict[str, Any] = {
             "model": self.model,
@@ -54,7 +65,17 @@ class OpenAICompatProvider(LLMProvider):
                         continue
                     resp.raise_for_status()
                     data = resp.json()
-                    return data["choices"][0]["message"]["content"]
+                    msg = data["choices"][0]["message"]
+                    content = msg.get("content") or ""
+                    reasoning = msg.get("reasoning_content") or ""
+                    result = content or reasoning  # fallback to reasoning output
+                    if not result and data.get("choices"):
+                        logger.warning(
+                            "Empty response from %s (model=%s, max_tokens=%d, finish=%s)",
+                            self.base_url, self.model, max_tokens,
+                            data["choices"][0].get("finish_reason"),
+                        )
+                    return result
             except httpx.HTTPStatusError:
                 if attempt < 3:
                     await asyncio.sleep(2 ** attempt)
@@ -105,6 +126,10 @@ class OpenAICompatProvider(LLMProvider):
                         content = delta.get("content")
                         if content:
                             yield content
+                        elif self._is_reasoning_model():
+                            reasoning = delta.get("reasoning_content")
+                            if reasoning:
+                                yield reasoning
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
 

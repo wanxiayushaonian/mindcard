@@ -9,7 +9,7 @@ class ChatCreate(BaseModel):
     mode: str = "rag"  # 'rag' | 'chat'
     workspace_id: str | None = None
     card_id: str | None = None
-    parent_chat_id: str | None = None
+    parent_id: str | None = None
     title: str = ""
 
 
@@ -58,8 +58,10 @@ class ChatListResponse(BaseModel):
     mode: str
     workspace_id: uuid.UUID | None
     card_id: uuid.UUID | None
-    parent_chat_id: uuid.UUID | None = None
+    parent_id: uuid.UUID | None = None
+    node_type: str = "branch"
     title: str
+    chat_status: str = "active"
     created_at: datetime
     message_count: int = 0
     last_message: str = ""
@@ -72,9 +74,12 @@ class ChatResponse(BaseModel):
     mode: str
     workspace_id: uuid.UUID | None
     card_id: uuid.UUID | None
-    parent_chat_id: uuid.UUID | None = None
-    tree_node_id: uuid.UUID | None = None
+    parent_id: uuid.UUID | None = None
+    node_type: str = "branch"
     title: str
+    description: str = ""
+    summary: str = ""
+    chat_status: str = "active"
     created_at: datetime
     messages: list[ChatMessageResponse] = []
 
@@ -83,5 +88,5 @@ class ChatResponse(BaseModel):
 
 class ChatForkResponse(BaseModel):
     """Response after forking a conversation."""
-    fork_id: str
+    chat_id: str  # The new child AiChat ID
     context_summary: str

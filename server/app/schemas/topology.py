@@ -53,6 +53,6 @@ class NodeCardAdd(BaseModel):
 
 
 class NodeRefCreate(BaseModel):
-    target_node_id: str
+    target_chat_id: str
     ref_type: str = Field("related", pattern=r"^(related|contradicts|extends)$")
     reason: str = ""

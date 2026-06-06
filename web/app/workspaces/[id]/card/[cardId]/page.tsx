@@ -112,20 +112,43 @@ export default function CardDetailPage() {
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!requireEditPermission()) return;
-    setConfirmAction({
-      title: "删除卡片",
-      message: "确定删除这张卡片？删除后无法恢复。",
-      action: async () => {
-        try {
-          await cardApi.delete(cardId);
-          router.push(`/workspaces/${workspaceId}`);
-        } catch (e: any) {
-          toast("删除失败: " + e.message, "error");
-        }
-      },
-    });
+    try {
+      const preview = await cardApi.deletePreview(cardId);
+      const impacts: string[] = [];
+      if (preview.relations > 0) impacts.push(`${preview.relations} 条关联关系`);
+      if (preview.entities > 0) impacts.push(`${preview.entities} 个知识图谱实体`);
+      if (preview.graph_relations > 0) impacts.push(`${preview.graph_relations} 条图谱关系`);
+      if (preview.comments > 0) impacts.push(`${preview.comments} 条评论`);
+      const impactText = impacts.length > 0 ? `\n将同时清理：${impacts.join("、")}` : "";
+      setConfirmAction({
+        title: "删除卡片",
+        message: `确定删除「${preview.card_title}」？删除后无法恢复。${impactText}`,
+        action: async () => {
+          try {
+            await cardApi.delete(cardId);
+            router.push(`/workspaces/${workspaceId}`);
+          } catch (e: any) {
+            toast("删除失败: " + e.message, "error");
+          }
+        },
+      });
+    } catch {
+      // Preview failed, fall back to simple confirm
+      setConfirmAction({
+        title: "删除卡片",
+        message: "确定删除这张卡片？删除后无法恢复。",
+        action: async () => {
+          try {
+            await cardApi.delete(cardId);
+            router.push(`/workspaces/${workspaceId}`);
+          } catch (e: any) {
+            toast("删除失败: " + e.message, "error");
+          }
+        },
+      });
+    }
   };
 
   const handleToggleFavorite = async () => {

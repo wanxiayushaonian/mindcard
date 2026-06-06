@@ -1,6 +1,7 @@
 """AI utility endpoints: polish, supplement, generate-title, extract-keywords."""
 
 import json
+import logging
 import re
 
 from fastapi import APIRouter, Depends
@@ -12,6 +13,7 @@ from app.utils.auth import get_current_user
 from app.utils.rate_limit import ai_rate_limit
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class TextRequest(BaseModel):
@@ -62,25 +64,44 @@ async def supplement_text(req: TextRequest, user: User = Depends(get_current_use
 @router.post("/generate-title", response_model=TitleResponse)
 async def generate_title(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
     """生成简短标题。"""
-    raw = await llm_service.complete_simple(
+    provider_name = llm_service.extraction_provider_name
+    model_name = llm_service.extraction_model_name or "(默认)"
+    logger.info("generate-title: provider=%s, model=%s, content_len=%d", provider_name, model_name, len(req.content))
+
+    raw = await llm_service.extraction_complete_simple(
         "请用不超过20个字概括以下内容的主题，作为标题。只输出标题文字本身，绝对不要加引号、书名号、序号或其他任何符号。",
         req.content,
-        max_tokens=32,
+        max_tokens=64,
     )
+
     title = re.sub(r'["""\'\'《》【】「」]', '', raw.strip())
     if len(title) > 30:
         title = title[:30]
+
+    # Fallback: use first meaningful line if LLM returned empty
+    if not title:
+        first_line = next((l.strip() for l in req.content.split('\n') if l.strip()), "")
+        title = re.sub(r'^#+\s*', '', first_line)[:30] or "未命名"
+        logger.warning("generate-title: LLM returned empty, fallback to %r", title)
+
+    logger.info("generate-title: raw=%r, final=%r", raw, title)
     return TitleResponse(title=title)
 
 
 @router.post("/extract-keywords", response_model=KeywordsResponse)
 async def extract_keywords(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
     """提取关键词。"""
-    raw = await llm_service.complete_simple(
+    provider_name = llm_service.extraction_provider_name
+    model_name = llm_service.extraction_model_name or "(默认)"
+    logger.info("extract-keywords: provider=%s, model=%s, content_len=%d", provider_name, model_name, len(req.content))
+
+    raw = await llm_service.extraction_complete_simple(
         "从以下内容中提取3-5个核心关键字。每个关键字2-6个字，用逗号分隔，不要加序号、解释或其他符号。",
         req.content,
-        max_tokens=64,
+        max_tokens=128,
     )
+
+    logger.info("extract-keywords: raw=%r", raw)
     keywords = []
     for kw in re.split(r'[,，、]', raw):
         kw = re.sub(r'["""\'\'《》【】「」\s]', '', kw.strip())
@@ -88,6 +109,13 @@ async def extract_keywords(req: TextRequest, user: User = Depends(get_current_us
             kw = kw[:10]
         if kw:
             keywords.append(kw)
+
+    # Fallback: extract words from title/content if LLM returned empty
+    if not keywords:
+        words = re.findall(r'[一-鿿]{2,6}|[a-zA-Z]{3,}', req.content[:500])
+        keywords = list(dict.fromkeys(words))[:5]
+        logger.warning("extract-keywords: LLM returned empty, fallback to %d keywords", len(keywords))
+
     return KeywordsResponse(keywords=keywords[:5])
 
 

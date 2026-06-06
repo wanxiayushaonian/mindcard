@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { chatApi, aiApi, cardApi, workspaceApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode } from "@/lib/api";
+import { chatApi, aiApi, cardApi, workspaceApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode, type TopologyNode } from "@/lib/api";
 import { UnifiedWSClient, createWSUrl, type StreamEvent } from "@/lib/unified-ws";
 import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
@@ -12,7 +12,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { ForkDivider } from "@/components/ForkDivider";
 import { ForkBreadcrumb } from "@/components/ForkBreadcrumb";
 import { usePanelStore } from "@/lib/workspace-layout-store";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, ChevronRight, Copy, Sparkles, Loader2 } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2 } from "lucide-react";
 
 const FORK_PREFIX = "__FORK__";
 
@@ -24,7 +24,6 @@ interface ForkMetaEntry {
   msgId?: string;
   auto?: boolean;
   depth?: number;
-  parentForkId?: string;
 }
 
 function encodeForkContent(meta: Omit<ForkMetaEntry, "msgId">): string {
@@ -46,7 +45,7 @@ interface Message {
   status?: "done" | "error";
   sources?: RAGResponse["source_cards"];
   webSearchResults?: WebSearchResult[];
-  forkId?: string;
+  childChatId?: string;
 }
 
 interface AiChatPanelProps {
@@ -77,7 +76,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
   const [deletePreview, setDeletePreview] = useState<{
     chat_title: string; messages: number; child_chats: number;
-    tree_node_title: string | null; node_will_archive: boolean;
+    node_title: string | null; node_will_archive: boolean;
   } | null>(null);
 
   // Fetch preview when delete target changes
@@ -100,80 +99,80 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [forkMeta, setForkMeta] = useState<Record<string, ForkMetaEntry>>({});
   const [retrievalLevel, setRetrievalLevel] = useState<number | undefined>(undefined);
   const lastRagLevelRef = useRef<number | undefined>(undefined);
-  const pendingForkRef = useRef<{ insertAt: number } | null>(null);
-  const activeForkIdRef = useRef<string | null>(null);
-  const [activeForkIdState, setActiveForkIdState] = useState<string | null>(null);
+  const pendingForkRef = useRef<{ insertAt: number; syntheticId: string } | null>(null);
+  const activeChatIdRef = useRef<string | null>(null);
+  const [activeChatIdState, setActiveChatIdState] = useState<string | null>(null);
   const chatIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const [chatPath, setChatPath] = useState<ChatPathNode[]>([]);
   const isComposingRef = useRef(false);
+  const streamingForkIdRef = useRef<string | null>(null);
+  const streamingChatIdRef = useRef<string | null>(null);
+  const forkChildIdRef = useRef<string | null>(null);  // child chat to switch to after stream
+  const loadChatRef = useRef<(id: string) => Promise<boolean>>(() => Promise.resolve(false));
+  const forkMetaRef = useRef<Record<string, ForkMetaEntry>>({});
 
   // Keep refs in sync
   useEffect(() => { chatIdRef.current = chatId; }, [chatId]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { forkMetaRef.current = forkMeta; }, [forkMeta]);
 
   const { data: workspace } = useSWR(
     workspaceId ? `workspace-${workspaceId}` : null,
     () => workspaceApi.get(workspaceId)
   );
-  const canPrecipitate = workspace?.member_role === "owner";
+  const canPrecipitate = workspace?.member_role && ["owner", "admin", "editor"].includes(workspace.member_role);
+
+  const { data: topologyNodes } = useSWR(
+    workspaceId ? `topology-${workspaceId}` : null,
+    () => topologyApi.list(workspaceId)
+  );
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Build breadcrumb path from active fork
-  const breadcrumbPath = useMemo(() => {
-    interface BreadcrumbNode { forkId: string | null; label: string; depth: number; }
-    if (!activeForkIdState) return [{ forkId: null as string | null, label: "主对话", depth: 0 }];
+  // Navigate breadcrumb — collapse current chat's forks, then load target
+  const handleForkNavigate = useCallback(async (targetChatId: string) => {
+    const currentChatId = chatIdRef.current;
+    const currentForkMeta = forkMetaRef.current;
 
-    const path: BreadcrumbNode[] = [
-      { forkId: null, label: "主对话", depth: 0 },
-    ];
+    // Collapse all fork dividers in the current chat and persist
+    if (currentChatId && Object.keys(currentForkMeta).length > 0) {
+      const updatedMeta: Record<string, ForkMetaEntry> = {};
+      const persistPromises: Promise<any>[] = [];
 
-    // Find the active fork's parent chain
-    let currentId: string | null = activeForkIdState;
-    const chain: BreadcrumbNode[] = [];
+      for (const [cid, meta] of Object.entries(currentForkMeta)) {
+        if (!meta.collapsed) {
+          const collapsedMeta = { ...meta, collapsed: true };
+          updatedMeta[cid] = collapsedMeta;
+          if (meta.msgId) {
+            const { msgId: _, ...metaForEncode } = collapsedMeta;
+            persistPromises.push(
+              chatApi.updateMessage(currentChatId, meta.msgId, "fork-divider", encodeForkContent(metaForEncode))
+                .catch((e) => console.error("Failed to persist collapse:", e))
+            );
+          }
+        } else {
+          updatedMeta[cid] = meta;
+        }
+      }
 
-    while (currentId) {
-      const meta: ForkMetaEntry | undefined = forkMeta[currentId];
-      if (!meta) break;
-      chain.unshift({
-        forkId: currentId,
-        label: meta.title || "分支",
-        depth: meta.depth || 0,
-      });
-      currentId = meta.parentForkId || null;
+      setForkMeta(updatedMeta);
+      // Wait for all persist calls before loading the new chat
+      await Promise.all(persistPromises);
     }
 
-    return [...path, ...chain];
-  }, [forkMeta, messages, activeForkIdState]);
-
-  const handleForkNavigate = useCallback((forkId: string | null) => {
-    activeForkIdRef.current = forkId;
-    setActiveForkIdState(forkId);
-    // Collapse all forks, then expand the target path
-    setForkMeta((prev) => {
-      const next = { ...prev };
-      // Collapse all
-      for (const key of Object.keys(next)) {
-        next[key] = { ...next[key], collapsed: true };
-      }
-      // Expand the target and its ancestors
-      let currentId = forkId;
-      while (currentId) {
-        if (next[currentId]) {
-          next[currentId] = { ...next[currentId], collapsed: false };
-        }
-        currentId = next[currentId]?.parentForkId || null;
-      }
-      return next;
-    });
+    loadChatRef.current(targetChatId);
   }, []);
 
   // Initialize WebSocket client
   useEffect(() => {
     const handleEvent = (event: StreamEvent) => {
+      // Stream-scoped events: only process if we're actively streaming
+      const isStreamEvent = ["content", "web_search_results", "sources", "content_replace", "done", "error"].includes(event.type);
+      if (isStreamEvent && !streamingChatIdRef.current) return;
+
       if (event.type === "content" && event.content) {
         // Accumulate content
         streamContentRef.current += event.content;
@@ -209,7 +208,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         });
       } else if (event.type === "auto_fork" && event.node_id) {
         // Auto-detected topic drift — insert lightweight fork divider
-        const forkId = `auto-${Date.now()}`;
+        const childChatId = `auto-${Date.now()}`;
         const title = event.title || "话题偏移";
         const meta: Omit<ForkMetaEntry, "msgId"> = {
           title,
@@ -220,23 +219,26 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         };
         setMessages((prev) => [
           ...prev,
-          { role: "fork-divider" as const, content: encodeForkContent(meta), forkId },
+          { role: "fork-divider" as const, content: encodeForkContent(meta), childChatId },
           { role: "assistant" as const, content: "" },
         ]);
-        setForkMeta((prev) => ({ ...prev, [forkId]: { ...meta, completed: false } }));
-        activeForkIdRef.current = forkId;
-        setActiveForkIdState(forkId);
+        setForkMeta((prev) => ({ ...prev, [childChatId]: { ...meta, completed: false } }));
+        activeChatIdRef.current = childChatId;
+        // Don't setActiveChatIdState — synthetic ID would break breadcrumb path fetch
         // Persist divider to backend
         if (chatIdRef.current) {
-          chatApi.addMessage(chatIdRef.current, "fork-divider", encodeForkContent(meta), undefined, forkId)
+          chatApi.addMessage(chatIdRef.current, "fork-divider", encodeForkContent(meta), undefined, undefined, { child_chat_id: childChatId })
             .then((saved) => {
-              setForkMeta((p) => ({ ...p, [forkId]: { ...p[forkId], msgId: saved.id } }));
+              setForkMeta((p) => ({ ...p, [childChatId]: { ...p[childChatId], msgId: saved.id } }));
             })
             .catch((e) => console.error("Failed to save auto-fork divider:", e));
         }
-      } else if (event.type === "fork_created" && event.fork_id) {
-        // Server-created fork (from [BRANCH: ...] marker)
-        const forkId = event.fork_id;
+      } else if (event.type === "fork_created" && event.chat_id) {
+        // Server-created fork — child AiChat
+        // Skip if a manual fork is already pending (topology-fork-complete will handle it)
+        if (pendingForkRef.current) return;
+
+        const childChatId = event.chat_id;
         const title = event.branch_label || "新分支";
         const depth = event.depth || 0;
         const meta: Omit<ForkMetaEntry, "msgId"> = {
@@ -248,16 +250,16 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         };
         setMessages((prev) => [
           ...prev,
-          { role: "fork-divider" as const, content: encodeForkContent(meta), forkId },
+          { role: "fork-divider" as const, content: encodeForkContent(meta), childChatId },
         ]);
-        setForkMeta((prev) => ({ ...prev, [forkId]: { ...meta, completed: true } }));
-        activeForkIdRef.current = forkId;
-        setActiveForkIdState(forkId);
-        // Persist divider to backend
+        setForkMeta((prev) => ({ ...prev, [childChatId]: { ...meta, completed: true } }));
+        activeChatIdRef.current = childChatId;
+        setActiveChatIdState(childChatId);
+        // Persist divider to backend with child_chat_id in metadata
         if (chatIdRef.current) {
-          chatApi.addMessage(chatIdRef.current, "fork-divider", encodeForkContent(meta), undefined, forkId)
+          chatApi.addMessage(chatIdRef.current, "fork-divider", encodeForkContent(meta), undefined, undefined, { child_chat_id: childChatId })
             .then((saved) => {
-              setForkMeta((p) => ({ ...p, [forkId]: { ...p[forkId], msgId: saved.id } }));
+              setForkMeta((p) => ({ ...p, [childChatId]: { ...p[childChatId], msgId: saved.id } }));
             })
             .catch((e) => console.error("Failed to save fork divider:", e));
         }
@@ -283,28 +285,56 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           return updated;
         });
         setIsStreaming(false);
-        if (chatIdRef.current && streamContentRef.current) {
-          saveMessage(chatIdRef.current, "assistant", streamContentRef.current, webSearchResultsRef.current, activeForkIdRef.current || undefined);
+        if (chatIdRef.current && streamContentRef.current && !streamingForkIdRef.current) {
+          // Only save AI response to parent chat when NOT in fork mode
+          saveMessage(chatIdRef.current, "assistant", streamContentRef.current, webSearchResultsRef.current);
         }
-        // Mark the last fork as completed (collapsible)
-        // Clear active fork ID so subsequent messages aren't tagged
-        activeForkIdRef.current = null;
-        setForkMeta((prev) => {
-          const entries = Object.entries(prev);
-          if (entries.length === 0) return prev;
-          const [lastKey, lastVal] = entries[entries.length - 1];
-          if (!lastVal.completed) {
-            // Persist completion to backend
-            if (lastVal.msgId && chatIdRef.current) {
-              const updatedMeta = { ...lastVal, completed: true };
-              chatApi.updateMessage(chatIdRef.current, lastVal.msgId, "fork-divider", encodeForkContent(updatedMeta)).catch((e) =>
-                console.error("Failed to persist fork completion:", e)
-              );
+        // Mark the correct fork as completed (collapsible)
+        // Use streamingForkIdRef to identify which fork this stream belonged to
+        const completedForkId = streamingForkIdRef.current;
+        streamingForkIdRef.current = null;
+        streamingChatIdRef.current = null;
+        // Keep activeChatIdRef pointing to the fork — breadcrumb and message tagging depend on it
+        if (completedForkId) {
+          setForkMeta((prev) => {
+            const entry = prev[completedForkId];
+            if (entry && !entry.completed) {
+              const updatedEntry = { ...entry, completed: true };
+              // Persist completion to backend
+              if (entry.msgId && chatIdRef.current) {
+                chatApi.updateMessage(chatIdRef.current, entry.msgId, "fork-divider", encodeForkContent(updatedEntry)).catch((e) =>
+                  console.error("Failed to persist fork completion:", e)
+                );
+              }
+              return { ...prev, [completedForkId]: updatedEntry };
             }
-            return { ...prev, [lastKey]: { ...lastVal, completed: true } };
-          }
-          return prev;
-        });
+            return prev;
+          });
+        }
+        // After fork stream completes: copy parent messages to child, then switch
+        const childId = forkChildIdRef.current;
+        const parentId = chatIdRef.current;
+        if (childId && parentId) {
+          forkChildIdRef.current = null;
+          (async () => {
+            // Copy all parent messages (excluding fork-dividers) to the child chat
+            const parentMessages = messagesRef.current.filter(
+              (m) => m.role !== "fork-divider" && m.content
+            );
+            for (const msg of parentMessages) {
+              try {
+                await chatApi.addMessage(childId, msg.role, msg.content);
+              } catch (e) {
+                console.error("Failed to copy message to child:", e);
+              }
+            }
+            // Switch to child chat
+            setChatId(childId);
+            chatIdRef.current = childId;
+            loadChat(childId);
+            loadHistory();
+          })();
+        }
       } else if (event.type === "error") {
         // Error occurred
         console.error("WebSocket stream error:", event.content);
@@ -319,6 +349,8 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           return updated;
         });
         setIsStreaming(false);
+        streamingChatIdRef.current = null;
+        streamingForkIdRef.current = null;
       }
     };
 
@@ -338,56 +370,75 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   }, []);
 
   const loadHistory = useCallback(() => {
-    chatApi.list(workspaceId || undefined).then(setHistory).catch(() => {});
+    chatApi.list(workspaceId || undefined).then(setHistory).catch((err) => {
+      console.error("Failed to load chat history:", err);
+    });
   }, [workspaceId]);
 
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
 
-  // Fetch chat path when chatId changes
+  // Fetch chat path — prefer active fork, fall back to loaded chat
   useEffect(() => {
-    if (!chatId) {
+    const targetId = activeChatIdState || chatId;
+    if (!targetId) {
       setChatPath([]);
       return;
     }
-    chatApi.getChatPath(chatId)
+    chatApi.getChatPath(targetId)
       .then((res) => setChatPath(res.path))
       .catch((err) => {
         console.error("Failed to fetch chat path:", err);
         setChatPath([]);
       });
-  }, [chatId]);
+  }, [chatId, activeChatIdState]);
 
   // Listen for fork-complete: add inline fork divider at the correct position
   useEffect(() => {
     const handler = async (e: Event) => {
       const detail = (e as CustomEvent).detail as { nodeId: string; title: string; prompt: string; forkId?: string };
       if (!detail) return;
-      const forkId = detail.forkId || `fork-${Date.now()}`;
-      const title = detail.title || (detail.prompt || "").slice(0, 30) || "分支";
-      const meta: ForkMetaEntry = { title, nodeId: detail.nodeId, collapsed: false, completed: false };
-      setForkMeta((prev) => ({ ...prev, [forkId]: meta }));
+      // Use the real AiChat ID from topology API, not the temp local ID
+      const realId = detail.nodeId;
+      const syntheticId = pendingForkRef.current?.syntheticId;
       const insertAt = pendingForkRef.current?.insertAt;
       pendingForkRef.current = null;
-      setMessages((prev) => {
-        const divider = { role: "fork-divider" as const, content: title, forkId };
-        if (insertAt !== undefined && insertAt >= 0 && insertAt <= prev.length) {
-          const updated = [...prev];
-          updated.splice(insertAt, 0, divider);
-          return updated;
+      const title = detail.title || (detail.prompt || "").slice(0, 30) || "分支";
+      const meta: ForkMetaEntry = { title, nodeId: realId, collapsed: false, completed: false };
+
+      // Remap synthetic fork ID → real topology node ID
+      setForkMeta((prev) => {
+        const next = { ...prev };
+        if (syntheticId && next[syntheticId]) {
+          delete next[syntheticId];
         }
-        return [...prev, divider];
+        next[realId] = meta;
+        return next;
       });
-      // Tag subsequent messages with this fork ID
-      activeForkIdRef.current = forkId;
-      setActiveForkIdState(forkId);
+      setMessages((prev) => {
+        let updated = prev.map((m) =>
+          m.childChatId === syntheticId ? { ...m, childChatId: realId } : m
+        );
+        const divider = { role: "fork-divider" as const, content: title, childChatId: realId };
+        if (insertAt !== undefined && insertAt >= 0 && insertAt <= updated.length) {
+          updated.splice(insertAt, 0, divider);
+        } else {
+          updated = [...updated, divider];
+        }
+        return updated;
+      });
+      // Update active fork ID to the real one — triggers path re-fetch via useEffect
+      activeChatIdRef.current = realId;
+      setActiveChatIdState(realId);
+      // Store child ID for post-stream message copy
+      forkChildIdRef.current = realId;
       // Persist fork divider to backend
       const cid = chatIdRef.current;
       if (cid) {
         try {
-          const saved = await chatApi.addMessage(cid, "fork-divider", encodeForkContent(meta), undefined, forkId);
-          setForkMeta((prev) => ({ ...prev, [forkId]: { ...prev[forkId], msgId: saved.id } }));
+          const saved = await chatApi.addMessage(cid, "fork-divider", encodeForkContent(meta), undefined, undefined, { child_chat_id: realId });
+          setForkMeta((prev) => ({ ...prev, [realId]: { ...prev[realId], msgId: saved.id } }));
         } catch (e) {
           console.error("Failed to persist fork divider:", e);
         }
@@ -407,32 +458,40 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       const msgs: Message[] = detail.messages.map((m) => {
         if (m.role === "fork-divider" || m.content.startsWith(FORK_PREFIX)) {
           const parsed = decodeForkContent(m.content);
-          const forkId = `fork-loaded-${m.id}`;
+          // Use child_chat_id from metadata if available, otherwise generate local ID
+          const childChatId = m.metadata_?.child_chat_id || `fork-loaded-${m.id}`;
           if (parsed) {
-            newForkMeta[forkId] = { ...parsed, msgId: m.id };
+            newForkMeta[childChatId] = { ...parsed, msgId: m.id };
           } else {
-            newForkMeta[forkId] = { title: m.content, nodeId: "", collapsed: false, completed: false, msgId: m.id };
+            newForkMeta[childChatId] = {
+              title: m.metadata_?.branch_label || m.content || "分支",
+              nodeId: "",
+              collapsed: false,
+              completed: true,
+              msgId: m.id,
+              depth: m.metadata_?.depth || 0,
+            };
           }
-          return { role: "fork-divider" as const, content: parsed?.title || m.content, forkId };
+          return { role: "fork-divider" as const, content: m.metadata_?.branch_label || parsed?.title || m.content || "分支", childChatId };
         }
         return {
           role: m.role as "user" | "assistant",
           content: m.content,
           webSearchResults: m.web_search_results || undefined,
-          forkId: m.fork_id || undefined,
         };
       });
       setMessages(msgs);
       setForkMeta(newForkMeta);
       setShowHistory(false);
       setForkMode(false);
-      activeForkIdRef.current = null;
-      setActiveForkIdState(null);
+      activeChatIdRef.current = null;
+      setActiveChatIdState(null);
       return true;
     } catch {
       return false;
     }
   };
+  loadChatRef.current = loadChat;
 
   // Restore last active chat on mount
   useEffect(() => {
@@ -455,6 +514,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setShowHistory(false);
     setForkMeta({});
     setForkMode(false);
+    activeChatIdRef.current = null;
+    setActiveChatIdState(null);
+    pendingForkRef.current = null;
   };
 
   const stopStream = useCallback(() => {
@@ -463,9 +525,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setIsStreaming(false);
   }, []);
 
-  const saveMessage = async (cid: string, role: string, content: string, webSearchResults?: WebSearchResult[], forkId?: string) => {
+  const saveMessage = async (cid: string, role: string, content: string, webSearchResults?: WebSearchResult[]) => {
     try {
-      await chatApi.addMessage(cid, role, content, webSearchResults, forkId);
+      await chatApi.addMessage(cid, role, content, webSearchResults);
     } catch (e) {
       console.error("Failed to save message:", e);
     }
@@ -501,7 +563,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         const firstLine = blockText.split("\n").find((l) => l.trim()) || "";
         title = firstLine.replace(/^#+\s*/, "").slice(0, 30) || "未命名";
       }
-      await cardApi.create({
+      const created = await cardApi.create({
         local_id: "card_" + Date.now(),
         workspace_id: workspaceId,
         title,
@@ -510,7 +572,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       });
       setPrecipitatedBlocks((prev) => new Set(prev).add(key));
       toast("已沉淀为卡片", "success");
-      window.dispatchEvent(new CustomEvent("card-precipitated"));
+      window.dispatchEvent(new CustomEvent("card-precipitated", { detail: { cardId: created.id } }));
     } catch (e: any) {
       toast("沉淀失败: " + e.message, "error");
     } finally {
@@ -525,10 +587,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     streamContentRef.current = "";
     webSearchResultsRef.current = undefined;
 
-    const activeForkId = activeForkIdRef.current;
-    setMessages((prev) => [...prev, { role: "user", content: question, forkId: activeForkId || undefined }]);
+    const activeChildChatId = activeChatIdRef.current;
+    streamingForkIdRef.current = activeChildChatId;  // track which fork this stream belongs to
+    setMessages((prev) => [...prev, { role: "user", content: question, childChatId: activeChildChatId || undefined }]);
     const loadingHint = webSearch ? "正在搜索网页..." : "";
-    setMessages((prev) => [...prev, { role: "assistant", content: loadingHint, forkId: activeForkId || undefined }]);
+    setMessages((prev) => [...prev, { role: "assistant", content: loadingHint, childChatId: activeChildChatId || undefined }]);
 
     let currentChatId = chatId;
     if (!currentChatId) {
@@ -541,22 +604,27 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         });
         currentChatId = chat.id;
         setChatId(chat.id);
+        chatIdRef.current = chat.id;  // ref must be set immediately for the WS done handler
         loadHistory();
       } catch (e) {
         console.error("Failed to create chat:", e);
       }
     }
 
-    if (currentChatId) {
-      saveMessage(currentChatId, "user", question, undefined, activeForkId || undefined);
+    if (currentChatId && !activeChildChatId) {
+      // Only save to parent chat when NOT in fork mode
+      saveMessage(currentChatId, "user", question);
     }
+
+    // Track which chat this stream belongs to (for scoping WS events)
+    streamingChatIdRef.current = currentChatId;
 
     // Reset stream state
     streamContentRef.current = "";
     webSearchResultsRef.current = undefined;
 
-    // Build history (exclude fork dividers)
-    const hist = messages
+    // Build history (exclude fork dividers) — use ref to avoid stale closure
+    const hist = messagesRef.current
       .filter((m) => m.content && m.role !== "fork-divider")
       .map((m) => ({ role: m.role, content: m.content }));
 
@@ -576,7 +644,8 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       web_search: webSearch,
       history: hist,
       retrieval_level: retrievalLevel,
-      current_fork_id: activeForkIdRef.current || undefined,
+      chat_id: currentChatId || undefined,
+      current_fork_id: activeChatIdRef.current || undefined,
     });
 
     // Set abort function to cancel via WebSocket
@@ -591,12 +660,12 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setInput("");
     if (forkMode) {
       setForkMode(false);
-      const forkId = `fork-${Date.now()}`;
-      activeForkIdRef.current = forkId;
-      setActiveForkIdState(forkId);
-      pendingForkRef.current = { insertAt: messages.length };
+      const childChatId = `fork-${Date.now()}`;
+      activeChatIdRef.current = childChatId;
+      // Don't setActiveChatIdState with synthetic ID — topology-fork-complete will set real ID
+      pendingForkRef.current = { insertAt: messages.length, syntheticId: childChatId };
       doSend(question);
-      window.dispatchEvent(new CustomEvent("topology-fork-request", { detail: { prompt: question, forkId } }));
+      window.dispatchEvent(new CustomEvent("topology-fork-request", { detail: { prompt: question, forkId: childChatId, chatId: chatIdRef.current } }));
     } else {
       doSend(question);
     }
@@ -607,6 +676,18 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     try {
       await chatApi.delete(deleteTarget.id);
       setHistory((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+      // Remove fork divider messages referencing this branch
+      setMessages((prev) => prev.filter((m) => m.childChatId !== deleteTarget.id));
+      // Remove from fork metadata and update active state
+      setForkMeta((prev) => {
+        const next = { ...prev };
+        delete next[deleteTarget.id];
+        return next;
+      });
+      if (activeChatIdRef.current === deleteTarget.id) {
+        activeChatIdRef.current = null;
+        setActiveChatIdState(null);
+      }
       if (chatId === deleteTarget.id) {
         setChatId(null);
         setMessages([]);
@@ -685,36 +766,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        {/* Breadcrumb Navigation */}
-        {!rightCollapsed && chatPath.length > 0 && (
-          <div className="border-b border-border bg-surface/50 px-3 py-2">
-            <div className="flex items-center gap-1 text-xs text-text-secondary overflow-x-auto">
-              {chatPath.map((node, idx) => (
-                <div key={node.node_id} className="flex items-center gap-1">
-                  {idx > 0 && <ChevronRight size={12} className="shrink-0" />}
-                  <button
-                    onClick={() => {
-                      if (node.chat_id) {
-                        loadChat(node.chat_id);
-                      }
-                    }}
-                    disabled={!node.chat_id}
-                    className={`shrink-0 rounded px-2 py-0.5 transition ${
-                      node.chat_id
-                        ? "hover:bg-primary/10 hover:text-primary-dark cursor-pointer"
-                        : "cursor-default opacity-60"
-                    } ${idx === chatPath.length - 1 ? "font-medium text-text" : ""}`}
-                    title={node.title}
-                  >
-                    {node.title}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* History sub-panel */}
         {showHistory && (
           <div className="absolute inset-0 z-10 flex flex-col bg-bg">
@@ -733,13 +785,13 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               )}
               {(() => {
                 // Group: parent chats first, then children under them
-                const parents = history.filter((c) => !c.parent_chat_id);
+                const parents = history.filter((c) => !c.parent_id);
                 const childrenMap = new Map<string, ChatSession[]>();
                 for (const c of history) {
-                  if (c.parent_chat_id) {
-                    const arr = childrenMap.get(c.parent_chat_id) || [];
+                  if (c.parent_id) {
+                    const arr = childrenMap.get(c.parent_id) || [];
                     arr.push(c);
-                    childrenMap.set(c.parent_chat_id, arr);
+                    childrenMap.set(c.parent_id, arr);
                   }
                 }
                 return parents.map((chat) => {
@@ -791,13 +843,16 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           </div>
         )}
 
-        {/* Chat area — absolute inset-0 to bypass flex height chain */}
-        <div className="absolute inset-0 flex flex-col">
+        {/* Chat area — flex layout so breadcrumb stays pinned */}
+        {!rightCollapsed && chatPath.length > 0 && (
           <ForkBreadcrumb
-            path={breadcrumbPath}
+            path={chatPath}
+            activeChatId={activeChatIdState || chatId}
             onNavigate={handleForkNavigate}
+            topologyNodes={topologyNodes}
           />
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+        )}
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center text-center text-text-secondary">
                 <div className="mb-3 text-3xl font-bold text-primary/30">AI</div>
@@ -808,41 +863,50 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
             {messages.map((msg, i) => {
               // Fork divider
-              if (msg.role === "fork-divider" && msg.forkId) {
-                const meta = forkMeta[msg.forkId];
+              if (msg.role === "fork-divider" && msg.childChatId) {
+                const meta = forkMeta[msg.childChatId];
                 if (!meta) return null;
                 // Count messages in this fork
                 const forkMsgCount = messages.filter(
-                  (m, j) => j > i && (m.forkId === msg.forkId || (!m.forkId && !messages.slice(i + 1, j).some(k => k.role === "fork-divider")))
+                  (m, j) => j > i && (m.childChatId === msg.childChatId || (!m.childChatId && !messages.slice(i + 1, j).some(k => k.role === "fork-divider")))
                 ).length;
                 return (
                   <ForkDivider
                     key={i}
-                    forkId={msg.forkId}
+                    childChatId={msg.childChatId}
                     label={meta.title}
                     depth={meta.depth || 0}
                     messageCount={forkMsgCount}
                     collapsed={meta.collapsed}
-                    onToggle={(fid) => setForkMeta((prev) => ({
-                      ...prev,
-                      [fid]: { ...prev[fid], collapsed: !prev[fid].collapsed },
-                    }))}
+                    onToggle={(cid) => {
+                      setForkMeta((prev) => {
+                        const updated = { ...prev[cid], collapsed: !prev[cid].collapsed };
+                        // Persist collapse state to backend
+                        if (updated.msgId && chatIdRef.current) {
+                          const { msgId, ...metaForEncode } = updated;
+                          chatApi.updateMessage(
+                            chatIdRef.current, msgId, "fork-divider", encodeForkContent(metaForEncode)
+                          ).catch((e) => console.error("Failed to persist collapse state:", e));
+                        }
+                        return { ...prev, [cid]: updated };
+                      });
+                    }}
                   />
                 );
               }
 
               // Skip messages belonging to a collapsed fork
-              // New messages have forkId directly; loaded messages use position-based detection
-              if (msg.forkId) {
-                const meta = forkMeta[msg.forkId];
+              // New messages have childChatId directly; loaded messages use position-based detection
+              if (msg.childChatId) {
+                const meta = forkMeta[msg.childChatId];
                 if (meta?.collapsed) return null;
               } else {
-                // Position-based fallback for loaded messages without forkId
+                // Position-based fallback for loaded messages without childChatId
                 let inCollapsedFork = false;
                 for (let j = i - 1; j >= 0; j--) {
                   const prev = messages[j];
-                  if (prev.role === "fork-divider" && prev.forkId) {
-                    const meta = forkMeta[prev.forkId];
+                  if (prev.role === "fork-divider" && prev.childChatId) {
+                    const meta = forkMeta[prev.childChatId];
                     if (meta?.collapsed) {
                       // Check if there's another fork-divider between j and i
                       let nextForkBetween = false;
@@ -1126,7 +1190,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               </div>
             </div>
           </div>
-        </div>
       </div>
 
       {/* Delete confirmation modal */}
@@ -1136,7 +1199,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         if (deletePreview) {
           if (deletePreview.messages > 0) impacts.push(`${deletePreview.messages} 条消息`);
           if (deletePreview.child_chats > 0) impacts.push(`${deletePreview.child_chats} 个分支对话`);
-          if (deletePreview.node_will_archive) impacts.push(`拓扑节点「${deletePreview.tree_node_title}」将被归档`);
+          if (deletePreview.node_will_archive) impacts.push(`拓扑节点「${deletePreview.node_title}」将被归档`);
         }
         const impactText = impacts.length > 0 ? `\n将同时删除：${impacts.join("、")}` : "";
         return (

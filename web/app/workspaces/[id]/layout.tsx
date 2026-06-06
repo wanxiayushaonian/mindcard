@@ -2,7 +2,7 @@
 
 import { useParams, useRouter, usePathname } from "next/navigation";
 import useSWR, { mutate } from "swr";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Component, type ReactNode } from "react";
 import { workspaceApi, authApi, type Workspace } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
@@ -12,12 +12,60 @@ import { ColorPicker, SPACE_COLORS } from "@/components/ColorPicker";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/Breadcrumb";
-import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network, Activity, GitBranch, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Menu, X, Settings, Users, Search, Sparkles, Lightbulb, Network, Activity, GitBranch, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, FileText } from "lucide-react";
 import { SearchModal } from "@/components/SearchModal";
 import { AiChatPanel } from "@/components/AiChatPanel";
 import { EditorPanel } from "@/components/EditorPanel";
 import { NotificationBell } from "@/components/NotificationBell";
 import { usePanelStore } from "@/lib/workspace-layout-store";
+
+
+class ChatErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
+          <p className="text-sm text-text-secondary">对话面板加载出错</p>
+          <button
+            onClick={() => {
+              Object.keys(localStorage)
+                .filter((k) => k.startsWith("mindcard-active-chat-"))
+                .forEach((k) => localStorage.removeItem(k));
+              this.setState({ hasError: false });
+            }}
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs text-white hover:bg-primary-dark"
+          >
+            重置对话
+          </button>
+        </div>
+      );
+    }
+    return <div className="h-full">{this.props.children}</div>;
+  }
+}
+
+class EditorErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
+          <p className="text-sm text-text-secondary">编辑器加载出错</p>
+          <button
+            onClick={() => this.setState({ hasError: false })}
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs text-white hover:bg-primary-dark"
+          >
+            重试
+          </button>
+        </div>
+      );
+    }
+    return <div className="h-full">{this.props.children}</div>;
+  }
+}
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -36,6 +84,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const [menuOpen, setMenuOpen] = useState(false);
   const showAiChat = usePanelStore((s) => s.showAiChat);
   const setShowAiChat = usePanelStore((s) => s.setShowAiChat);
+
+  // Hydrate panel state from localStorage after mount (avoids SSR hydration mismatch)
+  useEffect(() => {
+    usePanelStore.getState().hydrate();
+  }, []);
 
   // Cmd+K / Ctrl+K to open search
   useEffect(() => {
@@ -440,18 +493,36 @@ function PanelLayout({
 }) {
   const { leftCollapsed, rightCollapsed, toggleLeft, toggleRight } = usePanelStore();
 
-  // Compute widths
-  const leftW = leftCollapsed ? 25 : 50;
-  const rightW = rightCollapsed ? 25 : 50;
-  const showEditor = leftCollapsed || rightCollapsed;
+  // Editor only shown on pages that support AI chat
+  const leftW = leftCollapsed ? 15 : 50;
+  const rightW = rightCollapsed ? 15 : 50;
+  const showEditor = canShowAiChat && (leftCollapsed || rightCollapsed);
   const editorW = showEditor ? 100 - leftW - rightW : 0;
 
-  // If AI chat not available, left takes full width
-  if (!canShowAiChat || !showAiChat) {
+  // Fallback: AI chat not available -> full width, no editor
+  if (!canShowAiChat) {
     return (
       <div className="flex h-full w-full">
-        <div className="h-full overflow-y-auto" style={{ width: "100%", transition: "width 300ms cubic-bezier(0.4,0,0.2,1)" }}>
+        <div className="h-full w-full overflow-y-auto">{children}</div>
+      </div>
+    );
+  }
+
+  // AI chat hidden by user -> show card list with reopen button
+  if (!showAiChat) {
+    return (
+      <div className="flex h-full w-full">
+        <div className="relative h-full overflow-y-auto" style={{ width: "100%", transition: "width 300ms cubic-bezier(0.4,0,0.2,1)" }}>
           {children}
+          {canShowAiChat && (
+            <button
+              onClick={onToggleAiChat}
+              className="absolute right-2 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-text-secondary transition hover:bg-gray-100 hover:text-foreground"
+              title="打开AI对话"
+            >
+              <PanelRightOpen size={16} />
+            </button>
+          )}
         </div>
       </div>
     );
@@ -466,10 +537,10 @@ function PanelLayout({
       >
         <button
           onClick={toggleLeft}
-          className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg bg-surface/90 text-text-secondary shadow backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
+          className="absolute right-2 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-text-secondary transition hover:bg-gray-100 hover:text-foreground"
           title={leftCollapsed ? "展开卡片列表" : "收起卡片列表"}
         >
-          {leftCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          {leftCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={14} />}
         </button>
         <div className="h-full overflow-y-auto">{children}</div>
       </div>
@@ -480,7 +551,9 @@ function PanelLayout({
           className="h-full overflow-hidden border-r border-border"
           style={{ width: `${editorW}%`, transition: "width 300ms cubic-bezier(0.4,0,0.2,1), opacity 200ms ease", willChange: "width" }}
         >
-          <EditorPanel workspaceId={workspaceId} />
+          <EditorErrorBoundary>
+            <EditorPanel workspaceId={workspaceId} />
+          </EditorErrorBoundary>
         </div>
       )}
 
@@ -491,12 +564,14 @@ function PanelLayout({
       >
         <button
           onClick={toggleRight}
-          className="absolute left-2 top-1/2 z-30 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg bg-surface/90 text-text-secondary shadow backdrop-blur-sm transition hover:bg-surface hover:text-foreground"
+          className="absolute left-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-text-secondary transition hover:bg-gray-100 hover:text-foreground"
           title={rightCollapsed ? "展开AI对话" : "收起AI对话"}
         >
-          {rightCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
+          {rightCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={14} />}
         </button>
-        <AiChatPanel workspaceId={workspaceId} onClose={onToggleAiChat} />
+        <ChatErrorBoundary>
+          <AiChatPanel workspaceId={workspaceId} onClose={onToggleAiChat} />
+        </ChatErrorBoundary>
       </div>
     </div>
   );

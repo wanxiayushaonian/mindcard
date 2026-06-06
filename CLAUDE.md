@@ -35,10 +35,30 @@ Web frontend uses `lib/api.ts` for all HTTP calls (JWT from localStorage, SSE st
 ### Key Patterns
 
 - All LLM calls go through the Provider Registry — consumer code calls `make_provider()` and uses the `LLMProvider` interface
+- All providers use raw `httpx` (no SDK dependencies) with exponential backoff retry for 429/5xx errors
 - Search uses RRF (Reciprocal Rank Fusion) to combine BGE-M3 vector search with PostgreSQL full-text search
 - AI chat uses SSE streaming; frontend consumes via `streamRequest()` in `lib/api.ts`
 - Frontend data fetching: SWR for REST endpoints, manual fetch for SSE
 - Auth: JWT tokens stored in localStorage, attached via `Authorization: Bearer` header
+
+### RAG Retrieval Levels
+
+The `RetrievalDispatcher` (`services/retrieval_dispatcher.py`) routes queries through 4 depth levels:
+- `FREE` — pure LLM chat, no retrieval
+- `CARD` — card-level vector + fulltext retrieval
+- `GRAPH` — graph-enhanced retrieval via GNN
+- `FULL` — full retrieval with topology path context
+
+Frontend controls retrieval depth per query. Auto-detection is also supported.
+
+### Background Task Chain
+
+Card creation triggers a chain via FastAPI `BackgroundTasks`:
+`embedding generation → topic assignment → topology classification → knowledge graph triple extraction`
+
+### Topology Tree
+
+Each workspace has a topology tree (parent-child hierarchy of knowledge nodes). Chat conversations can be "forked" into child topology nodes. The topology path is injected into RAG context at the `FULL` retrieval level.
 
 ## Development Commands
 
@@ -59,10 +79,10 @@ uv run pytest                              # Run tests
 
 ```bash
 cd web
-npm install        # Install dependencies
-npm run dev        # Dev server (port 3000)
-npm run build      # Production build
-npm run lint       # ESLint
+pnpm install        # Install dependencies
+pnpm dev            # Dev server (port 3000)
+pnpm build          # Production build
+pnpm lint           # ESLint
 ```
 
 ### Mini-Program
@@ -80,6 +100,19 @@ Load `extensions/mindcard-clipper/` as unpacked extension in Chrome (`chrome://e
 - Connection: `postgresql+asyncpg://mindcard:mindcard@localhost:5432/mindcard`
 - Redis for caching (optional, used alongside PostgreSQL)
 
+## Workspace Collaboration
+
+Four-tier role system: `owner > admin > editor > viewer` (+ `pending` for invites). Enforced via `require_role()` and `can_edit_card()` in `server/app/utils/auth.py`. Editors can only edit their own cards; owner/admin can edit all. Invite codes generate workspace memberships.
+
+## Frontend Workspace Layout
+
+The workspace page (`web/app/workspaces/[id]/layout.tsx`) uses a collapsible three-panel design:
+- **Left**: Card list with filters
+- **Middle**: Card editor
+- **Right**: AI chat panel
+
+Panel visibility is managed by `usePanelStore` (Zustand, persisted to localStorage). Cmd+K opens the global search modal.
+
 ## LLM Provider Configuration
 
 Providers are configured via env vars in `server/.env`. The system auto-detects which providers have valid API keys. The Provider Registry in `server/app/providers/registry.py` defines supported providers and their defaults. Adding a new provider requires only adding a `ProviderSpec` entry and, if non-OpenAI-compatible, a new backend implementation.
@@ -87,3 +120,10 @@ Providers are configured via env vars in `server/.env`. The system auto-detects 
 ## API Documentation
 
 When the backend is running, Swagger UI is available at `http://localhost:8000/docs`.
+
+## Conventions
+
+- **Chinese-first**: UI text, system prompts, and extraction defaults are in Chinese. Full-text search supports zhparser/pg_jieba for Chinese tokenization.
+- **Cursor-based pagination**: Card listing uses keyset pagination with `(sort_col, id)` tuples — not offset-based.
+- **No SDK dependencies**: All LLM providers use raw `httpx` calls. Do not add provider SDKs.
+- **Graph features**: GNN training (PyTorch), knowledge graph triple extraction, entity linking, and graph-based retrieval live in `server/app/services/`. Training can run locally or on Modal Labs remote GPU.

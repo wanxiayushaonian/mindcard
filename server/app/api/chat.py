@@ -1,12 +1,12 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.chat import AiChat, ChatMessage
-from app.models.topology import TreeNode
 from app.models.user import User
 from app.schemas.chat import (
     ChatCreate,
@@ -22,6 +22,17 @@ from app.utils.auth import get_current_user, get_workspace_membership
 from app.utils.helpers import parse_uuid
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+async def _require_chat_access(chat: AiChat, user: User, db: AsyncSession) -> None:
+    """Verify user can access this chat: owner OR workspace member."""
+    if chat.user_id == user.id:
+        return
+    if chat.workspace_id:
+        await get_workspace_membership(chat.workspace_id, user, db)
+        return
+    raise HTTPException(status_code=403, detail="无权访问此对话")
 
 
 @router.get("/", response_model=list[ChatListResponse])
@@ -35,9 +46,15 @@ async def list_chats(
     if workspace_id:
         await get_workspace_membership(parse_uuid(workspace_id), user, db)
     stmt = select(AiChat).order_by(AiChat.created_at.desc())
-    stmt = stmt.where(AiChat.user_id == user.id)
     if workspace_id:
+        # When workspace scope is set, include root nodes without user_id
+        # (legacy root nodes created before user_id was required)
+        stmt = stmt.where(
+            or_(AiChat.user_id == user.id, AiChat.node_type == "root")
+        )
         stmt = stmt.where(AiChat.workspace_id == parse_uuid(workspace_id))
+    else:
+        stmt = stmt.where(AiChat.user_id == user.id)
     if mode:
         stmt = stmt.where(AiChat.mode == mode)
     result = await db.execute(stmt)
@@ -84,8 +101,10 @@ async def list_chats(
             mode=c.mode,
             workspace_id=c.workspace_id,
             card_id=c.card_id,
-            parent_chat_id=c.parent_chat_id,
+            parent_id=c.parent_id,
+            node_type=c.node_type,
             title=c.title,
+            chat_status=c.chat_status,
             created_at=c.created_at,
             message_count=count_map.get(c.id, 0),
             last_message=last_msg_map.get(c.id, ""),
@@ -106,18 +125,15 @@ async def create_chat(
     workspace_uuid = None
     if req.workspace_id:
         workspace_uuid = parse_uuid(req.workspace_id)
-        try:
-            await get_workspace_membership(workspace_uuid, user, db)
-        except HTTPException:
-            workspace_uuid = None
+        await get_workspace_membership(workspace_uuid, user, db)
 
     card_uuid = None
     if req.card_id:
         card_uuid = parse_uuid(req.card_id)
 
     parent_uuid = None
-    if req.parent_chat_id:
-        parent_uuid = parse_uuid(req.parent_chat_id)
+    if req.parent_id:
+        parent_uuid = parse_uuid(req.parent_id)
 
     local_id = req.local_id or f"chat_{int(time.time() * 1000)}"
 
@@ -132,7 +148,12 @@ async def create_chat(
             mode=chat.mode,
             workspace_id=chat.workspace_id,
             card_id=chat.card_id,
+            parent_id=chat.parent_id,
+            node_type=chat.node_type,
             title=chat.title,
+            description=chat.description,
+            summary=chat.summary,
+            chat_status=chat.chat_status,
             created_at=chat.created_at,
             messages=[],
         )
@@ -144,22 +165,22 @@ async def create_chat(
         title=req.title,
         workspace_id=workspace_uuid,
         card_id=card_uuid,
-        parent_chat_id=parent_uuid,
+        parent_id=parent_uuid,
+        node_type="branch" if parent_uuid else "root",
     )
     db.add(chat)
     await db.flush()
 
-    # Auto-bind to topology node if workspace_id is provided
-    if workspace_uuid and not chat.tree_node_id and req.title:
+    # New conversations are root-level trees (forest model).
+    # Auto-bind to topology only when explicitly provided a parent.
+    if workspace_uuid and chat.parent_id:
         try:
             from app.services.topology import topology_service
 
-            node = await topology_service.auto_bind_chat_to_node(
-                db, workspace_uuid, req.title
+            await topology_service.auto_bind_chat_to_node(
+                db, chat, req.title or ""
             )
-            if node:
-                chat.tree_node_id = node.id
-                await db.flush()
+            await db.flush()
         except Exception as e:
             import logging
 
@@ -174,7 +195,12 @@ async def create_chat(
         mode=chat.mode,
         workspace_id=chat.workspace_id,
         card_id=chat.card_id,
+        parent_id=chat.parent_id,
+        node_type=chat.node_type,
         title=chat.title,
+        description=chat.description,
+        summary=chat.summary,
+        chat_status=chat.chat_status,
         created_at=chat.created_at,
         messages=[],
     )
@@ -190,8 +216,7 @@ async def get_chat(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
     result = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.chat_id == chat.id)
@@ -203,7 +228,12 @@ async def get_chat(
         mode=chat.mode,
         workspace_id=chat.workspace_id,
         card_id=chat.card_id,
+        parent_id=chat.parent_id,
+        node_type=chat.node_type,
         title=chat.title,
+        description=chat.description,
+        summary=chat.summary,
+        chat_status=chat.chat_status,
         created_at=chat.created_at,
         messages=[ChatMessageResponse.model_validate(m) for m in messages],
     )
@@ -220,8 +250,7 @@ async def add_message(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
     msg = ChatMessage(
         chat_id=chat.id,
         role=req.role,
@@ -250,8 +279,7 @@ async def add_messages_batch(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
 
     # Delete existing messages first (full replace)
     from sqlalchemy import delete as sql_delete
@@ -294,8 +322,7 @@ async def update_message(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
     msg = await db.get(ChatMessage, parse_uuid(msg_id))
     if not msg or msg.chat_id != chat.id:
         raise HTTPException(status_code=404, detail="消息不存在")
@@ -316,34 +343,23 @@ async def delete_chat(
 ):
     """Delete a chat session and all its messages.
 
-    TreeNodes are soft-deleted (archived) rather than hard-deleted
-    to avoid cascade-deleting child nodes.
+    Child chats (topology children) are cascade-deleted via parent_id FK.
+    Also removes fork-divider messages in parent chats that reference this chat.
     """
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
 
-    # Detach chat from TreeNode before deletion to avoid SET NULL confusion
-    node_id = chat.tree_node_id
-    chat.tree_node_id = None
-    await db.flush()
-
-    # Soft-delete the TreeNode if it has no other chats attached
-    if node_id:
-        node = await db.get(TreeNode, node_id)
-        if node:
-            # Check if other chats still reference this node
-            other_chats = await db.execute(
-                select(AiChat.id).where(
-                    AiChat.tree_node_id == node_id,
-                    AiChat.id != chat.id,
-                ).limit(1)
-            )
-            if not other_chats.scalar_one_or_none():
-                node.status = "archived"
-                logger.info("Archived TreeNode %s (no remaining chats)", node_id)
+    # Remove fork-divider messages in other chats that reference this chat as a child
+    fork_dividers = await db.execute(
+        select(ChatMessage).where(
+            ChatMessage.role == "fork-divider",
+            ChatMessage.metadata_["child_chat_id"].as_string() == str(chat.id),
+        )
+    )
+    for msg in fork_dividers.scalars().all():
+        await db.delete(msg)
 
     await db.delete(chat)
     await db.commit()
@@ -361,41 +377,25 @@ async def delete_chat_preview(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
 
     from sqlalchemy import func
 
     # Count messages
     msg_count = await db.execute(
-        select(func.count()).where(ChatMessage.chat_id == chat_id)
+        select(func.count()).where(ChatMessage.chat_id == chat.id)
     )
-    # Count child chats (forks)
+    # Count child chats (topology children)
     child_count = await db.execute(
-        select(func.count()).where(AiChat.parent_chat_id == chat_id)
+        select(func.count()).where(AiChat.parent_id == chat.id)
     )
-    # Check tree node
-    node_title = None
-    node_will_archive = False
-    if chat.tree_node_id:
-        node = await db.get(TreeNode, chat.tree_node_id)
-        if node:
-            node_title = node.title
-            # Will archive if no other chats reference this node
-            other = await db.execute(
-                select(AiChat.id).where(
-                    AiChat.tree_node_id == chat.tree_node_id,
-                    AiChat.id != chat.id,
-                ).limit(1)
-            )
-            node_will_archive = not other.scalar_one_or_none()
 
     return {
         "chat_title": chat.title or "未命名对话",
         "messages": msg_count.scalar() or 0,
         "child_chats": child_count.scalar() or 0,
-        "tree_node_title": node_title,
-        "node_will_archive": node_will_archive,
+        "node_title": chat.title,
+        "node_will_archive": False,
     }
 
 
@@ -410,14 +410,13 @@ async def fork_chat(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Fork a conversation by inserting an inline fork divider with compressed context."""
+    """Fork a conversation by creating a child AiChat with compressed parent context."""
     from app.services.fork_compress import fork_compressor
 
     parent_chat = await db.get(AiChat, parse_uuid(chat_id))
     if not parent_chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if parent_chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(parent_chat, user, db)
 
     # Fetch messages for compression (last 50)
     result = await db.execute(
@@ -434,41 +433,48 @@ async def fork_chat(
     # Use ForkCompressor
     context_summary = await fork_compressor.compress(messages, strategy=req.context_strategy)
 
-    # Determine depth and parent_fork_id
+    # Determine depth from parent by walking the chain
     depth = 0
-    parent_fork_id = req.fork_id
-    if parent_fork_id:
+    current_parent_id = parent_chat.parent_id
+    max_depth = 20
+    while current_parent_id and max_depth > 0:
+        max_depth -= 1
+        depth += 1
         depth_result = await db.execute(
-            select(ChatMessage.metadata_["depth"]).where(
-                ChatMessage.fork_id == parent_fork_id,
-                ChatMessage.role == "fork-divider",
-            ).limit(1)
+            select(AiChat.parent_id).where(AiChat.id == current_parent_id)
         )
-        parent_depth = depth_result.scalar()
-        depth = (parent_depth or 0) + 1
+        current_parent_id = depth_result.scalar_one_or_none()
 
-    # Create fork_id
-    new_fork_id = f"fork-{uuid.uuid4().hex[:12]}"
+    # Create child AiChat
+    branch_label = req.topic or "手动分支"
+    child_chat = AiChat(
+        workspace_id=parent_chat.workspace_id,
+        parent_id=parent_chat.id,
+        user_id=user.id,
+        mode=req.mode,
+        title=branch_label,
+        node_type="branch",
+    )
+    db.add(child_chat)
+    await db.flush()
 
-    # Insert fork-divider message with metadata
+    # Insert fork-divider message in parent chat
     divider = ChatMessage(
         chat_id=parent_chat.id,
         role="fork-divider",
         content="",
-        fork_id=new_fork_id,
         metadata_={
-            "fork_id": new_fork_id,
-            "branch_label": req.topic or "手动分支",
+            "child_chat_id": str(child_chat.id),
+            "branch_label": branch_label,
             "parent_context_summary": context_summary,
             "depth": depth,
-            "parent_fork_id": parent_fork_id,
         },
     )
     db.add(divider)
     await db.commit()
 
     return ChatForkResponse(
-        fork_id=new_fork_id,
+        chat_id=str(child_chat.id),
         context_summary=context_summary or "",
     )
 
@@ -479,25 +485,21 @@ async def get_chat_path(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get the topology path from root to this chat's node"""
-    # Get chat
-    result = await db.execute(
-        select(AiChat).where(AiChat.id == chat_id, AiChat.user_id == current_user.id)
-    )
-    chat = result.scalar_one_or_none()
+    """Get the topology path from root to this chat (walks ai_chats.parent_id chain)"""
+    chat = await db.get(AiChat, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
+    await _require_chat_access(chat, current_user, db)
 
-    if not chat.tree_node_id:
-        return {"path": []}
-
-    # Build path from node to root
+    # Build path by walking parent_id chain
     path = []
-    current_node_id = chat.tree_node_id
+    current_id: uuid.UUID | None = chat.id
+    max_depth = 20  # safety limit
 
-    while current_node_id:
+    while current_id and max_depth > 0:
+        max_depth -= 1
         node_result = await db.execute(
-            select(TreeNode).where(TreeNode.id == current_node_id)
+            select(AiChat).where(AiChat.id == current_id)
         )
         node = node_result.scalar_one_or_none()
         if not node:
@@ -506,11 +508,11 @@ async def get_chat_path(
         path.insert(0, {
             "node_id": str(node.id),
             "title": node.title,
-            "chat_id": str(node.chat_id) if node.chat_id else None,
-            "node_type": node.node_type
+            "chat_id": str(node.id),
+            "node_type": node.node_type,
         })
 
-        current_node_id = node.parent_id
+        current_id = node.parent_id
 
     return {"path": path}
 
@@ -527,8 +529,7 @@ async def summarize_chat(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
 
     # Fetch all messages
     result = await db.execute(

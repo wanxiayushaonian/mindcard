@@ -26,7 +26,7 @@ router = APIRouter()
 async def _ai_generate_title(content: str) -> str:
     """Use AI to generate a short title from content."""
     try:
-        raw = await llm_service.complete_simple(
+        raw = await llm_service.extraction_complete_simple(
             "请用不超过20个字概括以下内容的主题，作为标题。只输出标题文字本身，绝对不要加引号、书名号、序号或其他任何符号。",
             content,
             max_tokens=32,
@@ -45,7 +45,7 @@ async def _ai_generate_title(content: str) -> str:
 async def _ai_extract_keywords(content: str, max_keywords: int = 5) -> list[str]:
     """Use AI to extract keywords from content."""
     try:
-        raw = await llm_service.complete_simple(
+        raw = await llm_service.extraction_complete_simple(
             "从以下内容中提取3-5个核心关键字。每个关键字2-6个字，用逗号分隔，不要加序号、解释或其他符号。",
             content,
             max_tokens=64,
@@ -74,29 +74,11 @@ class ExternalCardCreate(BaseModel):
 
 async def _generate_embedding(card_id: uuid.UUID):
     """Generate and update embedding for a card (runs in background)."""
-    try:
-        logger.info("Starting embedding generation for card %s", card_id)
-        from app.database import async_session
-        from app.services.embedding import embedding_service
+    from app.utils.card_tasks import generate_card_embedding
 
-        async with async_session() as db:
-            db_card = await db.get(Card, card_id)
-            if not db_card:
-                logger.warning("Card %s not found for embedding generation", card_id)
-                return
-            text = embedding_service.card_to_text(db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag)
-            embedding = await embedding_service.embed(text)
-            db_card.embedding = embedding
-            await db.commit()
-            # Assign to topic
-            from app.services.topic import topic_service
-            await topic_service.assign_card_to_topic(db, db_card)
-            await db.commit()
-            # Auto-classify into topology tree
-            from app.services.topology import topology_service
-            await topology_service.assign_card_to_node(db, db_card)
-            await db.commit()
-            logger.info("Embedding saved for card %s (dim=%d)", card_id, len(embedding))
+    logger.info("Starting embedding generation for card %s", card_id)
+    try:
+        await generate_card_embedding(card_id)
     except Exception as e:
         logger.error("Embedding generation failed for card %s: %s", card_id, e, exc_info=True)
 

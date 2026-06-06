@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.card import Card
-from app.models.topology import NodeCard, NodeRef, TreeNode
+from app.models.chat import AiChat
+from app.models.topology import NodeCard, NodeRef
 from app.models.user import User
 from app.schemas.topology import (
     NodeCardAdd,
@@ -24,23 +25,23 @@ from app.services.topology import topology_service
 router = APIRouter()
 
 
-async def _build_node_response(db: AsyncSession, node: TreeNode) -> TreeNodeResponse:
+async def _build_node_response(db: AsyncSession, node: AiChat) -> TreeNodeResponse:
     """Build a TreeNodeResponse with card_ids, child_ids, and ref_ids."""
     # Fetch card associations
     card_result = await db.execute(
-        select(NodeCard.card_id).where(NodeCard.node_id == node.id)
+        select(NodeCard.card_id).where(NodeCard.chat_id == node.id)
     )
     card_ids = [str(row[0]) for row in card_result.all()]
 
     # Fetch children
     child_result = await db.execute(
-        select(TreeNode.id).where(TreeNode.parent_id == node.id).order_by(TreeNode.sort_order)
+        select(AiChat.id).where(AiChat.parent_id == node.id).order_by(AiChat.sort_order)
     )
     child_ids = [str(row[0]) for row in child_result.all()]
 
     # Fetch refs (both directions)
     ref_result = await db.execute(
-        select(NodeRef.target_node_id).where(NodeRef.source_node_id == node.id)
+        select(NodeRef.target_chat_id).where(NodeRef.source_chat_id == node.id)
     )
     ref_ids = [str(row[0]) for row in ref_result.all()]
 
@@ -48,12 +49,12 @@ async def _build_node_response(db: AsyncSession, node: TreeNode) -> TreeNodeResp
         id=node.id,
         workspace_id=node.workspace_id,
         parent_id=node.parent_id,
-        chat_id=node.chat_id,
+        chat_id=node.id,
         node_type=node.node_type,
         title=node.title,
         description=node.description,
         summary=node.summary,
-        status=node.status,
+        status=node.chat_status,
         sort_order=node.sort_order,
         card_ids=card_ids,
         card_count=len(card_ids),
@@ -76,15 +77,22 @@ async def list_nodes(
     await get_workspace_membership(ws_id, user, db)
 
     result = await db.execute(
-        select(TreeNode)
-        .where(TreeNode.workspace_id == ws_id)
-        .order_by(TreeNode.sort_order, TreeNode.created_at)
+        select(AiChat)
+        .where(AiChat.workspace_id == ws_id)
+        .order_by(AiChat.sort_order, AiChat.created_at)
     )
     nodes = list(result.scalars().all())
 
     # Auto-create root node if workspace has no nodes
     if not nodes:
-        root = TreeNode(workspace_id=ws_id, node_type="root", title="主线")
+        root = AiChat(
+            workspace_id=ws_id,
+            user_id=user.id,
+            node_type="root",
+            title="主线",
+            mode="rag",
+            local_id=f"root-{ws_id}",
+        )
         db.add(root)
         await db.commit()
         await db.refresh(root)
@@ -101,12 +109,15 @@ async def get_node_by_id(
     user: User = Depends(get_current_user),
 ):
     """Get topology node by ID."""
+    from app.models.workspace import Workspace, WorkspaceMember
+
     result = await db.execute(
-        select(TreeNode)
-        .join(TreeNode.workspace)
+        select(AiChat)
+        .join(Workspace, Workspace.id == AiChat.workspace_id)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
         .where(
-            TreeNode.id == node_id,
-            TreeNode.workspace.has(user_id=user.id)
+            AiChat.id == node_id,
+            WorkspaceMember.user_id == user.id,
         )
     )
     node = result.scalar_one_or_none()
@@ -122,99 +133,34 @@ async def create_node(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Create a new tree node."""
+    """Create a new tree node (AiChat)."""
     ws_id = parse_uuid(req.workspace_id)
     membership = await get_workspace_membership(ws_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
     # Validate parent exists and belongs to same workspace
     if req.parent_id:
-        parent = await db.get(TreeNode, parse_uuid(req.parent_id))
+        parent = await db.get(AiChat, parse_uuid(req.parent_id))
         if not parent or parent.workspace_id != ws_id:
             raise HTTPException(400, "父节点不存在或不属于该工作区")
 
-    node = TreeNode(
+    import uuid as _uuid
+
+    node = AiChat(
         workspace_id=ws_id,
         parent_id=parse_uuid(req.parent_id) if req.parent_id else None,
+        user_id=user.id,
         node_type=req.node_type,
         title=req.title,
         description=req.description,
         sort_order=req.sort_order,
+        mode="rag",
+        local_id=f"topo-{_uuid.uuid4().hex[:12]}",
     )
     db.add(node)
     await db.commit()
     await db.refresh(node)
     return await _build_node_response(db, node)
-
-
-@router.get("/{node_id}", response_model=TreeNodeResponse)
-async def get_node(
-    node_id: str,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Get a single tree node with its associations."""
-    node = await db.get(TreeNode, parse_uuid(node_id))
-    if not node:
-        raise HTTPException(404, "节点不存在")
-    await get_workspace_membership(node.workspace_id, user, db)
-    return await _build_node_response(db, node)
-
-
-@router.put("/{node_id}", response_model=TreeNodeResponse)
-async def update_node(
-    node_id: str,
-    req: TreeNodeUpdate,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Update a tree node."""
-    node = await db.get(TreeNode, parse_uuid(node_id))
-    if not node:
-        raise HTTPException(404, "节点不存在")
-    membership = await get_workspace_membership(node.workspace_id, user, db)
-    require_role(membership, "owner", "admin", "editor")
-
-    update_data = req.model_dump(exclude_unset=True)
-    if "parent_id" in update_data:
-        new_parent_id = update_data.pop("parent_id")
-        if new_parent_id:
-            parent = await db.get(TreeNode, parse_uuid(new_parent_id))
-            if not parent or parent.workspace_id != node.workspace_id:
-                raise HTTPException(400, "父节点不存在或不属于该工作区")
-            node.parent_id = parent.id
-        else:
-            node.parent_id = None
-
-    for field, value in update_data.items():
-        setattr(node, field, value)
-
-    # Auto-set completed_at when status changes to completed
-    if req.status == "completed" and node.status != "completed":
-        node.completed_at = datetime.now(timezone.utc)
-
-    node.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(node)
-    return await _build_node_response(db, node)
-
-
-@router.delete("/{node_id}")
-async def delete_node(
-    node_id: str,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Delete a tree node (cascades to children and associations)."""
-    node = await db.get(TreeNode, parse_uuid(node_id))
-    if not node:
-        raise HTTPException(404, "节点不存在")
-    membership = await get_workspace_membership(node.workspace_id, user, db)
-    require_role(membership, "owner", "admin", "editor")
-
-    await db.delete(node)
-    await db.commit()
-    return {"ok": True}
 
 
 # ── Card associations ──
@@ -228,7 +174,7 @@ async def add_card_to_node(
     user: User = Depends(get_current_user),
 ):
     """Associate a card with a tree node."""
-    node = await db.get(TreeNode, parse_uuid(node_id))
+    node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
         raise HTTPException(404, "节点不存在")
     membership = await get_workspace_membership(node.workspace_id, user, db)
@@ -240,12 +186,12 @@ async def add_card_to_node(
 
     # Check if already associated
     existing = await db.execute(
-        select(NodeCard).where(NodeCard.node_id == node.id, NodeCard.card_id == card.id)
+        select(NodeCard).where(NodeCard.chat_id == node.id, NodeCard.card_id == card.id)
     )
     if existing.scalar_one_or_none():
         return await _build_node_response(db, node)
 
-    db.add(NodeCard(node_id=node.id, card_id=card.id))
+    db.add(NodeCard(chat_id=node.id, card_id=card.id))
     await db.commit()
     await db.refresh(node)
     return await _build_node_response(db, node)
@@ -259,14 +205,14 @@ async def remove_card_from_node(
     user: User = Depends(get_current_user),
 ):
     """Remove a card association from a tree node."""
-    node = await db.get(TreeNode, parse_uuid(node_id))
+    node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
         raise HTTPException(404, "节点不存在")
     membership = await get_workspace_membership(node.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
     result = await db.execute(
-        select(NodeCard).where(NodeCard.node_id == node.id, NodeCard.card_id == parse_uuid(card_id))
+        select(NodeCard).where(NodeCard.chat_id == node.id, NodeCard.card_id == parse_uuid(card_id))
     )
     nc = result.scalar_one_or_none()
     if nc:
@@ -286,13 +232,13 @@ async def create_ref(
     user: User = Depends(get_current_user),
 ):
     """Create a cross-branch reference from this node to another."""
-    node = await db.get(TreeNode, parse_uuid(node_id))
+    node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
         raise HTTPException(404, "源节点不存在")
     membership = await get_workspace_membership(node.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
-    target = await db.get(TreeNode, parse_uuid(req.target_node_id))
+    target = await db.get(AiChat, parse_uuid(req.target_chat_id))
     if not target or target.workspace_id != node.workspace_id:
         raise HTTPException(400, "目标节点不存在或不属于该工作区")
     if node.id == target.id:
@@ -301,16 +247,16 @@ async def create_ref(
     # Check if already exists
     existing = await db.execute(
         select(NodeRef).where(
-            NodeRef.source_node_id == node.id,
-            NodeRef.target_node_id == target.id,
+            NodeRef.source_chat_id == node.id,
+            NodeRef.target_chat_id == target.id,
         )
     )
     if existing.scalar_one_or_none():
         return await _build_node_response(db, node)
 
     db.add(NodeRef(
-        source_node_id=node.id,
-        target_node_id=target.id,
+        source_chat_id=node.id,
+        target_chat_id=target.id,
         ref_type=req.ref_type,
         reason=req.reason,
     ))
@@ -327,7 +273,7 @@ async def remove_ref(
     user: User = Depends(get_current_user),
 ):
     """Remove a cross-branch reference."""
-    node = await db.get(TreeNode, parse_uuid(node_id))
+    node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
         raise HTTPException(404, "节点不存在")
     membership = await get_workspace_membership(node.workspace_id, user, db)
@@ -335,14 +281,79 @@ async def remove_ref(
 
     result = await db.execute(
         select(NodeRef).where(
-            NodeRef.source_node_id == node.id,
-            NodeRef.target_node_id == parse_uuid(target_id),
+            NodeRef.source_chat_id == node.id,
+            NodeRef.target_chat_id == parse_uuid(target_id),
         )
     )
     ref = result.scalar_one_or_none()
     if ref:
         await db.delete(ref)
         await db.commit()
+    return {"ok": True}
+
+
+# ── Node update & delete (placed after sub-routes to avoid path conflicts) ──
+
+
+@router.put("/{node_id}", response_model=TreeNodeResponse)
+async def update_node(
+    node_id: str,
+    req: TreeNodeUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Update a tree node."""
+    node = await db.get(AiChat, parse_uuid(node_id))
+    if not node:
+        raise HTTPException(404, "节点不存在")
+    membership = await get_workspace_membership(node.workspace_id, user, db)
+    require_role(membership, "owner", "admin", "editor")
+
+    update_data = req.model_dump(exclude_unset=True)
+
+    # Map schema 'status' -> model 'chat_status'
+    if "status" in update_data:
+        update_data["chat_status"] = update_data.pop("status")
+
+    if "parent_id" in update_data:
+        new_parent_id = update_data.pop("parent_id")
+        if new_parent_id:
+            parent = await db.get(AiChat, parse_uuid(new_parent_id))
+            if not parent or parent.workspace_id != node.workspace_id:
+                raise HTTPException(400, "父节点不存在或不属于该工作区")
+            node.parent_id = parent.id
+        else:
+            node.parent_id = None
+
+    for field, value in update_data.items():
+        setattr(node, field, value)
+
+    # Auto-set completed_at when status changes to completed
+    # Note: check against the pre-update value (saved before setattr above)
+    if update_data.get("chat_status") == "completed" and not node.completed_at:
+        node.completed_at = datetime.now(timezone.utc)
+
+    node.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(node)
+    return await _build_node_response(db, node)
+
+
+@router.delete("/{node_id}")
+async def delete_node(
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Delete a tree node (cascades to children and associations)."""
+    node = await db.get(AiChat, parse_uuid(node_id))
+    if not node:
+        raise HTTPException(404, "节点不存在")
+    membership = await get_workspace_membership(node.workspace_id, user, db)
+    require_role(membership, "owner", "admin", "editor")
+
+    await db.delete(node)
+    await db.commit()
     return {"ok": True}
 
 
