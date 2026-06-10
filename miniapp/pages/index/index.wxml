@@ -1,16 +1,5 @@
 <!--pages/index/index.wxml-->
 <navigation-bar title="{{workspaceName}}" back="{{true}}" background="#F9FAFC">
-  <view slot="right" class="nav-right">
-    <view class="nav-icon-btn" bindtap="onSearch">
-      <icon name="search" size="20" color="#555" />
-    </view>
-    <view class="nav-icon-btn" bindtap="onWalk">
-      <icon name="sparkles" size="20" color="#555" />
-    </view>
-    <view class="nav-icon-btn" bindtap="onMore">
-      <icon name="menu" size="20" color="#555" />
-    </view>
-  </view>
 </navigation-bar>
 
 <scroll-view
@@ -58,9 +47,6 @@
         <icon name="star" size="14" color="#f0a500" />
         <text class="stats-fav-text">{{favCount}}</text>
       </view>
-      <view class="stats-category" bindtap="onCategory">
-        <text class="stats-category-text">分类管理</text>
-      </view>
     </view>
   </view>
 
@@ -95,7 +81,7 @@
           </view>
         </view>
         <text class="card-title" wx:if="{{item.title}}">{{item.title}}</text>
-        <text class="card-content-text" overflow="ellipsis" max-lines="4">{{item.content}}</text>
+        <text class="card-content-text">{{item.preview}}</text>
         <view class="card-footer">
           <text class="card-time">{{item.createdAt}}</text>
           <view class="card-badges">
@@ -127,7 +113,7 @@
           </view>
         </view>
         <text class="card-title" wx:if="{{item.title}}">{{item.title}}</text>
-        <text class="card-content-text" overflow="ellipsis" max-lines="4">{{item.content}}</text>
+        <text class="card-content-text">{{item.preview}}</text>
         <view class="card-footer">
           <text class="card-time">{{item.createdAt}}</text>
           <view class="card-badges">
@@ -139,14 +125,27 @@
     </view>
   </view>
 
-  <!-- Bottom spacer for FAB -->
-  <view class="bottom-spacer"></view>
+  <!-- Bottom spacer for bottom bar -->
+  <view style="height: 160rpx;"></view>
 </scroll-view>
 
-<!-- Floating Action Button -->
-<view class="fab" bindtap="onFabTap" hover-class="fab-hover">
-  <icon name="plus" size="22" color="#fff" />
-  <text class="fab-label">闪记</text>
+<!-- Bottom Action Bar -->
+<view class="bottom-bar">
+  <view class="bar-item" bindtap="onWalk">
+    <icon name="sparkles" size="22" color="#555" />
+    <text class="bar-label">漫游</text>
+  </view>
+  <view class="bar-item bar-item-center" bindtap="onFabTap">
+    <icon name="plus" size="26" color="#fff" />
+  </view>
+  <view class="bar-item" bindtap="onSearch">
+    <icon name="search" size="22" color="#555" />
+    <text class="bar-label">搜索</text>
+  </view>
+  <view class="bar-item" bindtap="onProfile">
+    <icon name="settings" size="22" color="#555" />
+    <text class="bar-label">设置</text>
+  </view>
 </view>
 
 <!-- Flash Note Modal -->
@@ -248,7 +247,7 @@
           </view>
         </view>
         <text class="walk-card-title" wx:if="{{walkCard.title}}">{{walkCard.title}}</text>
-        <text class="walk-card-content" overflow="ellipsis" max-lines="6">{{walkCard.content}}</text>
+        <text class="walk-card-content">{{walkCard.preview}}</text>
         <view class="walk-card-footer">
           <text class="walk-card-time">{{walkCard.createdAt}}</text>
           <text wx:if="{{walkCard.hasAiChat}}" class="walk-card-ai">AI对话</text>

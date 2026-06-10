@@ -1,6 +1,7 @@
 // app.js
 const { mockCards, mockChats } = require('./utils/mock-data');
 const api = require('./utils/api');
+const helpers = require('./utils/helpers');
 
 App({
   globalData: {
@@ -11,6 +12,9 @@ App({
     currentWorkspaceId: '',
     currentUser: { openId: '', nickName: '' },
     comments: [],
+    notifications: [],
+    unreadNotificationCount: 0,
+    memories: [],
   },
 
   onLaunch() {
@@ -58,7 +62,7 @@ App({
     // If we have a token, validate it
     if (api.getToken()) {
       try {
-        await api.get('/api/auth/me');
+        await api.authApi.getMe();
         return true;
       } catch (e) {
         // Token invalid or expired — clear it
@@ -76,7 +80,7 @@ App({
 
   async _loadWorkspacesFromApi() {
     try {
-      const workspaces = await api.get('/api/workspaces/');
+      const workspaces = await api.workspacesApi.list();
       var self = this;
       this.globalData.workspaces = workspaces.map(function (ws) {
         return {
@@ -84,7 +88,7 @@ App({
           name: ws.name,
           icon: ws.icon || '💡',
           color: ws.color || '#94B4C8',
-          createdAt: self._formatApiTime(ws.created_at),
+          createdAt: helpers.formatApiTime(ws.created_at),
           owner: ws.owner_id,
           inviteCode: ws.invite_code || '',
           memberRole: ws.member_role || 'editor',
@@ -105,7 +109,7 @@ App({
 
   async _createDefaultWorkspace() {
     try {
-      const ws = await api.post('/api/workspaces/', {
+      const ws = await api.workspacesApi.create({
         name: '默认空间',
         icon: '💡',
         color: '#94B4C8',
@@ -115,7 +119,7 @@ App({
         name: ws.name,
         icon: ws.icon || '💡',
         color: ws.color || '#94B4C8',
-        createdAt: self._formatApiTime(ws.created_at),
+        createdAt: helpers.formatApiTime(ws.created_at),
         owner: ws.owner_id,
       }];
       this.globalData.currentWorkspaceId = ws.id;
@@ -128,30 +132,11 @@ App({
         name: '默认空间',
         icon: '💡',
         color: '#94B4C8',
-        createdAt: this._formatTime(new Date()),
+        createdAt: helpers.formatTime(new Date()),
       };
       this.globalData.workspaces = [defaultWs];
       this.globalData.currentWorkspaceId = 'ws_default';
     }
-  },
-
-  _loadWorkspaces() {
-    const stored = wx.getStorageSync('workspaces');
-    if (stored && stored.length > 0) {
-      this.globalData.workspaces = stored;
-    } else {
-      const defaultWs = {
-        id: 'ws_default',
-        name: '默认空间',
-        icon: '💡',
-        color: '#94B4C8',
-        createdAt: this._formatTime(new Date()),
-      };
-      this.globalData.workspaces = [defaultWs];
-      wx.setStorageSync('workspaces', [defaultWs]);
-    }
-    const cur = wx.getStorageSync('current_workspace');
-    this.globalData.currentWorkspaceId = cur || this.globalData.workspaces[0].id;
   },
 
   getCurrentWorkspace() {
@@ -175,7 +160,7 @@ App({
   async createWorkspace({ name, icon, color }) {
     var localId = 'ws_' + Date.now();
     try {
-      const ws = await api.post('/api/workspaces/', {
+      const ws = await api.workspacesApi.create({
         local_id: localId,
         name: name,
         icon: icon || '💡',
@@ -186,7 +171,7 @@ App({
         name: ws.name,
         icon: ws.icon || '💡',
         color: ws.color || '#94B4C8',
-        createdAt: this._formatApiTime(ws.created_at),
+        createdAt: helpers.formatApiTime(ws.created_at),
         owner: ws.owner_id,
       };
       this.globalData.workspaces = this.globalData.workspaces.concat([localWs]);
@@ -200,7 +185,7 @@ App({
         name: name,
         icon: icon || '💡',
         color: color || '#94B4C8',
-        createdAt: this._formatTime(new Date()),
+        createdAt: helpers.formatTime(new Date()),
         owner: user.openId,
       };
       this.globalData.workspaces = this.globalData.workspaces.concat([local]);
@@ -211,7 +196,7 @@ App({
 
   async updateWorkspace(id, updates) {
     try {
-      await api.put('/api/workspaces/' + id, updates);
+      await api.workspacesApi.update(id, updates);
     } catch (e) {
       console.error('[API] updateWorkspace failed:', e);
     }
@@ -224,7 +209,7 @@ App({
 
   async deleteWorkspace(id) {
     try {
-      await api.del('/api/workspaces/' + id);
+      await api.workspacesApi.delete(id);
     } catch (e) {
       console.error('[API] deleteWorkspace failed:', e);
     }
@@ -247,18 +232,32 @@ App({
     var wsId = this.globalData.currentWorkspaceId;
     if (!wsId || wsId.indexOf('ws_') === 0) return; // skip local-only IDs
     try {
-      var cards = await api.get('/api/cards/?workspace_id=' + wsId);
+      var allCards = [];
+      var cursor = null;
+      var limit = 50;
+      do {
+        var resp = await api.cardsApi.list(wsId, cursor, limit);
+        var items = Array.isArray(resp) ? resp : (resp.items || []);
+        allCards = allCards.concat(items);
+        cursor = (resp && resp.next_cursor) || null;
+      } while (cursor);
+
       var self = this;
-      this.globalData.cards = cards.map(function (c) {
+      this.globalData.cards = allCards.map(function (c) {
+        var raw = (c.content || '').replace(/\n/g, ' ').replace(/\r/g, '');
         return {
           id: c.id,
           workspaceId: c.workspace_id,
           title: c.title || '',
           content: c.content || '',
+          preview: raw.length > 80 ? raw.slice(0, 80) + '...' : raw,
           keywords: c.keywords || [],
           color: c.color || '#B8D4E3',
-          createdAt: self._formatApiTime(c.created_at),
-          updatedAt: self._formatApiTime(c.updated_at),
+          emotionTag: c.emotion_tag || '',
+          isTemp: c.is_temp !== undefined ? c.is_temp : true,
+          parentCardIds: c.parent_card_ids || [],
+          createdAt: helpers.formatApiTime(c.created_at),
+          updatedAt: helpers.formatApiTime(c.updated_at),
           isFavorite: c.is_favorite || false,
           relatedIds: (c.relations || []).map(function (r) { return r.related_card_id; }),
           agentRecommendIds: [],
@@ -301,8 +300,12 @@ App({
     // Update local cache immediately
     var idx = this.globalData.cards.findIndex(function (c) { return c.id === id; });
     if (idx !== -1) {
+      if (updates.content !== undefined) {
+        var raw = updates.content.replace(/\n/g, ' ').replace(/\r/g, '');
+        updates.preview = raw.length > 80 ? raw.slice(0, 80) + '...' : raw;
+      }
       var updated = Object.assign({}, this.globalData.cards[idx], updates, {
-        updatedAt: this._formatTime(new Date()),
+        updatedAt: helpers.formatTime(new Date()),
       });
       this.globalData.cards[idx] = updated;
       wx.setStorageSync('inspiration_cards', this.globalData.cards);
@@ -316,9 +319,11 @@ App({
     if (updates.color !== undefined) apiPayload.color = updates.color;
     if (updates.isFavorite !== undefined) apiPayload.is_favorite = updates.isFavorite;
     if (updates.isTemp !== undefined) apiPayload.is_temp = updates.isTemp;
+    if (updates.emotionTag !== undefined) apiPayload.emotion_tag = updates.emotionTag;
+    if (updates.parentCardIds !== undefined) apiPayload.parent_card_ids = updates.parentCardIds;
     if (Object.keys(apiPayload).length > 0) {
       try {
-        await api.put('/api/cards/' + id, apiPayload);
+        await api.cardsApi.update(id, apiPayload);
       } catch (e) {
         console.error('[API] updateCard failed:', e);
       }
@@ -327,11 +332,16 @@ App({
 
   async addCard(card) {
     var wsId = this.globalData.currentWorkspaceId;
+    var raw = (card.content || '').replace(/\n/g, ' ').replace(/\r/g, '');
     var newCard = Object.assign({}, card, {
       id: 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
       workspaceId: wsId,
+      preview: raw.length > 80 ? raw.slice(0, 80) + '...' : raw,
       keywords: card.keywords || [],
-      createdAt: this._formatTime(new Date()),
+      emotionTag: card.emotionTag || '',
+      isTemp: card.isTemp !== undefined ? card.isTemp : true,
+      parentCardIds: card.parentCardIds || [],
+      createdAt: helpers.formatTime(new Date()),
       updatedAt: null,
       isFavorite: false,
       relatedIds: [],
@@ -346,13 +356,16 @@ App({
 
     // Sync to API
     try {
-      var created = await api.post('/api/cards/', {
+      var created = await api.cardsApi.create({
         local_id: newCard.id,
         workspace_id: wsId,
         title: newCard.title || '',
         content: newCard.content || '',
         keywords: newCard.keywords,
         color: newCard.color || '#B8D4E3',
+        emotion_tag: newCard.emotionTag || '',
+        is_temp: newCard.isTemp !== undefined ? newCard.isTemp : true,
+        parent_card_ids: newCard.parentCardIds || [],
       });
       // Update local with server-assigned ID
       if (created && created.id) {
@@ -367,13 +380,13 @@ App({
     // Background AI: auto-extract keywords + auto-generate title
     if ((newCard.content || '').trim()) {
       if (newCard.keywords.length === 0) {
-        api.post('/api/ai/extract-keywords', { content: newCard.content })
+        api.aiApi.extractKeywords(newCard.content)
           .then(function (res) {
             if (res.keywords && res.keywords.length > 0) this.updateCard(newCard.id, { keywords: res.keywords });
           }.bind(this)).catch(function () {});
       }
       if (!newCard.title) {
-        api.post('/api/ai/generate-title', { content: newCard.content })
+        api.aiApi.generateTitle(newCard.content)
           .then(function (res) {
             if (res.title && res.title.trim()) this.updateCard(newCard.id, { title: res.title.trim() });
           }.bind(this)).catch(function () {});
@@ -401,13 +414,20 @@ App({
     wx.setStorageSync('inspiration_cards', this.globalData.cards);
     wx.setStorageSync('ai_chats', this.globalData.aiChats);
 
-    // Sync deletion to API (skip local IDs)
-    for (var i = 0; i < ids.length; i++) {
-      if (ids[i].indexOf('card_') === 0) continue;
+    // Sync deletion to API (skip local IDs, use batch)
+    var serverIds = ids.filter(function (id) { return id.indexOf('card_') !== 0; });
+    if (serverIds.length > 0) {
       try {
-        await api.del('/api/cards/' + ids[i]);
+        await api.del('/api/cards/batch', { ids: serverIds });
       } catch (e) {
-        console.error('[API] deleteCard failed for ' + ids[i] + ':', e);
+        // Fallback to individual deletes
+        for (var i = 0; i < serverIds.length; i++) {
+          try {
+            await api.cardsApi.delete(serverIds[i]);
+          } catch (e2) {
+            console.error('[API] deleteCard failed for ' + serverIds[i] + ':', e2);
+          }
+        }
       }
     }
   },
@@ -434,7 +454,7 @@ App({
       var serverChatId = chat.id;
 
       if (!isServerChat) {
-        var created = await api.post('/api/chats/', {
+        var created = await api.chatApi.create({
           local_id: chat.id,
           title: chat.title || '',
           card_id: chat.cardId || undefined,
@@ -458,7 +478,7 @@ App({
         var msgs = chat.messages.map(function (m) {
           return { role: m.role === 'ai' ? 'assistant' : m.role, content: m.content };
         });
-        await api.post('/api/chats/' + serverChatId + '/messages/batch', msgs);
+        await api.chatApi.batchMessages(serverChatId, msgs);
       }
 
       if (serverChatId !== chat.id) return serverChatId;
@@ -472,7 +492,7 @@ App({
     this.globalData.aiChats = this.globalData.aiChats.filter(function (c) { return c.id !== chatId; });
     wx.setStorageSync('ai_chats', this.globalData.aiChats);
     try {
-      await api.del('/api/chats/' + chatId);
+      await api.chatApi.delete(chatId);
     } catch (e) {
       console.error('[API] deleteChat failed:', e);
     }
@@ -527,13 +547,14 @@ App({
   async loadChatsFromApi(workspaceId) {
     try {
       var self = this;
-      var chats = await api.get('/api/chats/?workspace_id=' + workspaceId);
+      var chats = await api.chatApi.list(null, workspaceId);
       var loaded = (chats || []).map(function (c) {
         return {
           id: c.id,
           cardId: c.card_id || '',
+          workspaceId: workspaceId || '',
           title: c.title || '灵感对话',
-          createdAt: self._formatApiTime(c.created_at),
+          createdAt: helpers.formatApiTime(c.created_at),
           messages: [],
           messageCount: c.message_count || 0,
           lastMessage: c.last_message || '',
@@ -561,7 +582,7 @@ App({
 
   async loadChatMessages(chatId) {
     try {
-      var chat = await api.get('/api/chats/' + chatId);
+      var chat = await api.chatApi.get(chatId);
       var messages = (chat.messages || []).map(function (m) {
         var d = new Date(m.created_at);
         var time = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -590,7 +611,7 @@ App({
     if (cardId.indexOf('card_') === 0) return [];
     try {
       var self = this;
-      var comments = await api.get('/api/cards/' + cardId + '/comments');
+      var comments = await api.cardsApi.getComments(cardId);
       comments = (comments || []).map(function (c) {
         return {
           id: c.id,
@@ -598,7 +619,7 @@ App({
           authorId: c.author_id,
           authorNickName: c.author_nickname || '',
           content: c.content,
-          createdAt: self._formatApiTime(c.created_at),
+          createdAt: helpers.formatApiTime(c.created_at),
         };
       });
       this.globalData.comments = comments;
@@ -612,7 +633,7 @@ App({
   async addComment(cardId, content) {
     if (cardId.indexOf('card_') === 0) return false;
     try {
-      await api.post('/api/cards/' + cardId + '/comments', {
+      await api.cardsApi.addComment(cardId, {
         content: content,
       });
       await this.loadComments(cardId);
@@ -626,7 +647,7 @@ App({
   async deleteComment(commentId, cardId) {
     if (cardId.indexOf('card_') === 0) return false;
     try {
-      await api.del('/api/cards/' + cardId + '/comments/' + commentId);
+      await api.cardsApi.deleteComment(cardId, commentId);
       this.globalData.comments = this.globalData.comments.filter(function (c) { return c.id !== commentId; });
       return true;
     } catch (e) {
@@ -639,7 +660,7 @@ App({
 
   async generateInviteCode(wsId) {
     try {
-      var res = await api.post('/api/workspaces/' + wsId + '/invite-code');
+      var res = await api.workspacesApi.generateInviteCode(wsId);
       var code = res.invite_code;
       // Update local workspace
       var idx = this.globalData.workspaces.findIndex(function (w) { return w.id === wsId; });
@@ -655,7 +676,7 @@ App({
 
   async joinWorkspace(inviteCode) {
     try {
-      var res = await api.post('/api/workspaces/join', { invite_code: inviteCode });
+      var res = await api.workspacesApi.joinByCode(inviteCode);
       // Reload workspaces
       await this._loadWorkspacesFromApi();
       return res;
@@ -667,10 +688,36 @@ App({
 
   async removeMember(wsId, userId) {
     try {
-      await api.del('/api/workspaces/' + wsId + '/members/' + userId);
+      await api.workspacesApi.removeMember(wsId, userId);
       return true;
     } catch (e) {
       console.error('[API] removeMember failed:', e);
+      return false;
+    }
+  },
+
+  async leaveWorkspace(wsId) {
+    try {
+      await api.workspacesApi.leave(wsId);
+    } catch (e) {
+      console.error('[API] leaveWorkspace failed:', e);
+      throw e;
+    }
+    this.globalData.workspaces = this.globalData.workspaces.filter(function (w) { return w.id !== wsId; });
+    this.globalData.cards = this.globalData.cards.filter(function (c) { return c.workspaceId !== wsId; });
+    wx.setStorageSync('workspaces', this.globalData.workspaces);
+    wx.setStorageSync('inspiration_cards', this.globalData.cards);
+    if (this.globalData.currentWorkspaceId === wsId && this.globalData.workspaces.length > 0) {
+      this.switchWorkspace(this.globalData.workspaces[0].id);
+    }
+  },
+
+  async updateMemberRole(wsId, userId, role) {
+    try {
+      await api.workspacesApi.updateMemberRole(wsId, userId, role);
+      return true;
+    } catch (e) {
+      console.error('[API] updateMemberRole failed:', e);
       return false;
     }
   },
@@ -713,21 +760,179 @@ App({
     return this.globalData.currentUser;
   },
 
-  _formatTime(date) {
-    var y = date.getFullYear();
-    var m = String(date.getMonth() + 1).padStart(2, '0');
-    var d = String(date.getDate()).padStart(2, '0');
-    var h = String(date.getHours()).padStart(2, '0');
-    var min = String(date.getMinutes()).padStart(2, '0');
-    return y + '-' + m + '-' + d + ' ' + h + ':' + min;
+  // ── Notifications ──
+
+  async loadNotifications() {
+    try {
+      var self = this;
+      var notifs = await api.notificationsApi.list();
+      this.globalData.notifications = (notifs || []).map(function (n) {
+        return {
+          id: n.id,
+          type: n.type,
+          content: n.content,
+          link: n.link || '',
+          isRead: n.is_read,
+          createdAt: helpers.formatApiTime(n.created_at),
+        };
+      });
+      return this.globalData.notifications;
+    } catch (e) {
+      console.error('[API] loadNotifications failed:', e);
+      return [];
+    }
   },
 
-  _formatApiTime(isoStr) {
-    if (!isoStr) return '';
+  async loadUnreadCount() {
     try {
-      return this._formatTime(new Date(isoStr));
-    } catch (_e) {
-      return isoStr;
+      var res = await api.notificationsApi.unreadCount();
+      this.globalData.unreadNotificationCount = res.count || 0;
+      return this.globalData.unreadNotificationCount;
+    } catch (e) {
+      return 0;
+    }
+  },
+
+  async markNotificationRead(id) {
+    try {
+      await api.notificationsApi.markRead(id);
+      var notif = this.globalData.notifications.find(function (n) { return n.id === id; });
+      if (notif && !notif.isRead) {
+        notif.isRead = true;
+        this.globalData.unreadNotificationCount = Math.max(0, this.globalData.unreadNotificationCount - 1);
+      }
+    } catch (e) {
+      console.error('[API] markNotificationRead failed:', e);
+    }
+  },
+
+  async markAllNotificationsRead() {
+    try {
+      await api.notificationsApi.markAllRead();
+      this.globalData.notifications.forEach(function (n) { n.isRead = true; });
+      this.globalData.unreadNotificationCount = 0;
+    } catch (e) {
+      console.error('[API] markAllNotificationsRead failed:', e);
+    }
+  },
+
+  // ── Workspace Memories ──
+
+  async loadMemories(wsId) {
+    try {
+      var self = this;
+      var memories = await api.memoryApi.list(wsId);
+      this.globalData.memories = (memories || []).map(function (m) {
+        return {
+          id: m.id,
+          slug: m.slug,
+          title: m.title,
+          body: m.body,
+          sourceChatId: m.source_chat_id || '',
+          createdAt: helpers.formatApiTime(m.created_at),
+          updatedAt: helpers.formatApiTime(m.updated_at),
+        };
+      });
+      return this.globalData.memories;
+    } catch (e) {
+      console.error('[API] loadMemories failed:', e);
+      return [];
+    }
+  },
+
+  async upsertMemory(wsId, memory) {
+    try {
+      var result = await api.memoryApi.upsert(wsId, {
+        slug: memory.slug,
+        title: memory.title,
+        body: memory.body,
+        source_chat_id: memory.sourceChatId || undefined,
+      });
+      await this.loadMemories(wsId);
+      return result;
+    } catch (e) {
+      console.error('[API] upsertMemory failed:', e);
+      throw e;
+    }
+  },
+
+  async deleteMemory(wsId, slug) {
+    try {
+      await api.memoryApi.delete(wsId, slug);
+      this.globalData.memories = this.globalData.memories.filter(function (m) { return m.slug !== slug; });
+    } catch (e) {
+      console.error('[API] deleteMemory failed:', e);
+      throw e;
+    }
+  },
+
+  // ── Activities ──
+
+  async loadActivities(wsId) {
+    try {
+      var self = this;
+      var activities = await api.activitiesApi.list(wsId);
+      return (activities || []).map(function (a) {
+        return {
+          id: a.id,
+          actorNickname: a.actor_nickname || '',
+          action: a.action,
+          targetType: a.target_type,
+          targetId: a.target_id || '',
+          metadata: a.metadata || null,
+          createdAt: helpers.formatApiTime(a.created_at),
+        };
+      });
+    } catch (e) {
+      console.error('[API] loadActivities failed:', e);
+      return [];
+    }
+  },
+
+  // ── Phase 7: Batch / Segment / Summarize ──
+
+  async batchCreateCards(wsId, cards) {
+    try {
+      var items = cards.map(function (c) {
+        return {
+          local_id: c.localId || ('mc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
+          title: c.title || '',
+          content: c.content || '',
+          keywords: c.keywords || [],
+          color: c.color || '#B8D4E3',
+          emotion_tag: c.emotionTag || '',
+          is_temp: c.isTemp !== undefined ? c.isTemp : true,
+          parent_card_ids: c.parentCardIds || [],
+        };
+      });
+      var resp = await api.cardsApi.batchCreate(wsId, items);
+      return resp;
+    } catch (e) {
+      console.error('[API] batchCreateCards failed:', e);
+      throw e;
+    }
+  },
+
+  async segmentContent(content) {
+    try {
+      var resp = await api.aiApi.segmentContent(content);
+      return resp.segments || resp || [];
+    } catch (e) {
+      console.error('[API] segmentContent failed:', e);
+      throw e;
+    }
+  },
+
+  async summarizeChat(chatId, title, keywords) {
+    try {
+      var body = {};
+      if (title) body.title = title;
+      if (keywords && keywords.length) body.keywords = keywords;
+      var resp = await api.chatApi.summarize(chatId, title, keywords);
+      return resp;
+    } catch (e) {
+      console.error('[API] summarizeChat failed:', e);
+      throw e;
     }
   },
 });

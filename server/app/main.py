@@ -38,6 +38,11 @@ async def lifespan(app: FastAPI):
     logger.info("LLM: provider=%s, model=%s", settings.default_llm_provider, settings.default_llm_model or "(default)")
     logger.info("Extraction: provider=%s, model=%s", settings.extraction_llm_provider or "(follow main)", settings.extraction_llm_model or "(default)")
     logger.info("Embedding: model=%s @ %s", settings.embedding_model, settings.ollama_base_url)
+
+    from app.tools._builtin import register_builtin_tools
+    register_builtin_tools()
+    logger.info("Built-in tools registered")
+
     yield
     # Shutdown: cleanup
     from app.services.embedding import embedding_service

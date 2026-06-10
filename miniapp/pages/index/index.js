@@ -123,10 +123,6 @@ Page({
     wx.navigateTo({ url: '/pages/search/search' });
   },
 
-  onInsights() {
-    wx.navigateTo({ url: '/pages/insights/insights' });
-  },
-
   onWalk() {
     const { cards } = this.data;
     if (cards.length === 0) {
@@ -151,26 +147,6 @@ Page({
 
   onProfile() {
     wx.navigateTo({ url: '/pages/profile/profile' });
-  },
-
-  onNetwork() {
-    wx.navigateTo({ url: '/pages/network/network' });
-  },
-
-  onMore() {
-    var self = this;
-    wx.showActionSheet({
-      itemList: ['关联网络', '洞察', '设置'],
-      success: function (res) {
-        if (res.tapIndex === 0) self.onNetwork();
-        else if (res.tapIndex === 1) self.onInsights();
-        else if (res.tapIndex === 2) self.onProfile();
-      },
-    });
-  },
-
-  onCategory() {
-    wx.navigateTo({ url: '/pages/category/category' });
   },
 
   onRefresh() {
@@ -233,7 +209,7 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: 'AI润色中...', icon: 'loading', duration: 2000 });
-    api.post('/api/ai/polish', { content: this.data.flashContent })
+    api.aiApi.polish(this.data.flashContent)
       .then(function (res) {
         this.setData({ flashContent: res.text });
         wx.showToast({ title: '润色完成', icon: 'success' });
@@ -248,7 +224,7 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: 'AI补充中...', icon: 'loading', duration: 2000 });
-    api.post('/api/ai/supplement', { content: this.data.flashContent })
+    api.aiApi.supplement(this.data.flashContent)
       .then(function (res) {
         this.setData({ flashContent: this.data.flashContent + '\n\n' + res.text });
         wx.showToast({ title: '补充完成', icon: 'success' });

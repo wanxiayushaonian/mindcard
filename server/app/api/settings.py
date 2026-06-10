@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserSetting
+from app.models.workspace import WorkspaceMember
 from app.providers.factory import make_provider
 from app.providers.registry import PROVIDERS
 from app.services.llm import llm_service
@@ -61,6 +62,19 @@ class UpdateExtractionProviderRequest(BaseModel):
 # ── Helpers ──
 
 
+async def _require_admin(user: User, db: AsyncSession) -> None:
+    """Verify user is an owner of at least one workspace (admin proxy)."""
+    from fastapi import HTTPException
+    result = await db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.role == "owner",
+        ).limit(1)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+
 def _resolve_api_key_for_provider(provider_name: str) -> str:
     """Get the configured API key for a provider from settings."""
     key_map = {
@@ -96,7 +110,7 @@ def _resolve_model_for_provider(provider_name: str) -> str | None:
 
 
 @router.get("/providers", response_model=list[ProviderInfo])
-async def list_providers():
+async def list_providers(user: User = Depends(get_current_user)):
     """List all registered providers with their configuration status."""
     result = []
     for name, spec in PROVIDERS.items():
@@ -113,7 +127,7 @@ async def list_providers():
 
 
 @router.get("/current", response_model=CurrentProviderResponse)
-async def get_current_provider():
+async def get_current_provider(user: User = Depends(get_current_user)):
     """Get the currently active provider."""
     provider = llm_service.current_provider
     return CurrentProviderResponse(
@@ -132,6 +146,8 @@ async def switch_provider(
     """Switch the active LLM provider for the current user."""
     if req.provider not in PROVIDERS:
         raise HTTPException(400, f"Unknown provider: {req.provider}")
+
+    await _require_admin(user, db)
 
     api_key = _resolve_api_key_for_provider(req.provider)
     if not api_key:
@@ -153,7 +169,7 @@ async def switch_provider(
 
 
 @router.get("/models/{provider_name}")
-async def list_models_for_provider(provider_name: str):
+async def list_models_for_provider(provider_name: str, user: User = Depends(get_current_user)):
     """Dynamically fetch available models from a provider's API.
 
     Falls back to the static list from the registry if the API call fails
@@ -218,7 +234,7 @@ async def get_extraction_language(
 
 
 @router.get("/extraction-provider", response_model=ExtractionProviderResponse)
-async def get_extraction_provider():
+async def get_extraction_provider(user: User = Depends(get_current_user)):
     """Get the current extraction LLM provider config."""
     available = []
     for name, spec in PROVIDERS.items():
@@ -241,6 +257,8 @@ async def update_extraction_provider(
     """Switch the extraction LLM provider (writes to .env)."""
     if req.provider not in PROVIDERS:
         raise HTTPException(400, f"Unknown provider: {req.provider}")
+
+    await _require_admin(user, db)
 
     api_key = _resolve_api_key_for_provider(req.provider)
     if not api_key:
@@ -283,7 +301,7 @@ class UpdateWebSearchSettingsRequest(BaseModel):
 
 
 @router.get("/web-search", response_model=WebSearchSettingsResponse)
-async def get_web_search_settings():
+async def get_web_search_settings(user: User = Depends(get_current_user)):
     """Get current web search configuration."""
     from app.services.web_search import PROVIDER_META
 
@@ -302,8 +320,10 @@ async def get_web_search_settings():
 async def update_web_search_settings(
     req: UpdateWebSearchSettingsRequest,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Update web search configuration."""
+    await _require_admin(user, db)
     if req.provider is not None:
         valid_names = {p["name"] for p in [
             {"name": "duckduckgo"}, {"name": "brave"}, {"name": "tavily"},
@@ -346,6 +366,8 @@ async def update_web_search_settings(
 
 def _update_env(key: str, value: str) -> None:
     """Update or add a key in the .env file."""
+    # Sanitize: strip newlines to prevent env injection
+    value = value.replace("\n", "").replace("\r", "")
     env_path = ".env"
     lines: list[str] = []
     found = False
@@ -371,9 +393,16 @@ def _update_env(key: str, value: str) -> None:
 # ── Fork Settings ──
 
 
+class ForkProfileInfo(BaseModel):
+    name: str
+    label: str
+    description: str
+
+
 class ForkSettingsResponse(BaseModel):
     auto_fork_enabled: bool
     fork_context_strategy: str
+    profiles: list[ForkProfileInfo]
 
 
 class UpdateForkSettingsRequest(BaseModel):
@@ -382,11 +411,17 @@ class UpdateForkSettingsRequest(BaseModel):
 
 
 @router.get("/fork", response_model=ForkSettingsResponse)
-async def get_fork_settings():
+async def get_fork_settings(user: User = Depends(get_current_user)):
     """Get current chat fork configuration."""
+    from app.tools.fork_profiles import get_all_profiles
+    profiles = [
+        ForkProfileInfo(name=p.name, label=p.label, description=p.description)
+        for p in get_all_profiles().values()
+    ]
     return ForkSettingsResponse(
         auto_fork_enabled=settings.auto_fork_enabled,
         fork_context_strategy=settings.fork_context_strategy,
+        profiles=profiles,
     )
 
 
@@ -394,8 +429,10 @@ async def get_fork_settings():
 async def update_fork_settings(
     req: UpdateForkSettingsRequest,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Update chat fork configuration."""
+    await _require_admin(user, db)
     valid_strategies = {"none", "inherit", "compress"}
 
     if req.auto_fork_enabled is not None:

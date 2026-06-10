@@ -82,19 +82,6 @@ class Settings(BaseSettings):
     web_search_timeout: int = 30
     web_search_proxy: str = ""  # HTTP/SOCKS proxy for web search requests
 
-    # GNN Training
-    gnn_training_mode: str = "auto"  # "auto", "local_cpu", "local_gpu", "remote_gpu"
-    gnn_training_trigger_cards: int = 100
-    gnn_training_trigger_days: int = 7
-    gnn_hidden_dim: int = 256
-    gnn_num_layers: int = 3
-    gnn_learning_rate: float = 0.001
-    gnn_num_epochs: int = 50
-
-    # Modal Labs (Remote GPU)
-    modal_app_name: str = ""
-    modal_api_key: str = ""
-
     # Fork system
     auto_fork_enabled: bool = True
     fork_context_strategy: str = "compress"  # none | inherit | compress

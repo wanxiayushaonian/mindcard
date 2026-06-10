@@ -5,14 +5,9 @@
     "pages/index/index",
     "pages/card-detail/card-detail",
     "pages/card-edit/card-edit",
-    "pages/category/category",
     "pages/ai-chat/ai-chat",
-    "pages/mind-link/mind-link",
     "pages/profile/profile",
-    "pages/search/search",
-    "pages/ai-records/ai-records",
-    "pages/network/network",
-    "pages/insights/insights"
+    "pages/search/search"
   ],
   "window": {
     "navigationBarTextStyle": "black",

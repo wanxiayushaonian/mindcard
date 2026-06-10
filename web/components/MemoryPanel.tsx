@@ -4,12 +4,15 @@ import { Database, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { memoryApi } from "@/lib/api";
+import { useTranslations } from "next-intl";
 
 interface MemoryPanelProps {
   workspaceId: string;
 }
 
 export function MemoryPanel({ workspaceId }: MemoryPanelProps) {
+  const t = useTranslations("memory");
+  const tc = useTranslations("common");
   const { data: memories, mutate } = useSWR(
     workspaceId ? ["memories", workspaceId] : null,
     () => memoryApi.list(workspaceId),
@@ -43,7 +46,7 @@ export function MemoryPanel({ workspaceId }: MemoryPanelProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Database className="h-4 w-4" />
-          共享记忆
+          {t("title")}
         </div>
         <button
           onClick={() => setShowAdd(!showAdd)}
@@ -55,26 +58,26 @@ export function MemoryPanel({ workspaceId }: MemoryPanelProps) {
       {showAdd && (
         <div className="space-y-1">
           <input
-            placeholder="标识"
+            placeholder={t("slugPlaceholder")}
             value={newSlug}
             onChange={(e) => setNewSlug(e.target.value)}
             className="w-full rounded border px-2 py-1 text-xs"
           />
           <input
-            placeholder="标题"
+            placeholder={t("titlePlaceholder")}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             className="w-full rounded border px-2 py-1 text-xs"
           />
           <textarea
-            placeholder="内容"
+            placeholder={t("bodyPlaceholder")}
             value={newBody}
             onChange={(e) => setNewBody(e.target.value)}
             className="w-full rounded border px-2 py-1 text-xs"
             rows={3}
           />
           <button onClick={handleAdd} className="text-xs text-blue-500">
-            保存
+            {tc("save")}
           </button>
         </div>
       )}

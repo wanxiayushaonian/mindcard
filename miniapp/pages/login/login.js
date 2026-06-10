@@ -10,6 +10,7 @@ Page({
     error: '',
     loading: false,
     wxLoading: false,
+    devLoading: false,
   },
 
   onSwitchMode(e) {
@@ -48,16 +49,9 @@ Page({
     var promise;
     if (this.data.mode === 'register') {
       var nickname = this.data.nickname.trim() || username;
-      promise = api.post('/api/auth/register', {
-        username: username,
-        password: password,
-        nickname: nickname,
-      });
+      promise = api.authApi.register(username, password, nickname);
     } else {
-      promise = api.post('/api/auth/login', {
-        username: username,
-        password: password,
-      });
+      promise = api.authApi.login(username, password);
     }
 
     promise
@@ -93,7 +87,7 @@ Page({
           self.setData({ error: '微信登录失败', wxLoading: false });
           return;
         }
-        api.post('/api/auth/wechat-login', { code: res.code })
+        api.authApi.wechatLogin(res.code)
           .then(function (data) {
             api.setToken(data.access_token);
             var app = getApp();

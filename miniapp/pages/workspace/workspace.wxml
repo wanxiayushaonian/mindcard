@@ -1,10 +1,5 @@
 <!--pages/workspace/workspace.wxml-->
 <navigation-bar title="我的灵感空间" back="{{false}}" background="#F9FAFC">
-  <view slot="right" class="nav-right">
-    <view class="nav-icon-btn" bindtap="onProfile">
-      <icon name="user" size="20" color="#555" />
-    </view>
-  </view>
 </navigation-bar>
 
 <scroll-view class="scrollarea" scroll-y type="list">
@@ -72,7 +67,26 @@
       </view>
     </view>
   </view>
+
+  <!-- Bottom spacer for bottom bar -->
+  <view style="height: 160rpx;"></view>
 </scroll-view>
+
+<!-- Bottom Action Bar -->
+<view class="bottom-bar">
+  <view class="bar-item" bindtap="onCreateWorkspace">
+    <icon name="plus" size="22" color="#555" />
+    <text class="bar-label">新建</text>
+  </view>
+  <view class="bar-item" bindtap="onShowJoinModal">
+    <icon name="link" size="22" color="#555" />
+    <text class="bar-label">加入</text>
+  </view>
+  <view class="bar-item" bindtap="onProfile">
+    <icon name="user" size="22" color="#555" />
+    <text class="bar-label">我的</text>
+  </view>
+</view>
 
 <!-- Create/Rename dialog -->
 <view class="modal-mask" wx:if="{{showCreateModal}}" bindtap="onCloseCreateModal">
@@ -177,35 +191,6 @@
       </view>
       <view class="confirm-btn modal-confirm" bindtap="onConfirmJoin">
         <text>加入</text>
-      </view>
-    </view>
-  </view>
-</view>
-
-<!-- Members management modal -->
-<view class="modal-mask" wx:if="{{showMembersModal}}" bindtap="onCloseMembersModal">
-  <view class="confirm-dialog" catchtap="onStopPropagation">
-    <text class="confirm-title">「{{membersWsName}}」成员</text>
-    <view class="members-list">
-      <view wx:for="{{membersList}}" wx:key="user_id" class="member-item">
-        <view class="member-info">
-          <text class="member-name">{{item.nickname}}</text>
-          <text class="member-role">{{item.role === 'owner' ? '管理员' : '成员'}}</text>
-        </view>
-        <view
-          wx:if="{{item.role !== 'owner'}}"
-          class="member-remove"
-          catchtap="onRemoveMember"
-          data-userid="{{item.user_id}}"
-          data-name="{{item.nickname}}"
-        >
-          <text>移除</text>
-        </view>
-      </view>
-    </view>
-    <view class="confirm-actions">
-      <view class="confirm-btn modal-confirm" bindtap="onCloseMembersModal">
-        <text>关闭</text>
       </view>
     </view>
   </view>

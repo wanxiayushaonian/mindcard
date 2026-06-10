@@ -1,6 +1,9 @@
+"use client";
+
 import type { Card } from "@/lib/api";
 import { TagChip } from "@/components/TagChip";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { useTranslations } from "next-intl";
 
 interface CardItemProps {
   card: Card;
@@ -12,54 +15,58 @@ interface CardItemProps {
 }
 
 export function CardItem({ card, onClick, topicName, topicColor, onContextMenu, compact }: CardItemProps) {
+  const t = useTranslations("common");
+
   if (compact) {
     return (
-      <div
+      <button
+        type="button"
         onClick={onClick}
         onContextMenu={onContextMenu}
-        className="mb-2 cursor-pointer break-inside-avoid rounded-lg border border-border bg-surface p-2.5 shadow-sm transition hover:shadow-md"
+        className="mb-2 w-full cursor-pointer break-inside-avoid rounded-lg border border-border bg-surface p-2.5 text-left shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-[0.99]"
         style={{ borderLeft: `3px solid ${card.color}` }}
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           {topicName && (
             <>
               <span
-                className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
+                className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                 style={{ backgroundColor: topicColor || "#6366f1" }}
               />
-              <span className="text-[9px] text-text-secondary truncate">{topicName}</span>
-              <span className="text-[9px] text-text-secondary/30">·</span>
+              <span className="min-w-0 shrink truncate text-[9px] text-text-secondary">{topicName}</span>
+              <span className="shrink-0 text-[9px] text-text-secondary/30">·</span>
             </>
           )}
-          <span className="truncate text-xs font-medium text-text">{card.title || "未命名"}</span>
+          <span className="min-w-0 truncate text-xs font-medium text-text">{card.title || t("unnamed")}</span>
         </div>
         <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-secondary">
           {card.content}
         </div>
-      </div>
+      </button>
     );
   }
 
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className="mb-4 cursor-pointer break-inside-avoid rounded-card border border-border bg-surface p-4 shadow-sm transition hover:shadow-md"
+      className="mb-4 w-full cursor-pointer break-inside-avoid rounded-card border border-border bg-surface p-4 text-left shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-[0.99]"
       style={{ borderLeft: `4px solid ${card.color}` }}
     >
       {topicName && (
-        <div className="mb-2 flex items-center gap-1.5">
+        <div className="mb-2 flex min-w-0 items-center gap-1.5">
           <span
-            className="inline-block h-2 w-2 rounded-full shrink-0"
+            className="inline-block h-2 w-2 shrink-0 rounded-full"
             style={{ backgroundColor: topicColor || "#6366f1" }}
           />
-          <span className="text-[10px] text-text-secondary truncate">{topicName}</span>
+          <span className="min-w-0 truncate text-[10px] text-text-secondary">{topicName}</span>
         </div>
       )}
-      <div className="mb-1 flex items-center gap-2">
-        {card.title && <h3 className="font-semibold text-text">{card.title}</h3>}
+      <div className="mb-1 flex min-w-0 items-center gap-2">
+        {card.title && <h3 className="min-w-0 truncate font-semibold text-text">{card.title}</h3>}
         {card.emotion_tag && (
-          <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-text-secondary">
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-text-secondary">
             {card.emotion_tag}
           </span>
         )}
@@ -74,6 +81,6 @@ export function CardItem({ card, onClick, topicName, topicColor, onContextMenu, 
           ))}
         </div>
       )}
-    </div>
+    </button>
   );
 }

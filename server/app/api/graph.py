@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.graph import EntityCard, GraphEntity, GraphRelation, GNNTrainingLog, TripleFeedback
+from app.models.graph import EntityCard, GraphEntity, GraphRelation
 from app.models.user import User
 from app.schemas.graph import (
     EntityCardItem,
@@ -17,11 +17,7 @@ from app.schemas.graph import (
     GraphSearchRequest,
     GraphSearchResponse,
     GraphStatsResponse,
-    GNNTrainingLogResponse,
-    GNNTrainingRequest,
     NeighborEntity,
-    TripleFeedbackCreate,
-    TripleFeedbackResponse,
 )
 from app.utils.auth import get_current_user, get_workspace_membership
 
@@ -204,90 +200,6 @@ async def graph_search(
     return await graph_retriever.retrieve(req.query, membership.workspace_id, db, k=req.k)
 
 
-# ---------------------------------------------------------------------------
-# POST /train  –  trigger GNN training
-# ---------------------------------------------------------------------------
-
-
-@router.post("/train", response_model=GNNTrainingLogResponse)
-async def trigger_training(
-    req: GNNTrainingRequest,
-    workspace_id: str = Query(...),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    from app.utils.auth import require_role
-
-    ws_id = _parse_uuid(workspace_id, "workspace_id")
-    membership = await get_workspace_membership(ws_id, user, db)
-    require_role(membership, "owner", "admin")
-
-    from app.services.gnn_trainer import trigger_gnn_training
-
-    log = await trigger_gnn_training(membership.workspace_id, db, mode=req.mode)
-    return log
-
-
-# ---------------------------------------------------------------------------
-# GET /training-status  –  training history
-# ---------------------------------------------------------------------------
-
-
-@router.get("/training-status", response_model=list[GNNTrainingLogResponse])
-async def training_status(
-    workspace_id: str = Query(...),
-    limit: int = Query(10, ge=1, le=50),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    ws_id = _parse_uuid(workspace_id, "workspace_id")
-    membership = await get_workspace_membership(ws_id, user, db)
-
-    stmt = (
-        select(GNNTrainingLog)
-        .where(GNNTrainingLog.workspace_id == membership.workspace_id)
-        .order_by(GNNTrainingLog.created_at.desc())
-        .limit(limit)
-    )
-    result = await db.execute(stmt)
-    return result.scalars().all()
-
-
-# ---------------------------------------------------------------------------
-# POST /triples/{triple_id}/feedback  –  submit triple feedback
-# ---------------------------------------------------------------------------
-
-
-@router.post("/triples/{triple_id}/feedback", response_model=TripleFeedbackResponse)
-async def submit_triple_feedback(
-    triple_id: str,
-    req: TripleFeedbackCreate,
-    workspace_id: str = Query(...),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    ws_id = _parse_uuid(workspace_id, "workspace_id")
-    membership = await get_workspace_membership(ws_id, user, db)
-    tid = _parse_uuid(triple_id, "triple_id")
-
-    # Verify the triple belongs to this workspace
-    relation = await db.get(GraphRelation, tid)
-    if relation is None or relation.workspace_id != membership.workspace_id:
-        raise HTTPException(status_code=404, detail="Triple not found")
-
-    feedback = TripleFeedback(
-        triple_id=tid,
-        user_id=user.id,
-        feedback_type=req.feedback_type,
-        corrected_head=req.corrected_head,
-        corrected_relation=req.corrected_relation,
-        corrected_tail=req.corrected_tail,
-    )
-    db.add(feedback)
-    await db.flush()
-    await db.refresh(feedback)
-    return feedback
-
 
 # ---------------------------------------------------------------------------
 # PUT /triples/{triple_id}  –  correct a triple
@@ -370,19 +282,119 @@ async def graph_stats(
     ).all()
     relation_type_counts = {row.relation: row.cnt for row in type_rows}
 
-    # Last training log
-    last_log = (
-        await db.execute(
-            select(GNNTrainingLog)
-            .where(GNNTrainingLog.workspace_id == ws)
-            .order_by(GNNTrainingLog.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-
     return GraphStatsResponse(
         entity_count=ent_count or 0,
         relation_count=rel_count or 0,
         relation_type_counts=relation_type_counts,
-        last_training=last_log,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /communities/detect  –  run Leiden community detection
+# ---------------------------------------------------------------------------
+
+
+@router.post("/communities/detect")
+async def detect_communities(
+    workspace_id: str = Query(...),
+    resolution: float = Query(1.0, ge=0.1, le=5.0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ws_id = _parse_uuid(workspace_id, "workspace_id")
+    membership = await get_workspace_membership(ws_id, user, db)
+
+    from app.services.community import community_detector
+
+    communities = await community_detector.detect_and_report(
+        membership.workspace_id, db, resolution=resolution
+    )
+    await db.commit()
+
+    return {
+        "communities_detected": len(communities),
+        "communities": [
+            {
+                "id": str(c.id),
+                "title": c.title,
+                "size": c.size,
+                "level": c.level,
+            }
+            for c in communities
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /communities  –  list communities with reports
+# ---------------------------------------------------------------------------
+
+
+@router.get("/communities")
+async def list_communities(
+    workspace_id: str = Query(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ws_id = _parse_uuid(workspace_id, "workspace_id")
+    membership = await get_workspace_membership(ws_id, user, db)
+
+    from app.models.graph import Community, CommunityReport
+
+    result = await db.execute(
+        select(Community, CommunityReport)
+        .outerjoin(CommunityReport, CommunityReport.community_id == Community.id)
+        .where(Community.workspace_id == membership.workspace_id)
+        .order_by(Community.size.desc())
+    )
+
+    items = []
+    for community, report in result.all():
+        items.append({
+            "id": str(community.id),
+            "title": report.title if report else community.title,
+            "size": community.size,
+            "level": community.level,
+            "summary": report.summary if report else "",
+            "findings": report.findings if report else [],
+            "rating": report.rating if report else 0.0,
+        })
+
+    return {"communities": items}
+
+
+# ---------------------------------------------------------------------------
+# POST /cleanup  –  prune orphan entities and stale relations
+# ---------------------------------------------------------------------------
+
+
+@router.post("/cleanup")
+async def cleanup_graph(
+    workspace_id: str = Query(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ws_id = _parse_uuid(workspace_id, "workspace_id")
+    membership = await get_workspace_membership(ws_id, user, db)
+
+    from app.services.graph_cleanup import graph_cleaner
+
+    stats = await graph_cleaner.cleanup_workspace(membership.workspace_id, db)
+    await db.commit()
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# POST /hnsw-index  –  create HNSW index for fast vector search
+# ---------------------------------------------------------------------------
+
+
+@router.post("/hnsw-index")
+async def create_hnsw_index(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.graph_cleanup import graph_cleaner
+
+    await graph_cleaner.create_hnsw_index(db)
+    return {"ok": True, "message": "HNSW index created"}

@@ -17,6 +17,7 @@ _COMPLETE = "<|COMPLETE|>"
 class ExtractedEntity:
     name: str
     entity_type: str | None = None
+    description: str | None = None
 
 
 @dataclass
@@ -24,6 +25,7 @@ class ExtractedTriple:
     head: str
     relation: str
     tail: str
+    weight: float = 1.0
 
 
 class TripleExtractor:
@@ -68,6 +70,42 @@ class TripleExtractor:
             len(entities), len(triples),
         )
         return entities, triples
+
+    async def extract_entities_only(self, text: str, language: str = "zh") -> list[ExtractedEntity]:
+        """Lightweight NER for retrieval — fast single call, no gleaning, no relations."""
+        if language == "zh":
+            system = (
+                "从用户问题中提取关键实体名称（人物、作品、地点、概念等）。"
+                "只输出实体名，每行一个，不超过5个，不要解释。"
+            )
+        else:
+            system = (
+                "Extract key entity names (people, works, places, concepts) from the user question. "
+                "Output one entity per line, max 5, no explanation."
+            )
+
+        try:
+            response = await llm_service.extraction_complete_simple(
+                system_prompt=system,
+                user_content=text[:500],
+                max_tokens=64,
+                temperature=0.0,
+            )
+        except Exception as e:
+            logger.warning("extract_entities_only LLM call failed: %s", e)
+            return []
+
+        if not response or not response.strip():
+            return []
+
+        entities: list[ExtractedEntity] = []
+        seen: set[str] = set()
+        for line in response.strip().splitlines():
+            name = line.strip().strip("-•·").strip()
+            if name and name not in seen and len(name) <= 64:
+                seen.add(name)
+                entities.append(ExtractedEntity(name=name))
+        return entities
 
     # ── Core extraction ───────────────────────────────────────────────
 
@@ -242,18 +280,25 @@ Rules:
             if rec_type == "entity" and len(fields) >= 3:
                 name = fields[1][:128]
                 entity_type = fields[2] if len(fields) > 2 else None
+                description = fields[3][:500] if len(fields) > 3 and fields[3] else None
                 if name and name not in seen_names:
                     seen_names.add(name)
                     entities.append(ExtractedEntity(
                         name=name,
                         entity_type=self._clean_type(entity_type),
+                        description=description,
                     ))
 
             elif rec_type == "relationship" and len(fields) >= 4:
                 source = fields[1]
                 target = fields[2]
-                # description is fields[3], weight is fields[4] (unused for now)
                 description = fields[3] if len(fields) > 3 else ""
+                weight = 1.0
+                if len(fields) > 4 and fields[4]:
+                    try:
+                        weight = max(0.1, min(1.0, float(fields[4]) / 10.0))
+                    except (ValueError, IndexError):
+                        weight = 1.0
                 if source and target and source != target:
                     key = (source, description, target)
                     if key not in seen_triples:
@@ -262,6 +307,7 @@ Rules:
                             head=source,
                             relation=description,
                             tail=target,
+                            weight=weight,
                         ))
 
         return entities, triples

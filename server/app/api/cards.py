@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.card import Card, CardRelation
 from app.models.user import User
-from app.schemas.card import CardCreate, CardListResponse, CardRelationCreate, CardResponse, CardUpdate
+from app.schemas.card import CardBatchRequest, CardBatchResponse, CardCreate, CardListResponse, CardRelationCreate, CardResponse, CardUpdate
 from app.utils.activity import create_activity
 from app.utils.auth import can_edit_card, get_current_user, get_workspace_membership, require_role
 from app.utils.cursor import decode_cursor, encode_cursor
@@ -144,6 +144,69 @@ async def create_card(
     return card
 
 
+@router.post("/batch", response_model=CardBatchResponse)
+async def create_cards_batch(
+    req: CardBatchRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Bulk-create cards. Background pipeline (embedding, topic, topology, triples) runs per card."""
+    membership = await get_workspace_membership(req.workspace_id, user, db)
+    require_role(membership, "owner", "admin", "editor")
+
+    ws_id = parse_uuid(req.workspace_id)
+    default_chat_id = parse_uuid(req.chat_id) if req.chat_id else None
+
+    # Check local_id uniqueness
+    local_ids = [c.local_id for c in req.cards]
+    existing = await db.execute(select(Card.local_id).where(Card.local_id.in_(local_ids)))
+    conflicts = [row[0] for row in existing.all()]
+    if conflicts:
+        raise HTTPException(status_code=409, detail=f"local_id 已存在: {', '.join(conflicts[:10])}")
+
+    # Find root topology node
+    from app.models.chat import AiChat
+    from app.models.topology import NodeCard
+
+    root_result = await db.execute(
+        select(AiChat).where(AiChat.workspace_id == ws_id, AiChat.parent_id.is_(None)).limit(1)
+    )
+    root_node = root_result.scalar_one_or_none()
+
+    # Bulk create
+    created_ids = []
+    errors = []
+    for item in req.cards:
+        try:
+            card_data = item.model_dump()
+            card = Card(**card_data, workspace_id=ws_id, creator_id=user.id)
+            db.add(card)
+            await db.flush()
+            created_ids.append(str(card.id))
+
+            if root_node:
+                db.add(NodeCard(chat_id=root_node.id, card_id=card.id))
+
+            background_tasks.add_task(_generate_embedding, card.id, default_chat_id)
+        except Exception as e:
+            errors.append({"local_id": item.local_id, "error": str(e)})
+
+    await create_activity(
+        db, workspace_id=req.workspace_id, actor_id=user.id,
+        action="card.batch_created", target_type="workspace", target_id=req.workspace_id,
+        metadata={"count": len(created_ids)},
+    )
+    await db.commit()
+
+    return CardBatchResponse(
+        created=len(created_ids),
+        failed=len(errors),
+        card_ids=created_ids,
+        errors=errors,
+    )
+
+
 @router.get("/{card_id}", response_model=CardResponse)
 async def get_card(
     card_id: str,
@@ -244,6 +307,7 @@ async def delete_card_preview(
         raise HTTPException(status_code=404, detail="卡片不存在")
     await get_workspace_membership(card.workspace_id, user, db)
 
+    card_uuid = parse_uuid(card_id)
     from sqlalchemy import func, select
     from app.models.graph import EntityCard, GraphRelation
     from app.models.topology import NodeCard
@@ -252,24 +316,24 @@ async def delete_card_preview(
     # Count relations
     rel_count = await db.execute(
         select(func.count()).where(
-            (CardRelation.card_id == card_id) | (CardRelation.related_card_id == card_id)
+            (CardRelation.card_id == card_uuid) | (CardRelation.related_card_id == card_uuid)
         )
     )
     # Count tree node attachments
     node_count = await db.execute(
-        select(func.count()).where(NodeCard.card_id == card_id)
+        select(func.count()).where(NodeCard.card_id == card_uuid)
     )
     # Count entity links
     entity_count = await db.execute(
-        select(func.count()).where(EntityCard.card_id == card_id)
+        select(func.count()).where(EntityCard.card_id == card_uuid)
     )
     # Count graph relations sourced from this card
     graph_rel_count = await db.execute(
-        select(func.count()).where(GraphRelation.source_card_id == card_id)
+        select(func.count()).where(GraphRelation.source_card_id == card_uuid)
     )
     # Count comments
     comment_count = await db.execute(
-        select(func.count()).where(Comment.card_id == card_id)
+        select(func.count()).where(Comment.card_id == card_uuid)
     )
 
     return {

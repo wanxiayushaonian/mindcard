@@ -18,7 +18,7 @@ from app.schemas.chat import (
     ChatResponse,
     ChatSummarizeRequest,
 )
-from app.utils.auth import get_current_user, get_workspace_membership
+from app.utils.auth import get_current_user, get_workspace_membership, require_role
 from app.utils.helpers import parse_uuid
 
 router = APIRouter()
@@ -47,10 +47,13 @@ async def list_chats(
         await get_workspace_membership(parse_uuid(workspace_id), user, db)
     stmt = select(AiChat).order_by(AiChat.created_at.desc())
     if workspace_id:
-        # When workspace scope is set, include root nodes without user_id
-        # (legacy root nodes created before user_id was required)
+        # Include: user's own chats + shared workspace root nodes (no owner)
+        from sqlalchemy import and_
         stmt = stmt.where(
-            or_(AiChat.user_id == user.id, AiChat.node_type == "root")
+            or_(
+                AiChat.user_id == user.id,
+                and_(AiChat.node_type == "root", AiChat.user_id.is_(None)),
+            )
         )
         stmt = stmt.where(AiChat.workspace_id == parse_uuid(workspace_id))
     else:
@@ -223,6 +226,30 @@ async def get_chat(
         .order_by(ChatMessage.created_at.asc())
     )
     messages = result.scalars().all()
+
+    # Build child message count map for fork-divider messages (single batch query)
+    child_chat_ids = [
+        uuid.UUID(m.metadata_["child_chat_id"])
+        for m in messages
+        if m.role == "fork-divider" and m.metadata_ and m.metadata_.get("child_chat_id")
+    ]
+    child_count_map: dict[str, int] = {}
+    if child_chat_ids:
+        count_result = await db.execute(
+            select(ChatMessage.chat_id, func.count(ChatMessage.id).label("cnt"))
+            .where(ChatMessage.chat_id.in_(child_chat_ids))
+            .where(ChatMessage.role != "fork-divider")
+            .group_by(ChatMessage.chat_id)
+        )
+        child_count_map = {str(row.chat_id): row.cnt for row in count_result}
+
+    def _enrich_message(m: ChatMessage) -> ChatMessageResponse:
+        resp = ChatMessageResponse.model_validate(m)
+        if m.role == "fork-divider" and m.metadata_ and m.metadata_.get("child_chat_id"):
+            child_id = m.metadata_["child_chat_id"]
+            resp.metadata_ = {**m.metadata_, "child_message_count": child_count_map.get(child_id, 0)}
+        return resp
+
     return ChatResponse(
         id=chat.id,
         mode=chat.mode,
@@ -235,7 +262,7 @@ async def get_chat(
         summary=chat.summary,
         chat_status=chat.chat_status,
         created_at=chat.created_at,
-        messages=[ChatMessageResponse.model_validate(m) for m in messages],
+        messages=[_enrich_message(m) for m in messages],
     )
 
 
@@ -256,7 +283,9 @@ async def add_message(
         role=req.role,
         content=req.content,
         web_search_results=[r.model_dump() for r in req.web_search_results] if req.web_search_results else None,
+        source_cards=req.source_cards,
         fork_id=req.fork_id,
+        metadata_=req.metadata_,
     )
     db.add(msg)
     await db.flush()
@@ -335,6 +364,26 @@ async def update_message(
     return msg
 
 
+@router.delete("/{chat_id}/messages/{msg_id}")
+async def delete_message(
+    chat_id: str,
+    msg_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Delete a single message from a chat."""
+    chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    await _require_chat_access(chat, user, db)
+    msg = await db.get(ChatMessage, parse_uuid(msg_id))
+    if not msg or msg.chat_id != chat.id:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    await db.delete(msg)
+    await db.commit()
+    return {"ok": True}
+
+
 @router.delete("/{chat_id}")
 async def delete_chat(
     chat_id: str,
@@ -349,7 +398,14 @@ async def delete_chat(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    await _require_chat_access(chat, user, db)
+    # Only owner or workspace admin can delete
+    if chat.user_id == user.id:
+        pass  # owner can always delete
+    elif chat.workspace_id:
+        membership = await get_workspace_membership(chat.workspace_id, user, db)
+        require_role(membership, "owner", "admin")
+    else:
+        raise HTTPException(status_code=403, detail="无权删除此对话")
 
     # Remove fork-divider messages in other chats that reference this chat as a child
     fork_dividers = await db.execute(
@@ -448,6 +504,7 @@ async def fork_chat(
     # Create child AiChat
     branch_label = req.topic or "手动分支"
     child_chat = AiChat(
+        local_id=f"fork-{uuid.uuid4().hex[:12]}",
         workspace_id=parent_chat.workspace_id,
         parent_id=parent_chat.id,
         user_id=user.id,
@@ -458,7 +515,7 @@ async def fork_chat(
     db.add(child_chat)
     await db.flush()
 
-    # Insert fork-divider message in parent chat
+    # Insert fork-divider message in parent chat (frontend will update content)
     divider = ChatMessage(
         chat_id=parent_chat.id,
         role="fork-divider",
@@ -476,6 +533,9 @@ async def fork_chat(
     return ChatForkResponse(
         chat_id=str(child_chat.id),
         context_summary=context_summary or "",
+        depth=depth,
+        node_id=str(child_chat.id),
+        divider_msg_id=str(divider.id),
     )
 
 

@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatCreate(BaseModel):
@@ -38,7 +39,9 @@ class ChatMessageCreate(BaseModel):
     role: str  # 'user' | 'assistant' | 'fork-divider'
     content: str
     web_search_results: list[WebSearchResult] | None = None
+    source_cards: list[dict[str, Any]] | None = None
     fork_id: str | None = None
+    metadata_: dict | None = Field(None, alias="metadata_")
 
 
 class ChatMessageResponse(BaseModel):
@@ -47,7 +50,9 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     web_search_results: list[WebSearchResult] | None = None
+    source_cards: list[dict[str, Any]] | None = None
     fork_id: str | None = None
+    metadata_: dict | None = Field(None, alias="metadata_")
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -88,5 +93,8 @@ class ChatResponse(BaseModel):
 
 class ChatForkResponse(BaseModel):
     """Response after forking a conversation."""
-    chat_id: str  # The new child AiChat ID
+    chat_id: str
     context_summary: str
+    depth: int = 0
+    node_id: str = ""
+    divider_msg_id: str = ""

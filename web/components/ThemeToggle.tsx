@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { Sun, Moon } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 export function ThemeToggle() {
+  const t = useTranslations("theme");
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
@@ -25,7 +27,7 @@ export function ThemeToggle() {
     <button
       onClick={toggle}
       className="flex h-8 w-8 items-center justify-center rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-      title={dark ? "切换到浅色模式" : "切换到深色模式"}
+      title={dark ? t("toggleToLight") : t("toggleToDark")}
     >
       {dark ? <Sun size={16} /> : <Moon size={16} />}
     </button>

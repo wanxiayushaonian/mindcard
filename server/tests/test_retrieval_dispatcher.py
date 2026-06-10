@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.schemas.retrieval import EntityContext, RetrievalLevel, RetrievalResult
+from app.schemas.retrieval import EntityContext, ReasoningPathItem, RetrievalLevel, RetrievalResult
 from app.services.retrieval_dispatcher import RetrievalDispatcher
 
 
@@ -31,20 +31,20 @@ def workspace_ids():
 
 class TestRetrievalLevel:
     def test_values(self):
-        assert RetrievalLevel.FREE == 0
-        assert RetrievalLevel.CARD == 1
-        assert RetrievalLevel.GRAPH == 2
-        assert RetrievalLevel.FULL == 3
+        assert RetrievalLevel.CHAT == 0
+        assert RetrievalLevel.SEARCH == 1
+        assert RetrievalLevel.EXPLORE == 2
+        assert RetrievalLevel.CONTEXT == 3
 
     def test_int_conversion(self):
-        assert RetrievalLevel(0) is RetrievalLevel.FREE
-        assert RetrievalLevel(1) is RetrievalLevel.CARD
-        assert RetrievalLevel(2) is RetrievalLevel.GRAPH
-        assert RetrievalLevel(3) is RetrievalLevel.FULL
+        assert RetrievalLevel(0) is RetrievalLevel.CHAT
+        assert RetrievalLevel(1) is RetrievalLevel.SEARCH
+        assert RetrievalLevel(2) is RetrievalLevel.EXPLORE
+        assert RetrievalLevel(3) is RetrievalLevel.CONTEXT
 
     def test_membership(self):
-        assert RetrievalLevel.FREE in RetrievalLevel
-        assert RetrievalLevel.FULL in RetrievalLevel
+        assert RetrievalLevel.CHAT in RetrievalLevel
+        assert RetrievalLevel.CONTEXT in RetrievalLevel
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ class TestRetrievalResult:
         assert result.topology_path is None
         assert result.node_card_titles == []
         assert result.cross_refs == []
-        assert result.level_used == RetrievalLevel.FREE
+        assert result.level_used == RetrievalLevel.CHAT
 
     def test_construction_with_all_fields(self):
         entity = EntityContext(entity_id="e1", name="Test")
@@ -71,10 +71,10 @@ class TestRetrievalResult:
             entities=[entity],
             topology_path=[{"node_id": "n1", "title": "Root", "summary": ""}],
             node_card_titles=["Title A"],
-            cross_refs=[{"target_title": "Branch", "ref_type": "related", "reason": "test"}],
-            level_used=RetrievalLevel.FULL,
+            cross_refs=[{"title": "Branch", "ref_type": "related", "reason": "test"}],
+            level_used=RetrievalLevel.CONTEXT,
         )
-        assert result.level_used == RetrievalLevel.FULL
+        assert result.level_used == RetrievalLevel.CONTEXT
         assert len(result.cards) == 1
         assert len(result.entities) == 1
         assert result.entities[0].name == "Test"
@@ -116,13 +116,13 @@ class TestDetectLevel:
     async def test_short_question_returns_card(self, dispatcher, mock_db, workspace_ids):
         """Questions shorter than 10 chars return CARD."""
         result = await dispatcher.detect_level("short", workspace_ids, mock_db)
-        assert result == RetrievalLevel.CARD
+        assert result == RetrievalLevel.SEARCH
 
     @pytest.mark.asyncio
     async def test_short_question_exactly_nine_chars(self, dispatcher, mock_db, workspace_ids):
         """Exactly 9 chars still triggers the short-question path."""
         result = await dispatcher.detect_level("nine char", workspace_ids, mock_db)
-        assert result == RetrievalLevel.CARD
+        assert result == RetrievalLevel.SEARCH
 
     @pytest.mark.asyncio
     async def test_entity_name_in_question_returns_graph(
@@ -138,7 +138,7 @@ class TestDetectLevel:
             result = await dispatcher.detect_level(
                 "explain the Transformer architecture in detail", workspace_ids, mock_db
             )
-        assert result == RetrievalLevel.GRAPH
+        assert result == RetrievalLevel.EXPLORE
 
     @pytest.mark.asyncio
     async def test_deep_keyword_analysis_returns_full(
@@ -154,7 +154,7 @@ class TestDetectLevel:
             result = await dispatcher.detect_level(
                 "请分析一下这个模型的性能", workspace_ids, mock_db
             )
-        assert result == RetrievalLevel.FULL
+        assert result == RetrievalLevel.CONTEXT
 
     @pytest.mark.asyncio
     async def test_deep_keyword_contrast_returns_full(
@@ -170,13 +170,13 @@ class TestDetectLevel:
             result = await dispatcher.detect_level(
                 "对比两个算法的性能表现差异", workspace_ids, mock_db
             )
-        assert result == RetrievalLevel.FULL
+        assert result == RetrievalLevel.CONTEXT
 
     @pytest.mark.asyncio
-    async def test_no_entity_no_keyword_returns_graph(
+    async def test_no_entity_no_keyword_returns_card(
         self, dispatcher, mock_db, workspace_ids
     ):
-        """Long question without entities or deep keywords returns GRAPH."""
+        """Long question without entities or deep keywords returns CARD (avoids LLM NER overhead)."""
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db.execute.return_value = mock_result
@@ -186,7 +186,7 @@ class TestDetectLevel:
             result = await dispatcher.detect_level(
                 "how does backpropagation work in neural networks", workspace_ids, mock_db
             )
-        assert result == RetrievalLevel.GRAPH
+        assert result == RetrievalLevel.SEARCH
 
     @pytest.mark.asyncio
     async def test_embedding_failure_falls_through_to_keyword_check(
@@ -198,19 +198,19 @@ class TestDetectLevel:
             result = await dispatcher.detect_level(
                 "请分析这个数据的趋势变化", workspace_ids, mock_db
             )
-        assert result == RetrievalLevel.FULL
+        assert result == RetrievalLevel.CONTEXT
 
     @pytest.mark.asyncio
-    async def test_embedding_failure_no_keyword_returns_graph(
+    async def test_embedding_failure_no_keyword_returns_card(
         self, dispatcher, mock_db, workspace_ids
     ):
-        """When embedding fails and no keywords, returns GRAPH for long questions."""
+        """When embedding fails and no keywords, returns CARD for long questions."""
         with patch("app.services.embedding.embedding_service") as mock_emb:
             mock_emb.embed = AsyncMock(side_effect=RuntimeError("embedding down"))
             result = await dispatcher.detect_level(
                 "how does gradient descent optimize loss functions", workspace_ids, mock_db
             )
-        assert result == RetrievalLevel.GRAPH
+        assert result == RetrievalLevel.SEARCH
 
     @pytest.mark.asyncio
     async def test_empty_workspace_ids_skips_entity_check(
@@ -220,8 +220,8 @@ class TestDetectLevel:
         result = await dispatcher.detect_level(
             "how does gradient descent optimize loss functions", [], mock_db
         )
-        # No entity check, no keywords, long question → GRAPH
-        assert result == RetrievalLevel.GRAPH
+        # No entity check, no keywords, long question → CARD (default)
+        assert result == RetrievalLevel.SEARCH
 
 
 # ---------------------------------------------------------------------------
@@ -230,76 +230,67 @@ class TestDetectLevel:
 
 
 class TestBuildEntityContextString:
-    def test_empty_entities_returns_empty_string(self):
-        result = RetrievalResult(entities=[])
+    def test_empty_paths_returns_empty_string(self):
+        result = RetrievalResult(reasoning_paths=[])
         assert RetrievalDispatcher.build_entity_context_string(result) == ""
 
-    def test_entity_with_relations(self):
-        ctx = EntityContext(
-            entity_id="1",
-            name="Neural Network",
-            entity_type="concept",
-            relations=[
-                {"head_name": "Neural Network", "relation": "uses", "tail_name": "Backpropagation", "weight": 0.9},
-            ],
-            linked_card_titles=["Deep Learning Intro"],
+    def test_reasoning_path_with_entities_and_relations(self):
+        path = ReasoningPathItem(
+            entities=["Neural Network", "Backpropagation"],
+            relations=["uses"],
+            score=0.9,
         )
-        result = RetrievalResult(entities=[ctx])
+        result = RetrievalResult(reasoning_paths=[path])
         output = RetrievalDispatcher.build_entity_context_string(result)
 
         assert "Neural Network" in output
         assert "Backpropagation" in output
         assert "uses" in output
-        assert "Deep Learning Intro" in output
-        assert "关联卡片" in output
+        assert "知识图谱推理路径" in output
 
-    def test_entity_without_relations(self):
-        ctx = EntityContext(
-            entity_id="2",
-            name="Attention",
-            entity_type="mechanism",
+    def test_single_entity_path_skipped(self):
+        """Paths with fewer than 2 entities are skipped."""
+        path = ReasoningPathItem(
+            entities=["Attention"],
+            relations=[],
+            score=0.5,
         )
-        result = RetrievalResult(entities=[ctx])
+        result = RetrievalResult(reasoning_paths=[path])
         output = RetrievalDispatcher.build_entity_context_string(result)
 
-        # Should have the header but no relation lines
-        assert "知识库中的相关概念" in output
-        assert "Attention" not in output  # no relations, no card titles → no detail lines
+        # Header present but no path lines (single entity)
+        assert "知识图谱推理路径" in output
+        assert "Attention" not in output
 
-    def test_multiple_entities(self):
-        ctx1 = EntityContext(
-            entity_id="1",
-            name="CNN",
-            relations=[
-                {"head_name": "CNN", "relation": "is_a", "tail_name": "Neural Network", "weight": 1.0},
-            ],
+    def test_multiple_paths(self):
+        path1 = ReasoningPathItem(
+            entities=["CNN", "Neural Network"],
+            relations=["is_a"],
+            score=0.9,
         )
-        ctx2 = EntityContext(
-            entity_id="2",
-            name="RNN",
-            relations=[
-                {"head_name": "RNN", "relation": "is_a", "tail_name": "Neural Network", "weight": 1.0},
-            ],
+        path2 = ReasoningPathItem(
+            entities=["RNN", "Neural Network"],
+            relations=["is_a"],
+            score=0.8,
         )
-        result = RetrievalResult(entities=[ctx1, ctx2])
+        result = RetrievalResult(reasoning_paths=[path1, path2])
         output = RetrievalDispatcher.build_entity_context_string(result)
 
         assert "CNN" in output
         assert "RNN" in output
 
-    def test_relations_limited_to_three(self):
-        relations = [
-            {"head_name": "A", "relation": f"rel_{i}", "tail_name": "B", "weight": 0.5}
-            for i in range(5)
+    def test_paths_limited_to_five(self):
+        paths = [
+            ReasoningPathItem(entities=[f"E{i}", f"E{i+1}"], relations=[f"rel_{i}"], score=0.5)
+            for i in range(8)
         ]
-        ctx = EntityContext(entity_id="1", name="Test", relations=relations)
-        result = RetrievalResult(entities=[ctx])
+        result = RetrievalResult(reasoning_paths=paths)
         output = RetrievalDispatcher.build_entity_context_string(result)
 
-        # Only first 3 relations should appear
+        # Only first 5 paths should appear
         assert "rel_0" in output
-        assert "rel_2" in output
-        assert "rel_3" not in output
+        assert "rel_4" in output
+        assert "rel_5" not in output
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +330,7 @@ class TestBuildTopologyContextString:
     def test_with_cross_refs(self):
         result = RetrievalResult(
             cross_refs=[
-                {"target_title": "Related Branch", "ref_type": "related", "reason": "overlap"},
+                {"title": "Related Branch", "ref_type": "related", "reason": "overlap"},
             ],
         )
         output = RetrievalDispatcher.build_topology_context_string(result)
@@ -357,7 +348,7 @@ class TestBuildTopologyContextString:
             ],
             node_card_titles=["Transformer Paper", "BERT Notes"],
             cross_refs=[
-                {"target_title": "CV Branch", "ref_type": "cross", "reason": "shared backbone"},
+                {"title": "CV Branch", "ref_type": "cross", "reason": "shared backbone"},
             ],
         )
         output = RetrievalDispatcher.build_topology_context_string(result)
@@ -379,7 +370,7 @@ class TestBuildTopologyContextString:
 
     def test_cross_refs_limited_to_three(self):
         refs = [
-            {"target_title": f"Branch {i}", "ref_type": "cross", "reason": ""}
+            {"title": f"Branch {i}", "ref_type": "cross", "reason": ""}
             for i in range(5)
         ]
         result = RetrievalResult(cross_refs=refs)
@@ -399,10 +390,10 @@ class TestDispatch:
     @pytest.mark.asyncio
     async def test_free_level_returns_empty(self, dispatcher, mock_db, workspace_ids):
         result = await dispatcher.dispatch(
-            question="test", level=RetrievalLevel.FREE,
+            question="test", level=RetrievalLevel.CHAT,
             workspace_ids=workspace_ids, db=mock_db,
         )
-        assert result.level_used == RetrievalLevel.FREE
+        assert result.level_used == RetrievalLevel.CHAT
         assert result.cards == []
         assert result.entities == []
 
@@ -413,13 +404,13 @@ class TestDispatch:
             question="test", level=0,
             workspace_ids=workspace_ids, db=mock_db,
         )
-        assert result.level_used == RetrievalLevel.FREE
+        assert result.level_used == RetrievalLevel.CHAT
 
     @pytest.mark.asyncio
     async def test_auto_level_with_short_question(self, dispatcher, mock_db, workspace_ids):
         """AUTO_LEVEL (-1) with a short question triggers detect_level -> CARD."""
         mock_card_result = RetrievalResult(
-            cards=[], card_scores=[], level_used=RetrievalLevel.CARD
+            cards=[], card_scores=[], level_used=RetrievalLevel.SEARCH
         )
         with patch.object(
             dispatcher, "_level_card", new_callable=AsyncMock, return_value=mock_card_result
@@ -428,54 +419,54 @@ class TestDispatch:
                 question="hi", level=RetrievalDispatcher.AUTO_LEVEL,
                 workspace_ids=workspace_ids, db=mock_db,
             )
-        assert result.level_used == RetrievalLevel.CARD
+        assert result.level_used == RetrievalLevel.SEARCH
 
     @pytest.mark.asyncio
     async def test_card_level_calls_level_card(self, dispatcher, mock_db, workspace_ids):
         """CARD level routes to _level_card."""
         mock_card_result = RetrievalResult(
-            cards=["c1"], card_scores=[0.5], level_used=RetrievalLevel.CARD
+            cards=["c1"], card_scores=[0.5], level_used=RetrievalLevel.SEARCH
         )
         with patch.object(
             dispatcher, "_level_card", new_callable=AsyncMock, return_value=mock_card_result
         ) as mock_lc:
             result = await dispatcher.dispatch(
-                question="test", level=RetrievalLevel.CARD,
+                question="test", level=RetrievalLevel.SEARCH,
                 workspace_ids=workspace_ids, db=mock_db,
             )
             mock_lc.assert_awaited_once()
-            assert result.level_used == RetrievalLevel.CARD
+            assert result.level_used == RetrievalLevel.SEARCH
 
     @pytest.mark.asyncio
     async def test_graph_level_calls_level_graph(self, dispatcher, mock_db, workspace_ids):
         """GRAPH level routes to _level_graph."""
         mock_graph_result = RetrievalResult(
-            cards=["c1"], entities=[], level_used=RetrievalLevel.GRAPH
+            cards=["c1"], entities=[], level_used=RetrievalLevel.EXPLORE
         )
         with patch.object(
             dispatcher, "_level_graph", new_callable=AsyncMock, return_value=mock_graph_result
         ) as mock_lg:
             result = await dispatcher.dispatch(
-                question="test", level=RetrievalLevel.GRAPH,
+                question="test", level=RetrievalLevel.EXPLORE,
                 workspace_ids=workspace_ids, db=mock_db,
             )
             mock_lg.assert_awaited_once()
-            assert result.level_used == RetrievalLevel.GRAPH
+            assert result.level_used == RetrievalLevel.EXPLORE
 
     @pytest.mark.asyncio
     async def test_full_level_calls_level_full(self, dispatcher, mock_db, workspace_ids):
         """FULL level routes to _level_full."""
         mock_full_result = RetrievalResult(
-            cards=[], entities=[], level_used=RetrievalLevel.FULL
+            cards=[], entities=[], level_used=RetrievalLevel.CONTEXT
         )
         with patch.object(
             dispatcher, "_level_full", new_callable=AsyncMock, return_value=mock_full_result
         ):
             result = await dispatcher.dispatch(
-                question="test", level=RetrievalLevel.FULL,
+                question="test", level=RetrievalLevel.CONTEXT,
                 workspace_ids=workspace_ids, db=mock_db, chat_id=None,
             )
-            assert result.level_used == RetrievalLevel.FULL
+            assert result.level_used == RetrievalLevel.CONTEXT
 
     @pytest.mark.asyncio
     async def test_full_level_with_chat_id_injects_topology(
@@ -483,7 +474,7 @@ class TestDispatch:
     ):
         """FULL level + chat_id triggers get_topology_context injection."""
         mock_full_result = RetrievalResult(
-            cards=[], entities=[], level_used=RetrievalLevel.FULL
+            cards=[], entities=[], level_used=RetrievalLevel.CONTEXT
         )
         topo_data = {
             "path": [{"node_id": "n1", "title": "Root", "summary": ""}],
@@ -496,7 +487,7 @@ class TestDispatch:
             dispatcher, "get_topology_context", new_callable=AsyncMock, return_value=topo_data
         ):
             result = await dispatcher.dispatch(
-                question="test", level=RetrievalLevel.FULL,
+                question="test", level=RetrievalLevel.CONTEXT,
                 workspace_ids=workspace_ids, db=mock_db,
                 chat_id="chat-123",
             )

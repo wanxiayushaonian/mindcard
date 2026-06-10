@@ -9,21 +9,29 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sqlalchemy import select
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.chat import AiChat, ChatMessage
 from app.services.rag import rag_service
 from app.services.topology import topology_service
+from app.services.web_search import web_search_service
+
+MAX_TOOL_ROUNDS = 5
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-BRANCH_PATTERN = re.compile(r'^\s*\[BRANCH:\s*(.+?)\]\s*')
+def _strip_thinking(text: str) -> str:
+    """Remove thinking blocks from LLM response (handles both <think> and <thinking> tags)."""
+    text = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+    text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL)
+    return text.strip()
+
 
 
 @router.websocket("/ws")
@@ -72,100 +80,168 @@ async def chat_websocket(websocket: WebSocket):
 
     closed = False
     current_task: asyncio.Task | None = None
+    send_lock = asyncio.Lock()
+
+    async def _verify_chat_ownership(chat_id: str) -> bool:
+        """Check that the chat belongs to the authenticated user."""
+        from app.models.chat import AiChat
+        try:
+            async for db in get_db():
+                chat = await db.get(AiChat, uuid.UUID(chat_id))
+                if not chat:
+                    return False
+                if chat.user_id and str(chat.user_id) != str(user_id):
+                    return False
+                return True
+        except (ValueError, TypeError):
+            return False
+
+    def _make_serializable(obj: Any) -> Any:
+        """Recursively convert Pydantic models and other non-serializable objects."""
+        if isinstance(obj, BaseModel):
+            return obj.model_dump()
+        if isinstance(obj, list):
+            return [_make_serializable(item) for item in obj]
+        if isinstance(obj, dict):
+            return {k: _make_serializable(v) for k, v in obj.items()}
+        return obj
 
     async def safe_send(data: dict[str, Any]) -> None:
         nonlocal closed
-        if closed:
-            return
-        try:
-            await websocket.send_json(data)
-        except Exception:
-            closed = True
+        async with send_lock:
+            if closed:
+                return
+            try:
+                await websocket.send_json(_make_serializable(data))
+            except Exception as e:
+                logger.warning("safe_send failed: %s (%s)", data.get("type", "?"), e)
+                closed = True
 
-    async def handle_branch_marker(
+    async def _run_tool_loop(
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
         db: AsyncSession,
-        chat_id: str,
-        full_response: str,
-        current_fork_id: str | None,
-        workspace_id: str | None = None,
-    ) -> tuple[str, str | None]:
-        """Parse [BRANCH: ...] marker from LLM response.
+        workspace_id: str | None,
+        chat_id: str | None = None,
+        current_fork_id: str | None = None,
+    ) -> AsyncGenerator[str | dict[str, Any], None]:
+        """Run the tool execution loop around the LLM.
 
-        Returns (clean_response, fork_id). fork_id is set if a fork was created.
+        Yields text chunks and event dicts (tool_executed, fork_created, etc.).
+        When create_fork succeeds, emits a fork_created event so the frontend
+        switches context before the LLM streams its answer in the next round.
         """
-        from app.config import settings
-        from app.services.fork_compress import fork_compressor
-        from app.services.split_guard import split_guard
+        from app.services.llm import llm_service
+        from app.tools.registry import get_tool
 
-        stripped = full_response.lstrip()
-        match = BRANCH_PATTERN.match(stripped)
-        if not match:
-            return full_response, current_fork_id
+        active_fork_id = current_fork_id
 
-        branch_label = match.group(1).strip()
-        clean_response = stripped[match.end():]
+        for round_idx in range(MAX_TOOL_ROUNDS):
+            full_response = ""
+            tool_calls_collected: list[dict[str, Any]] = []
 
-        # Check auto-fork enabled
-        if not getattr(settings, "auto_fork_enabled", True):
-            return clean_response, current_fork_id
+            logger.info("_run_tool_loop: round %d, %d messages, %d tools",
+                        round_idx + 1, len(messages), len(tools))
+            try:
+                async for chunk in llm_service.stream(messages, tools=tools):
+                    if isinstance(chunk, dict):
+                        if chunk.get("type") == "tool_call":
+                            tool_calls_collected.append(chunk)
+                        elif chunk.get("type") == "tool_calls_end":
+                            pass
+                        else:
+                            yield chunk
+                    else:
+                        full_response += chunk
+                        yield chunk
+            except Exception as e:
+                logger.error("_run_tool_loop: LLM stream failed: %s", e, exc_info=True)
+                yield {"type": "error", "content": f"LLM stream error: {e}"}
+                return
 
-        # SplitGuard check
-        if not await split_guard.can_fork(db, chat_id, current_fork_id, branch_label):
-            await safe_send({"type": "toast", "content": f"分叉被保护机制阻止：{branch_label}"})
-            return clean_response, current_fork_id
+            logger.info("_run_tool_loop: round %d done, response_len=%d, tool_calls=%d",
+                        round_idx + 1, len(full_response), len(tool_calls_collected))
 
-        # Get parent chat for workspace_id and parent_id
-        parent_chat = await db.get(AiChat, uuid.UUID(chat_id))
-        if not parent_chat:
-            return clean_response, current_fork_id
+            if not tool_calls_collected:
+                return
 
-        # Compress parent context
-        result = await db.execute(
-            select(ChatMessage).where(
-                ChatMessage.chat_id == uuid.UUID(chat_id),
-                ChatMessage.role.in_(["user", "assistant"]),
-            ).order_by(ChatMessage.created_at.desc()).limit(50)
-        )
-        messages = [{"role": m.role, "content": m.content} for m in reversed(result.scalars().all())]
-        strategy = getattr(settings, "fork_context_strategy", "compress")
-        summary = await fork_compressor.compress(messages, strategy=strategy)
+            # Append assistant message with tool_calls
+            messages.append({
+                "role": "assistant",
+                "content": full_response,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False),
+                        },
+                    }
+                    for tc in tool_calls_collected
+                ],
+            })
 
-        # Create child AiChat
-        child_chat = AiChat(
-            workspace_id=parent_chat.workspace_id,
-            parent_id=parent_chat.id,
-            user_id=parent_chat.user_id,
-            mode="rag",
-            title=branch_label,
-            node_type="branch",
-        )
-        db.add(child_chat)
-        await db.flush()
+            # Execute each tool and append results
+            for tc in tool_calls_collected:
+                tool = get_tool(tc["name"])
+                if tool:
+                    try:
+                        result = await tool.execute(
+                            tc["arguments"],
+                            {
+                                "db": db,
+                                "workspace_id": workspace_id,
+                                "chat_id": chat_id,
+                                "current_fork_id": active_fork_id,
+                            },
+                        )
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": result,
+                        })
 
-        # Insert fork-divider in parent chat
-        divider = ChatMessage(
-            chat_id=parent_chat.id,
-            role="fork-divider",
-            content="",
-            metadata_={
-                "child_chat_id": str(child_chat.id),
-                "branch_label": branch_label,
-                "parent_context_summary": summary,
-                "depth": 0,
-            },
-        )
-        db.add(divider)
-        await db.commit()
-
-        # Notify frontend
-        await safe_send({
-            "type": "fork_created",
-            "chat_id": str(child_chat.id),
-            "branch_label": branch_label,
-            "depth": 0,
-        })
-
-        return clean_response, str(child_chat.id)
+                        # create_fork emits fork_created so frontend switches context
+                        if tc["name"] == "create_fork":
+                            try:
+                                parsed = json.loads(result)
+                                if parsed.get("status") == "created":
+                                    active_fork_id = parsed["chat_id"]
+                                    # Inject profile system prompt suffix
+                                    suffix = parsed.get("system_prompt_suffix")
+                                    if suffix and messages and messages[0].get("role") == "system":
+                                        messages[0]["content"] += f"\n\n{suffix}"
+                                    yield {
+                                        "type": "fork_created",
+                                        "chat_id": parsed["chat_id"],
+                                        "branch_label": parsed["branch_label"],
+                                        "depth": parsed["depth"],
+                                        "node_id": parsed["chat_id"],
+                                        "divider_msg_id": parsed["divider_msg_id"],
+                                        "profile": parsed.get("profile"),
+                                    }
+                            except (json.JSONDecodeError, KeyError):
+                                pass
+                        else:
+                            yield {
+                                "type": "tool_executed",
+                                "tool_name": tc["name"],
+                                "result": result,
+                            }
+                    except Exception as e:
+                        logger.warning("Tool %s execution failed: %s", tc["name"], e)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": f"Error: {e}",
+                        })
+                else:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": f"Unknown tool: {tc['name']}",
+                    })
 
     async def handle_chat(
         message: str,
@@ -176,52 +252,90 @@ async def chat_websocket(websocket: WebSocket):
         current_fork_id: str | None = None,
     ):
         """Handle general chat without RAG."""
+        from app.tools.registry import get_all_tool_specs
+
         try:
-            # Collect full response for branch marker parsing
             full_response = ""
+            tools = get_all_tool_specs() if workspace_id else None
 
-            async for chunk in rag_service.chat_stream(message, history=history, web_search=web_search):
-                if isinstance(chunk, dict):
-                    # Web search results or other metadata
-                    await safe_send(chunk)
-                else:
-                    # Text content — accumulate for marker parsing
-                    full_response += chunk
-                    await safe_send({
-                        "type": "content",
-                        "content": chunk,
-                    })
+            if tools:
+                system_content = (
+                    rag_service.MARKDOWN_SYSTEM_PROMPT
+                    + "\n\n" + rag_service.CREATE_FORK_INSTRUCTION
+                    + "\n\n" + rag_service.MEMORY_EDIT_INSTRUCTION
+                )
+                messages = [{"role": "system", "content": system_content}]
+                if history:
+                    messages.extend(history)
+                user_message = message
+                if web_search:
+                    search_results = await web_search_service.search(message, max_results=8)
+                    if search_results:
+                        user_message = message + "\n\n" + web_search_service.format_results(search_results)
+                        await safe_send({
+                            "type": "web_search_results",
+                            "results": [
+                                {"title": r.title, "snippet": r.snippet, "url": r.url}
+                                for r in search_results
+                            ],
+                        })
+                messages.append({"role": "user", "content": user_message})
 
-            # Parse branch marker from the full response
-            if chat_id and full_response:
-                try:
-                    async for db_session in get_db():
-                        clean_response, new_fork_id = await handle_branch_marker(
-                            db_session, chat_id, full_response, current_fork_id, workspace_id,
-                        )
-                        break
-                    # If a fork was created, send the clean response (without marker)
-                    if new_fork_id and new_fork_id != current_fork_id:
-                        await safe_send({"type": "content_replace", "content": clean_response})
-                except Exception as e:
-                    logger.warning("Branch marker parsing failed: %s", e)
+                async for db_session in get_db():
+                    async for chunk in _run_tool_loop(
+                        messages, tools, db_session, workspace_id,
+                        chat_id=chat_id, current_fork_id=current_fork_id,
+                    ):
+                        if isinstance(chunk, dict):
+                            await safe_send(chunk)
+                        else:
+                            full_response += chunk
+                            await safe_send({"type": "content", "content": chunk})
+                    break
+            else:
+                async for chunk in rag_service.chat_stream(message, history=history, web_search=web_search):
+                    if isinstance(chunk, dict):
+                        await safe_send(chunk)
+                    else:
+                        full_response += chunk
+                        await safe_send({"type": "content", "content": chunk})
 
-            await safe_send({"type": "done"})
+            # Strip thinking blocks
+            if full_response:
+                clean = _strip_thinking(full_response)
+                if clean != full_response:
+                    await safe_send({"type": "content_replace", "content": clean})
 
-            # Async summary update (fire-and-forget)
-            if chat_id:
+            await safe_send({"type": "done", "chat_id": chat_id})
+
+            # Post-stream background tasks (fire-and-forget, non-blocking)
+            async def _bg_summary():
                 try:
                     async for db_session in get_db():
                         await topology_service.update_node_summary_from_chat(db_session, chat_id)
                         break
                 except Exception as e:
                     logger.warning("Auto summary update failed: %s", e)
+
+            async def _bg_consolidation():
+                try:
+                    from app.services.consolidation import consolidation_service
+                    async for db_session in get_db():
+                        await consolidation_service.consolidate(db_session, chat_id, workspace_id)
+                        break
+                except Exception as e:
+                    logger.warning("Consolidation failed: %s", e)
+
+            if chat_id:
+                asyncio.create_task(_bg_summary())
+            if chat_id and workspace_id:
+                asyncio.create_task(_bg_consolidation())
         except Exception as e:
             logger.error(f"Chat stream error: {e}", exc_info=True)
-            await safe_send({
-                "type": "error",
-                "content": str(e),
-            })
+            err_payload: dict = {"type": "error", "content": str(e)}
+            if chat_id:
+                err_payload["chat_id"] = chat_id
+            await safe_send(err_payload)
 
     async def handle_rag(
         question: str,
@@ -235,62 +349,125 @@ async def chat_websocket(websocket: WebSocket):
         current_fork_id: str | None = None,
     ):
         """Handle RAG query. Creates its own DB session to avoid lifecycle issues."""
+        from app.tools.registry import get_all_tool_specs
+
+        ws_id = workspace_ids[0] if workspace_ids else None
+
         try:
             async for db in get_db():
                 # Collect full response for branch marker parsing
                 full_response = ""
 
-                async for chunk in rag_service.ask_stream(
-                    db,
-                    question,
-                    workspace_ids=workspace_ids,
-                    card_id=card_id,
-                    top_k=top_k,
-                    web_search=web_search,
-                    history=history,
-                    retrieval_level=retrieval_level,
-                    chat_id=chat_id,
-                ):
-                    if isinstance(chunk, dict):
-                        # Sources, web search results, or other metadata
-                        await safe_send(chunk)
-                    else:
-                        # Text content — accumulate for marker parsing
-                        full_response += chunk
-                        await safe_send({
-                            "type": "content",
-                            "content": chunk,
-                        })
+                # Decide whether to use tool loop for RAG
+                tools = get_all_tool_specs() if ws_id else None
 
-                # Parse branch marker from the full response
-                if chat_id and full_response:
-                    try:
-                        clean_response, new_fork_id = await handle_branch_marker(
-                            db, chat_id, full_response, current_fork_id,
-                            workspace_ids[0] if workspace_ids else None,
-                        )
-                        # If a fork was created, send the clean response (without marker)
-                        if new_fork_id and new_fork_id != current_fork_id:
-                            await safe_send({"type": "content_replace", "content": clean_response})
-                    except Exception as e:
-                        logger.warning("Branch marker parsing failed: %s", e)
+                if tools:
+                    # Use ask_stream to build context (system prompt + retrieval),
+                    # then wrap with tool execution loop
+                    generator = rag_service.ask_stream(
+                        db,
+                        question,
+                        workspace_ids=workspace_ids,
+                        card_id=card_id,
+                        top_k=top_k,
+                        web_search=web_search,
+                        history=history,
+                        retrieval_level=retrieval_level,
+                        chat_id=chat_id,
+                        current_fork_id=current_fork_id,
+                        tools=tools,
+                    )
 
-                # Async summary update
-                if chat_id:
-                    try:
-                        await topology_service.update_node_summary_from_chat(db, chat_id)
-                        await db.commit()
-                    except Exception as e:
-                        logger.warning("Auto summary update failed: %s", e)
+                    # ask_stream with tools yields a "messages_ready" dict instead of
+                    # streaming directly — we feed those messages into the tool loop
+                    messages_for_llm = None
+                    insight_ids: list = []
+                    async for chunk in generator:
+                        if isinstance(chunk, dict) and chunk.get("type") == "messages_ready":
+                            messages_for_llm = chunk["messages"]
+                            insight_ids = chunk.get("insight_ids", [])
+                        elif isinstance(chunk, dict):
+                            await safe_send(chunk)
+                        else:
+                            full_response += chunk
+                            await safe_send({"type": "content", "content": chunk})
+
+                    # Run tool loop on the prepared messages
+                    if messages_for_llm:
+                        async for chunk in _run_tool_loop(
+                            messages_for_llm, tools, db, ws_id,
+                            chat_id=chat_id, current_fork_id=current_fork_id,
+                        ):
+                            if isinstance(chunk, dict):
+                                await safe_send(chunk)
+                            else:
+                                full_response += chunk
+                                await safe_send({"type": "content", "content": chunk})
+
+                    # Consume insights after tool loop completes successfully
+                    if insight_ids:
+                        from app.services.rag import mark_insights_consumed
+                        await mark_insights_consumed(db, insight_ids)
+                else:
+                    # No tools — standard RAG streaming
+                    async for chunk in rag_service.ask_stream(
+                        db,
+                        question,
+                        workspace_ids=workspace_ids,
+                        card_id=card_id,
+                        top_k=top_k,
+                        web_search=web_search,
+                        history=history,
+                        retrieval_level=retrieval_level,
+                        chat_id=chat_id,
+                        current_fork_id=current_fork_id,
+                    ):
+                        if isinstance(chunk, dict):
+                            await safe_send(chunk)
+                        else:
+                            full_response += chunk
+                            await safe_send({"type": "content", "content": chunk})
+
+                # Strip thinking blocks
+                if full_response:
+                    clean = _strip_thinking(full_response)
+                    if clean != full_response:
+                        await safe_send({"type": "content_replace", "content": clean})
+
+                # Send done BEFORE background tasks to avoid frontend timeout
+                await safe_send({"type": "done", "chat_id": chat_id})
+                logger.info("handle_rag: done event sent")
                 break
 
-            await safe_send({"type": "done"})
+            # Post-processing with separate DB sessions (fire-and-forget)
+            async def _bg_summary():
+                try:
+                    async for db2 in get_db():
+                        await topology_service.update_node_summary_from_chat(db2, chat_id)
+                        await db2.commit()
+                        break
+                except Exception as e:
+                    logger.warning("Auto summary update failed: %s", e)
+
+            async def _bg_consolidation():
+                try:
+                    from app.services.consolidation import consolidation_service
+                    async for db2 in get_db():
+                        await consolidation_service.consolidate(db2, chat_id, ws_id)
+                        break
+                except Exception as e:
+                    logger.warning("Consolidation failed: %s", e)
+
+            if chat_id:
+                asyncio.create_task(_bg_summary())
+            if chat_id and ws_id:
+                asyncio.create_task(_bg_consolidation())
         except Exception as e:
             logger.error(f"RAG stream error: {e}", exc_info=True)
-            await safe_send({
-                "type": "error",
-                "content": str(e),
-            })
+            err_payload: dict = {"type": "error", "content": str(e)}
+            if chat_id:
+                err_payload["chat_id"] = chat_id
+            await safe_send(err_payload)
 
     try:
         while not closed:
@@ -315,6 +492,11 @@ async def chat_websocket(websocket: WebSocket):
                 workspace_id = msg.get("workspace_id")
                 current_fork_id = msg.get("current_fork_id")
 
+                # Verify chat ownership
+                if chat_id and not await _verify_chat_ownership(chat_id):
+                    await safe_send({"type": "error", "content": "无权访问该对话"})
+                    continue
+
                 current_task = asyncio.create_task(
                     handle_chat(
                         message, history, web_search,
@@ -337,6 +519,11 @@ async def chat_websocket(websocket: WebSocket):
                 retrieval_level = msg.get("retrieval_level")
                 chat_id = msg.get("chat_id")
                 current_fork_id = msg.get("current_fork_id")
+
+                # Verify chat ownership
+                if chat_id and not await _verify_chat_ownership(chat_id):
+                    await safe_send({"type": "error", "content": "无权访问该对话"})
+                    continue
 
                 current_task = asyncio.create_task(
                     handle_rag(

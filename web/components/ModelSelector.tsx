@@ -5,12 +5,15 @@ import useSWR from "swr";
 import { settingsApi, type LLMProvider, type CurrentProvider } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { ChevronDown, Check, Cpu, Loader2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 interface ModelSelectorProps {
   compact?: boolean;
 }
 
 export function ModelSelector({ compact = false }: ModelSelectorProps) {
+  const t = useTranslations("settings");
+  const tc = useTranslations("common");
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -40,7 +43,7 @@ export function ModelSelector({ compact = false }: ModelSelectorProps) {
     ? `${providers?.find((p) => p.name === current.provider)?.label ?? current.provider} / ${current.model}`
     : providers?.[0]
       ? `${providers[0].label} / ${providers[0].default_model}`
-      : "AI 模型";
+      : t("aiModel");
 
   const handleSwitch = useCallback(async (provider: string, model: string) => {
     if (switching) return;
@@ -48,14 +51,14 @@ export function ModelSelector({ compact = false }: ModelSelectorProps) {
     try {
       await settingsApi.switchProvider(provider, model);
       await mutateCurrent();
-      toast(`已切换到 ${model}`, "success");
+      toast(t("switchedModel", { model }), "success");
       setOpen(false);
     } catch (e: any) {
-      toast("切换失败: " + (e.message || "未知错误"), "error");
+      toast(t("switchFailed", { error: e.message || tc("unknown") }), "error");
     } finally {
       setSwitching(null);
     }
-  }, [switching, mutateCurrent]);
+  }, [switching, mutateCurrent, t, tc]);
 
   return (
     <div ref={ref} className="relative">
@@ -74,20 +77,20 @@ export function ModelSelector({ compact = false }: ModelSelectorProps) {
       {open && (
         <div className="absolute right-0 bottom-full z-50 mb-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg">
           {providersError && (
-            <div className="px-3 py-3 text-xs text-red-500">加载失败: {providersError.message}</div>
+            <div className="px-3 py-3 text-xs text-red-500">{tc("loadFailed")}: {providersError.message}</div>
           )}
 
           {!providers && !providersError && (
             <div className="flex items-center justify-center gap-2 px-3 py-4 text-xs text-text-secondary">
               <Loader2 size={14} className="animate-spin" />
-              加载中...
+              {tc("loading")}
             </div>
           )}
 
           {providers && configuredProviders.length === 0 && (
             <div className="px-3 py-4 text-center text-xs text-text-secondary">
-              <p>未检测到可用模型</p>
-              <p className="mt-1 text-[10px] text-gray-400">请在 .env 中配置 API Key 后重启服务</p>
+              <p>{t("noModelDetected")}</p>
+              <p className="mt-1 text-[10px] text-gray-400">{t("configureApiKey")}</p>
             </div>
           )}
 
@@ -117,6 +120,7 @@ function ProviderModels({
   switching: string | null;
   onSelect: (provider: string, model: string) => void;
 }) {
+  const t = useTranslations("settings");
   const { data, isLoading } = useSWR(
     `models-${provider.name}`,
     () => settingsApi.listModels(provider.name),
@@ -130,7 +134,7 @@ function ProviderModels({
       <div className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-secondary bg-gray-50 dark:bg-gray-800">
         {provider.label}
         {data?.source === "remote" && (
-          <span className="normal-case tracking-normal text-green-600 dark:text-green-400">· 已同步</span>
+          <span className="normal-case tracking-normal text-green-600 dark:text-green-400">{"·"} {t("synced")}</span>
         )}
         {isLoading && <Loader2 size={10} className="animate-spin" />}
       </div>

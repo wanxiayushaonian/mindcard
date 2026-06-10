@@ -1,5 +1,7 @@
 import re
 
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
@@ -176,7 +178,7 @@ async def wechat_login(
 
 
 @router.post("/web-login", response_model=TokenResponse)
-async def web_login(req: WebOAuthRequest, db: AsyncSession = Depends(get_db)):
+async def web_login(req: WebOAuthRequest, db: AsyncSession = Depends(get_db), _rl: None = Depends(RateLimitByIP(auth_limiter))):
     """Web端 WeChat OAuth 扫码登录."""
     try:
         token_data = await exchange_web_code(req.code)
@@ -231,6 +233,16 @@ async def wechat_qr_url(redirect_uri: str):
     """Get WeChat OAuth authorize URL for QR code rendering."""
     if not settings.wechat_web_appid or not settings.wechat_web_secret:
         raise HTTPException(status_code=501, detail="微信网页登录未配置（需要公众号 appid）")
+
+    # Validate redirect_uri against allowed origins
+    parsed = urlparse(redirect_uri)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="无效的 redirect_uri")
+    redirect_origin = f"{parsed.scheme}://{parsed.netloc}"
+    allowed = {o.strip().rstrip("/") for o in settings.cors_origins.split(",") if o.strip() != "*"}
+    if allowed and redirect_origin not in allowed:
+        raise HTTPException(status_code=403, detail="redirect_uri 不在允许列表中")
+
     url = get_web_authorize_url(redirect_uri)
     return WeChatQRResponse(authorize_url=url)
 

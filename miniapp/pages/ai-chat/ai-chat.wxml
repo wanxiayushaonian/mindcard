@@ -1,29 +1,8 @@
 <!--pages/ai-chat/ai-chat.wxml-->
 <navigation-bar title="AI灵感助手" back="{{true}}" background="#F9FAFC">
-  <view slot="right" class="nav-right-btns">
-    <view class="nav-icon-btn" bindtap="onHistory">
-      <icon name="history" size="20" color="#555" />
-    </view>
-    <view class="nav-icon-btn" bindtap="onSettings">
-      <icon name="settings" size="20" color="#555" />
-    </view>
-  </view>
 </navigation-bar>
 
 <scroll-view class="scrollarea" scroll-y scroll-into-view="{{scrollTarget}}">
-  <!-- Mode tabs -->
-  <view class="mode-tabs">
-    <view
-      wx:for="{{modes}}"
-      wx:key="key"
-      class="mode-tab {{mode === item.key ? 'mode-active' : ''}}"
-      bindtap="onModeTap"
-      data-mode="{{item.key}}"
-    >
-      <text>{{item.label}}</text>
-    </view>
-  </view>
-
   <!-- Context hint -->
   <view class="context-bar" wx:if="{{contextCard}}">
     <view class="context-inner">
@@ -77,12 +56,22 @@
               <text class="source-content" overflow="ellipsis" max-lines="2">{{src.content}}</text>
             </view>
           </view>
+          <!-- Web search results -->
+          <view class="web-search-results" wx:if="{{item.webSearchResults && item.webSearchResults.length > 0}}">
+            <text class="source-label">网络搜索</text>
+            <view
+              wx:for="{{item.webSearchResults}}"
+              wx:for-item="sr"
+              wx:key="url"
+              class="web-result-item"
+            >
+              <text class="web-result-title">{{sr.title}}</text>
+              <text class="web-result-snippet" overflow="ellipsis" max-lines="2">{{sr.snippet}}</text>
+            </view>
+          </view>
           <view class="msg-actions">
             <view class="msg-action-btn" bindtap="onApplyToCard" data-msg-id="{{item.id}}">
               <text>应用到卡片</text>
-            </view>
-            <view class="msg-action-btn {{precipitating ? 'msg-action-disabled' : ''}}" bindtap="onPrecipitate" data-msg-id="{{item.id}}" wx:if="{{canPrecipitate}}">
-              <text>{{precipitating ? '沉淀中...' : '一键沉淀'}}</text>
             </view>
           </view>
           <text class="msg-time">{{item.time}}</text>
@@ -125,7 +114,7 @@
   <view class="input-row">
     <textarea
       class="chat-input"
-      placeholder="{{mode === 'rag' ? '基于卡片知识提问...' : '输入你的需求...'}}"
+      placeholder="基于卡片知识提问..."
       placeholder-style="color: #C0C4CC;"
       value="{{inputText}}"
       bindinput="onInput"

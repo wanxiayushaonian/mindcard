@@ -11,7 +11,31 @@ from app.services.triple_extractor import ExtractedEntity, ExtractedTriple
 
 logger = logging.getLogger(__name__)
 
+# Vectors above this threshold merge without LLM confirmation.
 LINK_SIMILARITY_THRESHOLD = 0.85
+# Vectors above this threshold are passed to LLM for alias/coreference check.
+LINK_CANDIDATE_THRESHOLD = 0.70
+
+_COREFERENCE_SYSTEM = (
+    "You decide whether two entity names refer to the same real-world entity. "
+    "Reply with exactly one word: YES or NO."
+)
+
+
+async def _llm_is_same_entity(name_a: str, name_b: str, entity_type: str | None) -> bool:
+    """Ask the extraction LLM whether two names are coreferent."""
+    from app.services.llm import llm_service
+
+    type_hint = f" (type: {entity_type})" if entity_type else ""
+    user_content = f'Entity A: "{name_a}"{type_hint}\nEntity B: "{name_b}"\nSame entity?'
+    try:
+        answer = await llm_service.extraction_complete_simple(
+            _COREFERENCE_SYSTEM, user_content, max_tokens=4, temperature=0.0
+        )
+        return answer.strip().upper().startswith("YES")
+    except Exception as e:
+        logger.warning("Coreference LLM call failed (%s vs %s): %s", name_a, name_b, e)
+        return False
 
 
 class EntityLinker:
@@ -24,14 +48,15 @@ class EntityLinker:
         self,
         entities: list[ExtractedEntity],
         triples: list[ExtractedTriple],
-        card_id: uuid.UUID,
+        card_id: uuid.UUID | None,
         workspace_id: uuid.UUID,
     ) -> list[GraphRelation]:
         """Resolve entities, link them to the source card, and persist triples."""
         entity_name_to_id = await self._resolve_entities(entities, workspace_id)
         await self.db.flush()
 
-        await self._link_entities_to_card(entity_name_to_id, card_id)
+        if card_id is not None:
+            await self._link_entities_to_card(entity_name_to_id, card_id)
 
         relations: list[GraphRelation] = []
         for triple in triples:
@@ -55,6 +80,7 @@ class EntityLinker:
                 head_id=head_id,
                 relation=triple.relation,
                 tail_id=tail_id,
+                weight=triple.weight,
                 source_card_id=card_id,
             )
             self.db.add(relation)
@@ -68,12 +94,16 @@ class EntityLinker:
     ) -> dict[str, uuid.UUID]:
         """Map each extracted entity name to a graph entity ID."""
         entity_name_to_id: dict[str, uuid.UUID] = {}
-        entity_names = [e.name for e in entities]
-        embeddings = await self._embed_names(entity_names)
+        # Use "name: description" for richer embeddings when description is available
+        embed_texts = [
+            f"{e.name}: {e.description}" if e.description else e.name
+            for e in entities
+        ]
+        embeddings = await self._embed_names(embed_texts)
 
         for entity, embedding in zip(entities, embeddings):
             entity_id = await self._find_or_create_entity(
-                entity.name, entity.entity_type, embedding, workspace_id
+                entity.name, entity.entity_type, entity.description, embedding, workspace_id
             )
             entity_name_to_id[entity.name] = entity_id
 
@@ -83,6 +113,7 @@ class EntityLinker:
         self,
         name: str,
         entity_type: str,
+        description: str | None,
         embedding: list[float] | None,
         workspace_id: uuid.UUID,
     ) -> uuid.UUID:
@@ -90,19 +121,24 @@ class EntityLinker:
         # Truncate to DB column limits
         name = (name or "").strip()[:128]
         entity_type = (entity_type or "").strip()[:64] if entity_type else None
+        description = (description or "").strip()[:500] if description else None
         if not name:
             name = "未知实体"
 
         if embedding:
-            existing = await self._find_similar_entity(name, embedding, workspace_id)
+            existing = await self._find_similar_entity(name, entity_type, embedding, workspace_id)
             if existing:
                 existing.access_count += 1
+                # Backfill description if existing entity lacks one
+                if description and not existing.description:
+                    existing.description = description
                 return existing.id
 
         new_entity = GraphEntity(
             workspace_id=workspace_id,
             name=name,
             entity_type=entity_type,
+            description=description,
             embedding=embedding,
             access_count=1,
         )
@@ -111,9 +147,10 @@ class EntityLinker:
         return new_entity.id
 
     async def _find_similar_entity(
-        self, name: str, embedding: list[float], workspace_id: uuid.UUID
+        self, name: str, entity_type: str | None, embedding: list[float], workspace_id: uuid.UUID
     ) -> GraphEntity | None:
-        """Find the most similar existing entity via exact name match or embedding cosine similarity."""
+        """Find an existing entity via exact name match, high-confidence vector similarity,
+        or LLM-confirmed coreference for the ambiguous mid-range."""
         q = (
             select(GraphEntity)
             .where(GraphEntity.workspace_id == workspace_id)
@@ -124,18 +161,37 @@ class EntityLinker:
         result = await self.db.execute(q)
         candidates = result.scalars().all()
 
+        llm_candidates: list[GraphEntity] = []
+
         for candidate in candidates:
+            # Exact case-insensitive name → always merge
             if candidate.name.lower() == name.lower():
                 return candidate
+
             if candidate.embedding is None:
                 continue
+
             sim = float(np.dot(embedding, candidate.embedding))
-            if sim > LINK_SIMILARITY_THRESHOLD:
+
+            if sim >= LINK_SIMILARITY_THRESHOLD:
+                # High confidence — merge without LLM
                 logger.info(
-                    "Merging entity '%s' into existing '%s' (sim=%.3f)",
-                    name,
-                    candidate.name,
-                    sim,
+                    "Merging '%s' into '%s' (sim=%.3f, direct)",
+                    name, candidate.name, sim,
+                )
+                return candidate
+
+            if sim >= LINK_CANDIDATE_THRESHOLD:
+                # Ambiguous zone — queue for LLM coreference check
+                llm_candidates.append(candidate)
+
+        # Ask LLM about each ambiguous candidate (highest similarity first)
+        for candidate in llm_candidates:
+            if await _llm_is_same_entity(name, candidate.name, entity_type):
+                sim = float(np.dot(embedding, candidate.embedding))
+                logger.info(
+                    "Merging '%s' into '%s' (sim=%.3f, LLM-confirmed)",
+                    name, candidate.name, sim,
                 )
                 return candidate
 

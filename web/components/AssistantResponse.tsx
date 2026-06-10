@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import { hasVisibleMarkdownContent } from "@/lib/markdown-display";
@@ -66,6 +67,7 @@ function parseThinkingSegments(content: string): ContentSegment[] {
 }
 
 function ThinkingBlock({ text }: { text: string }) {
+  const t = useTranslations("chat");
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -79,7 +81,7 @@ function ThinkingBlock({ text }: { text: string }) {
         ) : (
           <ChevronRight className="w-3.5 h-3.5" />
         )}
-        <span className="font-medium">思考过程</span>
+        <span className="font-medium">{t("thinkingProcess")}</span>
         {!expanded && (
           <span className="text-blue-400 dark:text-blue-600 ml-1 truncate">
             {text.slice(0, 60)}...

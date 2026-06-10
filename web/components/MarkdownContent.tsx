@@ -20,6 +20,7 @@ import remarkBreaks from "remark-breaks";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { Scissors } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { CodeBlock } from "@/components/CodeBlock";
 import { normalizeMarkdownForDisplay } from "@/lib/markdown-normalize";
 
@@ -120,11 +121,19 @@ interface MarkdownRendererProps {
   onPrecipitateBlock?: (text: string) => void;
 }
 
+function isSafeUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  const trimmed = url.trim().toLowerCase();
+  return !trimmed.startsWith("javascript:") && !trimmed.startsWith("data:") && !trimmed.startsWith("vbscript:");
+}
+
 const MarkdownRenderer = memo(function MarkdownRenderer({
   source,
   highlightCode,
   onPrecipitateBlock,
 }: MarkdownRendererProps) {
+  const t = useTranslations("markdown");
+  const tEditor = useTranslations("editor");
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectionState, setSelectionState] = useState<{ text: string; x: number; y: number } | null>(null);
   const onPrecipitateBlockRef = useRef(onPrecipitateBlock);
@@ -230,6 +239,9 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
         );
       },
       a({ href, children: markdownChildren, ...props }) {
+        if (!isSafeUrl(href)) {
+          return <span className="text-red-500 line-through">{markdownChildren}</span>;
+        }
         return (
           <a
             href={href}
@@ -243,6 +255,9 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
         );
       },
       img({ src, alt, ...props }) {
+        if (!isSafeUrl(src)) {
+          return <span className="text-xs text-red-500 italic">[{t("unsafeImage")}]</span>;
+        }
         return (
           <span className="block my-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -256,7 +271,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
                 target.style.display = "none";
                 const span = document.createElement("span");
                 span.className = "text-xs text-text-secondary italic";
-                span.textContent = `[图片加载失败: ${alt || src}]`;
+                span.textContent = `[${t("imageLoadFailed")}: ${alt || src}]`;
                 target.parentNode?.insertBefore(span, target);
               }}
               {...props}
@@ -287,10 +302,10 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
             top: `${selectionState.y}px`,
             transform: "translate(-50%, -100%)",
           }}
-          title="沉淀选取内容为卡片"
+          title={tEditor("precipitateTooltip")}
         >
           <Scissors size={12} />
-          沉淀
+          {tEditor("precipitate")}
         </button>
       )}
     </div>

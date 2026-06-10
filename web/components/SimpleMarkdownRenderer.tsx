@@ -3,8 +3,15 @@
 import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTranslations } from "next-intl";
 import { normalizeMarkdownForDisplay } from "@/lib/markdown-display";
 import type { MarkdownRendererProps } from "./MarkdownRenderer";
+
+function isSafeUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  const trimmed = url.trim().toLowerCase();
+  return !trimmed.startsWith("javascript:") && !trimmed.startsWith("data:") && !trimmed.startsWith("vbscript:");
+}
 
 function extractText(children: React.ReactNode): string {
   return React.Children.toArray(children)
@@ -68,6 +75,7 @@ export default function SimpleMarkdownRenderer({
   className = "",
   variant = "default",
 }: MarkdownRendererProps) {
+  const t = useTranslations("markdown");
   const normalizedContent = useMemo(
     () => normalizeMarkdownForDisplay(content),
     [content],
@@ -338,6 +346,10 @@ export default function SimpleMarkdownRenderer({
       const external =
         href?.startsWith("http://") || href?.startsWith("https://");
 
+      if (!isSafeUrl(href) && !isCitation && !isHashLink) {
+        return <span className="text-red-500 line-through">{children}</span>;
+      }
+
       if (isCitation) {
         const label = extractText(children);
         const ids = label.split(/\s*,\s*/);
@@ -405,15 +417,18 @@ export default function SimpleMarkdownRenderer({
         </a>
       );
     },
-    img: ({ node, src, alt, ...props }: any) => (
-      <img
-        src={src}
-        alt={alt || ""}
-        loading="lazy"
-        className={`${gap} inline-block max-w-full rounded-lg border border-[var(--border)]`}
-        {...props}
-      />
-    ),
+    img: ({ node, src, alt, ...props }: any) =>
+      isSafeUrl(src) ? (
+        <img
+          src={src}
+          alt={alt || ""}
+          loading="lazy"
+          className={`${gap} inline-block max-w-full rounded-lg border border-[var(--border)]`}
+          {...props}
+        />
+      ) : (
+        <span className="text-xs text-red-500 italic">[{t("unsafeImage")}]</span>
+      ),
     blockquote: ({ node, ...props }: any) => (
       <blockquote
         className={`${gap} border-l-[3px] border-[var(--muted-foreground)] pl-4 italic text-[var(--muted-foreground)] [&>p]:mb-1`}

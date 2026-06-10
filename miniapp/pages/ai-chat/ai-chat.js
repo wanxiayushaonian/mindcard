@@ -1,6 +1,6 @@
 // pages/ai-chat/ai-chat.js
 var api = require('../../utils/api');
-var { CARD_COLORS } = require('../../utils/mock-data');
+var helpers = require('../../utils/helpers');
 
 Page({
   data: {
@@ -12,13 +12,6 @@ Page({
     scrollTarget: '',
     showCardPicker: false,
     chatId: '',
-    precipitating: false,
-    canPrecipitate: false,
-    mode: 'rag',
-    modes: [
-      { key: 'rag', label: '知识问答' },
-      { key: 'chat', label: '自由对话' },
-    ],
   },
 
   _streamTimer: null,
@@ -30,11 +23,10 @@ Page({
   onLoad: function (options) {
     var cardId = options.cardId || '';
     var chatId = options.chatId || '';
-    var app = getApp();
-    var ws = app.getCurrentWorkspace();
-    this.setData({ cardId: cardId, canPrecipitate: ws && ws.memberRole === 'owner' });
+    this.setData({ cardId: cardId });
 
     if (cardId) {
+      var app = getApp();
       var card = app.getCardById(cardId);
       if (card) this.setData({ contextCard: card });
 
@@ -47,10 +39,9 @@ Page({
       }
       this.scrollToBottom();
     } else if (chatId) {
-      // Load specific chat by ID (from history list)
       this.setData({ chatId: chatId });
       var self = this;
-      app.loadChatMessages(chatId).then(function (messages) {
+      getApp().loadChatMessages(chatId).then(function (messages) {
         if (messages.length > 0) {
           self.setData({ messages: messages });
           self.scrollToBottom();
@@ -67,10 +58,11 @@ Page({
     var cardId = this.data.cardId;
     var messages = this.data.messages;
     var chatId = this.data.chatId;
-    if (!cardId || messages.length === 0) return;
+    if (messages.length === 0) return;
 
     var app = getApp();
-    var now = app._formatTime ? app._formatTime(new Date()) : new Date().toLocaleString();
+    var now = helpers.formatTime(new Date());
+    var wsId = app.globalData.currentWorkspaceId;
     var self = this;
 
     if (chatId) {
@@ -84,15 +76,15 @@ Page({
         });
       }
     } else {
-      // Check if a chat already exists for this card (might have been loaded from server)
-      var existing = app.globalData.aiChats.find(function (c) { return c.cardId === cardId; });
+      var existing = cardId ? app.globalData.aiChats.find(function (c) { return c.cardId === cardId; }) : null;
       if (existing) {
         app.saveChat(Object.assign({}, existing, { messages: messages }));
         self.setData({ chatId: existing.id });
       } else {
         var newChat = {
           id: 'chat_' + Date.now(),
-          cardId: cardId,
+          cardId: cardId || '',
+          workspaceId: wsId || '',
           title: (this.data.contextCard || {}).title || '灵感对话',
           createdAt: now,
           messages: messages,
@@ -103,7 +95,7 @@ Page({
           }
         });
         this.setData({ chatId: newChat.id });
-        app.updateCard(cardId, { hasAiChat: true });
+        if (cardId) app.updateCard(cardId, { hasAiChat: true });
       }
     }
   },
@@ -112,14 +104,9 @@ Page({
     this.setData({ inputText: e.detail.value });
   },
 
-  onModeTap: function (e) {
-    this.setData({ mode: e.currentTarget.dataset.mode });
-  },
-
   onSend: function () {
     var inputText = this.data.inputText;
     var messages = this.data.messages;
-    var contextCard = this.data.contextCard;
     if (!inputText.trim()) return;
 
     var now = new Date();
@@ -139,96 +126,58 @@ Page({
 
     var app = getApp();
     var workspaceId = app.globalData.currentWorkspaceId;
-    var aiTone = app.getSetting('aiTone', '创意');
-    var aiDirection = app.getSetting('aiDirection', '发散');
 
-    if (self.data.mode === 'rag') {
-      // RAG knowledge Q&A via FastAPI
-      if (!workspaceId) {
-        wx.showToast({ title: '请先选择空间', icon: 'none' });
-        self.setData({ isLoading: false });
-        return;
-      }
-      self._streamTask = api.streamRequest('/api/rag/ask/stream', {
-        question: inputText.trim(),
-        workspace_id: workspaceId,
-        card_id: self.data.cardId || undefined,
-        top_k: 5,
-        ai_tone: aiTone,
-        ai_direction: aiDirection,
-      }, function (text) {
-        // onChunk
-        self._streamContent = text;
-        if (!self._streamTimer) {
-          var len = text.length;
-          var delay = len < 3000 ? 80 : len < 10000 ? 140 : 220;
-          self._streamTimer = setTimeout(function () {
-            self._flushStream();
-            self._streamTimer = null;
-          }, delay);
-        }
-      }, function (fullContent, extra) {
-        // onDone
-        self._streamTask = null;
-        if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-        self._streamContent = fullContent;
-        self._flushStream();
-        // Attach sources if available
-        if (extra && extra.sources && extra.sources.length > 0) {
-          var msgs = self.data.messages.slice();
-          var idx = msgs.findIndex(function (m) { return m.id === aiMsgId; });
-          if (idx !== -1) {
-            msgs[idx] = Object.assign({}, msgs[idx], { sources: extra.sources });
-            self.setData({ messages: msgs });
-          }
-        }
-        self.setData({ isLoading: false });
-        self.scrollToBottom();
-        self._persistChat();
-      }, function (err) {
-        // onError
-        self._streamTask = null;
-        if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-        var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime, isError: true };
-        self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
-        self.scrollToBottom();
-      });
-    } else {
-      // Free chat via FastAPI
-      var history = messages.slice(-10).map(function (m) {
-        return { role: m.role === 'ai' ? 'assistant' : 'user', content: m.content };
-      });
-      self._streamTask = api.streamRequest('/api/rag/chat/stream', {
-        message: inputText.trim(),
-        history: history,
-        ai_tone: aiTone,
-        ai_direction: aiDirection,
-      }, function (text) {
-        self._streamContent = text;
-        if (!self._streamTimer) {
-          var len = text.length;
-          var delay = len < 3000 ? 80 : len < 10000 ? 140 : 220;
-          self._streamTimer = setTimeout(function () {
-            self._flushStream();
-            self._streamTimer = null;
-          }, delay);
-        }
-      }, function (fullContent) {
-        self._streamTask = null;
-        if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-        self._streamContent = fullContent;
-        self._flushStream();
-        self.setData({ isLoading: false });
-        self.scrollToBottom();
-        self._persistChat();
-      }, function (err) {
-        self._streamTask = null;
-        if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-        var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime, isError: true };
-        self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
-        self.scrollToBottom();
-      });
+    if (!workspaceId) {
+      wx.showToast({ title: '请先选择空间', icon: 'none' });
+      self.setData({ isLoading: false });
+      return;
     }
+
+    self._streamTask = api.ragApi.askStream({
+      question: inputText.trim(),
+      workspace_id: workspaceId,
+      card_id: self.data.cardId || undefined,
+      top_k: 5,
+    }, function (text) {
+      self._streamContent = text;
+      if (!self._streamTimer) {
+        var len = text.length;
+        var delay = len < 3000 ? 80 : len < 10000 ? 140 : 220;
+        self._streamTimer = setTimeout(function () {
+          self._flushStream();
+          self._streamTimer = null;
+        }, delay);
+      }
+    }, function (fullContent, extra) {
+      self._streamTask = null;
+      if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
+      self._streamContent = fullContent;
+      self._flushStream();
+      var msgs = self.data.messages.slice();
+      var idx = msgs.findIndex(function (m) { return m.id === aiMsgId; });
+      if (idx !== -1) {
+        var updates = {};
+        if (extra && extra.sources && extra.sources.length > 0) {
+          updates.sources = extra.sources;
+        }
+        if (extra && extra.webSearchResults && extra.webSearchResults.length > 0) {
+          updates.webSearchResults = extra.webSearchResults;
+        }
+        if (Object.keys(updates).length > 0) {
+          msgs[idx] = Object.assign({}, msgs[idx], updates);
+          self.setData({ messages: msgs });
+        }
+      }
+      self.setData({ isLoading: false });
+      self.scrollToBottom();
+      self._persistChat();
+    }, function (err) {
+      self._streamTask = null;
+      if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
+      var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime, isError: true };
+      self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
+      self.scrollToBottom();
+    });
   },
 
   _streamVersion: 0,
@@ -257,7 +206,6 @@ Page({
       clearTimeout(this._streamTimer);
       this._streamTimer = null;
     }
-    // Keep whatever content was streamed so far
     if (this._streamContent) {
       this._flushStream();
       this._persistChat();
@@ -284,40 +232,6 @@ Page({
     wx.showToast({ title: '已应用到卡片', icon: 'success' });
   },
 
-  onPrecipitate: function (e) {
-    if (this.data.precipitating || !this.data.canPrecipitate) return;
-    var msgId = e.currentTarget.dataset.msgId;
-    var msg = this.data.messages.find(function (m) { return m.id === msgId; });
-    if (!msg) return;
-
-    this.setData({ precipitating: true });
-    var app = getApp();
-    var content = msg.content;
-    var color = CARD_COLORS[Math.floor(Math.random() * CARD_COLORS.length)];
-    var self = this;
-
-    // Use backend AI endpoints for title/keywords
-    Promise.all([
-      api.post('/api/ai/generate-title', { content: content })
-        .then(function (r) { return r.title; })
-        .catch(function () { return 'AI灵感'; }),
-      api.post('/api/ai/extract-keywords', { content: content })
-        .then(function (r) { return r.keywords || []; })
-        .catch(function () { return []; }),
-    ]).then(function (results) {
-      var title = results[0] || 'AI灵感';
-      var keywords = results[1] || [];
-      return app.addCard({ title: title, content: content, keywords: keywords, color: color });
-    }).then(function (newCard) {
-      wx.showToast({ title: '已沉淀为新卡片', icon: 'success' });
-      setTimeout(function () {
-        wx.navigateTo({ url: '/pages/card-detail/card-detail?id=' + newCard.id });
-      }, 800);
-    }).finally(function () {
-      self.setData({ precipitating: false });
-    });
-  },
-
   onChangeContext: function () {
     this.setData({ showCardPicker: true });
   },
@@ -340,14 +254,6 @@ Page({
 
   onContextPickerClose: function () {
     this.setData({ showCardPicker: false });
-  },
-
-  onSettings: function () {
-    wx.navigateTo({ url: '/pages/profile/profile' });
-  },
-
-  onHistory: function () {
-    wx.navigateTo({ url: '/pages/ai-records/ai-records' });
   },
 
   onMsgLongPress: function (e) {

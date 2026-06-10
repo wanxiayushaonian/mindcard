@@ -14,10 +14,12 @@ export type StreamEventType =
   | "auto_fork"
   | "fork_created"
   | "content_replace"
+  | "tool_executed"
   | "done"
   | "error"
   | "cancelled"
-  | "pong";
+  | "pong"
+  | "ws_reconnected";
 
 export interface StreamEvent {
   type: StreamEventType;
@@ -30,6 +32,10 @@ export interface StreamEvent {
   chat_id?: string;           // fork_created now sends chat_id of child AiChat
   branch_label?: string;
   depth?: number;
+  divider_msg_id?: string;    // fork_created: ID of backend-created fork-divider
+  profile?: string;           // fork_created: profile name (deep_dive, explore, etc.)
+  tool_name?: string;         // tool_executed: name of the executed tool
+  result?: string;            // tool_executed: result of tool execution
   metadata?: Record<string, unknown>;
 }
 
@@ -50,7 +56,7 @@ export interface RAGMessage {
   card_id?: string;
   top_k?: number;
   web_search?: boolean;
-  retrieval_level?: number;  // 0=FREE, 1=CARD, 2=GRAPH, 3=FULL, undefined=auto
+  retrieval_level?: number;  // 0=CHAT, 1=SEARCH, 2=EXPLORE, 3=CONTEXT, 4=INSIGHT, undefined=auto
   history?: Array<{ role: string; content: string }>;
   current_fork_id?: string;
   chat_id?: string;
@@ -86,6 +92,7 @@ export class UnifiedWSClient {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  private everConnected = false;
 
   private wsUrl: string;
 
@@ -102,10 +109,14 @@ export class UnifiedWSClient {
     this.ws = new WebSocket(this.wsUrl);
 
     this.ws.onopen = () => {
-      console.log("WebSocket connected");
+      const isReconnect = this.everConnected;
+      this.everConnected = true;
       this.reconnectAttempt = 0;
       this.lastReceivedAt = Date.now();
       this.startHeartbeat();
+      if (isReconnect) {
+        this.onEvent({ type: "ws_reconnected" });
+      }
     };
 
     this.ws.onmessage = (ev) => {

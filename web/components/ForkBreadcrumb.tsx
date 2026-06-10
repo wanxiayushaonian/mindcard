@@ -1,15 +1,16 @@
 "use client";
 
-import { useMemo, useState, useRef, useEffect, useCallback, forwardRef } from "react";
+import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { ChevronRight, ChevronDown, GitBranch } from "lucide-react";
 import type { ChatPathNode, TopologyNode } from "@/lib/api";
 
 const DEPTH_COLORS = [
-  "#9ca3af",
-  "#60a5fa",
-  "#4ade80",
-  "#c084fc",
-  "#fb923c",
+  "#6b7280",
+  "#3b82f6",
+  "#22c55e",
+  "#a855f7",
+  "#f97316",
 ];
 
 interface ForkBreadcrumbProps {
@@ -47,7 +48,7 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
     const menuW = 220;
-    let top = rect.bottom + 4;
+    let top = rect.bottom + 6;
     let left = rect.left;
     if (left + menuW > window.innerWidth - 8) left = window.innerWidth - menuW - 8;
     if (left < 8) left = 8;
@@ -55,7 +56,6 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
     setOpenMenu(key);
   }, []);
 
-  // Close on outside click
   useEffect(() => {
     if (!openMenu) return;
     const handler = (e: MouseEvent) => {
@@ -69,7 +69,6 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
     return () => document.removeEventListener("mousedown", handler);
   }, [openMenu]);
 
-  // Close on scroll
   useEffect(() => {
     if (!openMenu) return;
     const handler = () => setOpenMenu(null);
@@ -82,9 +81,10 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
   const lastNode = path[path.length - 1];
   const lastChildren = getChildren(lastNode.node_id);
 
-  // Collect dropdown items for the currently open menu
   let dropdownItems: { id: string; label: string; childCount: number; isActive: boolean }[] = [];
+  let dropdownDepth = 0;
   if (openMenu === "__children__") {
+    dropdownDepth = path.length;
     dropdownItems = lastChildren.map((c) => ({
       id: c.id,
       label: c.title,
@@ -92,12 +92,12 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
       isActive: c.id === activeChatId,
     }));
   } else if (openMenu) {
-    // Find the node for this menu
-    const menuNode = path.find((p) => p.node_id === openMenu);
+    const d = path.findIndex((p) => p.node_id === openMenu);
+    dropdownDepth = d >= 0 ? d : 0;
+    const menuNode = path[d];
     if (menuNode) {
-      const depth = path.findIndex((p) => p.node_id === openMenu);
-      const parentNode = depth > 0 ? nodeMap.get(path[depth - 1].node_id) : null;
-      const siblings = depth === 0
+      const parentNode = d > 0 ? nodeMap.get(path[d - 1].node_id) : null;
+      const siblings = d === 0
         ? (topologyNodes || []).filter((n) => !n.parent_id).sort((a, b) => a.sort_order - b.sort_order)
         : parentNode ? getChildren(parentNode.id!) : [];
       dropdownItems = siblings
@@ -110,105 +110,121 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
         }));
     }
   }
+  const dropdownColor = DEPTH_COLORS[dropdownDepth % DEPTH_COLORS.length];
 
   return (
-    <div className="flex items-center gap-0.5 overflow-x-auto border-b border-gray-100 bg-surface/95 px-3 py-2 text-sm backdrop-blur-sm dark:border-gray-800">
+    <div className="flex items-center overflow-x-auto border-b border-border/60 bg-surface/95 px-3 py-2 backdrop-blur-sm [scrollbar-width:none]">
       {path.map((node, depth) => {
-        const isActive = node.chat_id === activeChatId;
         const isLast = depth === path.length - 1;
         const color = DEPTH_COLORS[depth % DEPTH_COLORS.length];
 
-        // Siblings at this level
         const parentNode = depth > 0 ? nodeMap.get(path[depth - 1].node_id) : null;
         const siblings = depth === 0
           ? (topologyNodes || []).filter((n) => !n.parent_id).sort((a, b) => a.sort_order - b.sort_order)
           : parentNode ? getChildren(parentNode.id!) : [];
-        const otherSiblings = siblings.filter((s) => s.id !== node.node_id);
-        const hasSiblings = otherSiblings.length > 0;
+        const hasSiblings = siblings.filter((s) => s.id !== node.node_id).length > 0;
 
         return (
           <div key={node.node_id} className="flex shrink-0 items-center">
-            {depth > 0 && <span className="mx-1 text-gray-300">/</span>}
+            {depth > 0 && (
+              <ChevronRight size={11} className="mx-1 shrink-0 text-border/50" />
+            )}
 
-            <button
-              type="button"
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${
+            {/* Pill: label + optional sibling-chevron */}
+            <span
+              className={`inline-flex items-center overflow-hidden rounded-full transition-all ${
                 isLast
-                  ? "bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900"
-                  : "cursor-pointer border border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-300 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                  ? "shadow-sm"
+                  : "border border-border/50 hover:border-border/80"
               }`}
-              onClick={() => {
-                if (!isLast && node.chat_id) onNavigate(node.chat_id);
-              }}
+              style={isLast ? { backgroundColor: color } : {}}
             >
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: isLast ? "#fff" : color, opacity: isLast ? 0.8 : 1 }}
-              />
-              {node.title}
-            </button>
-
-            {hasSiblings && (
               <button
                 type="button"
-                ref={(el) => { if (el) triggerRefs.current.set(node.node_id, el); }}
-                className="ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-xs font-bold text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (openMenu === node.node_id) setOpenMenu(null);
-                  else openMenuFor(node.node_id);
-                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-[3px] text-[11px] font-medium transition-colors ${
+                  isLast
+                    ? "cursor-default text-white"
+                    : "text-text-secondary hover:text-text"
+                }`}
+                onClick={() => { if (!isLast && node.chat_id) onNavigate(node.chat_id); }}
               >
-                ›
+                {!isLast && (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full opacity-80"
+                    style={{ backgroundColor: color }}
+                  />
+                )}
+                <span className="max-w-[100px] truncate">{node.title}</span>
               </button>
-            )}
+
+              {hasSiblings && (
+                <button
+                  type="button"
+                  ref={(el) => { if (el) triggerRefs.current.set(node.node_id, el); }}
+                  className={`flex items-center border-l px-1.5 py-[5px] transition-colors ${
+                    isLast
+                      ? "border-white/20 text-white/60 hover:bg-white/15 hover:text-white"
+                      : "border-border/40 text-text-secondary/40 hover:bg-muted/50 hover:text-text-secondary"
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (openMenu === node.node_id) setOpenMenu(null);
+                    else openMenuFor(node.node_id);
+                  }}
+                >
+                  <ChevronDown size={10} />
+                </button>
+              )}
+            </span>
           </div>
         );
       })}
 
-      {/* Trailing children dropdown */}
+      {/* Children branch indicator */}
       {lastChildren.length > 0 && (
         <div className="flex shrink-0 items-center">
-          <span className="mx-1 text-gray-300">/</span>
+          <ChevronRight size={11} className="mx-1 shrink-0 text-border/50" />
           <button
             type="button"
             ref={(el) => { if (el) triggerRefs.current.set("__children__", el); }}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-xs font-bold text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-border/50 px-2 py-[3px] text-[11px] text-text-secondary/70 transition-colors hover:border-border hover:text-text-secondary"
             onClick={(e) => {
               e.stopPropagation();
               if (openMenu === "__children__") setOpenMenu(null);
               else openMenuFor("__children__");
             }}
           >
-            ›
+            <GitBranch size={10} />
+            <span>{lastChildren.length}</span>
           </button>
         </div>
       )}
 
-      {/* Dropdown rendered via portal */}
+      {/* Dropdown portal */}
       {openMenu && dropdownItems.length > 0 && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[10000] min-w-[180px] max-w-[280px] overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+          className="fixed z-[10000] min-w-[180px] max-w-[260px] overflow-hidden rounded-xl border border-border/70 bg-surface py-1 shadow-xl dark:shadow-black/30"
           style={{ top: menuPos.top, left: menuPos.left }}
         >
           {dropdownItems.map((item) => (
             <button
               key={item.id}
               type="button"
-              className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition hover:bg-blue-50 dark:hover:bg-blue-900/20 ${
+              className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/60 ${
                 item.isActive
-                  ? "border-l-2 border-blue-500 bg-blue-50 font-medium dark:bg-blue-900/20"
-                  : "text-gray-700 dark:text-gray-300"
+                  ? "bg-muted/40 font-medium text-text"
+                  : "text-text-secondary"
               }`}
-              onClick={() => {
-                onNavigate(item.id);
-                setOpenMenu(null);
-              }}
+              onClick={() => { onNavigate(item.id); setOpenMenu(null); }}
             >
-              <span>{item.label}</span>
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: dropdownColor }}
+              />
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
               {item.childCount > 0 && (
-                <span className="ml-2 shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-400 dark:bg-gray-800 dark:text-gray-500">
+                <span className="ml-auto shrink-0 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] text-text-secondary">
                   {item.childCount}
                 </span>
               )}

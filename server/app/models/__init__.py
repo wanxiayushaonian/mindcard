@@ -1,15 +1,15 @@
-from .user import User
-from .workspace import Workspace, WorkspaceMember
+from .activity import ActivityLog
+from .api_key import ApiKey
+from .branch_insight import BranchInsight
 from .card import Card, CardRelation
 from .chat import AiChat, ChatMessage
 from .comment import Comment
+from .graph import Community, CommunityReport, EntityCard, GraphEntity, GraphRelation
 from .notification import Notification
-from .activity import ActivityLog
-from .api_key import ApiKey
 from .topic import Topic, TopicCard
 from .topology import NodeCard, NodeRef
-from .graph import GraphEntity, GraphRelation, EntityCard, GNNTrainingLog, TripleFeedback
-from .branch_insight import BranchInsight
+from .user import User
+from .workspace import Workspace, WorkspaceMember
 
 __all__ = [
     "User",
@@ -30,7 +30,7 @@ __all__ = [
     "GraphEntity",
     "GraphRelation",
     "EntityCard",
-    "GNNTrainingLog",
-    "TripleFeedback",
+    "Community",
+    "CommunityReport",
     "BranchInsight",
 ]

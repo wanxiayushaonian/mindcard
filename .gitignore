@@ -35,3 +35,9 @@ miniapp/project.private.config.json
 
 # Plan docs
 plan/
+
+# Test artifacts
+web/test-results/
+
+# Model checkpoints
+server/checkpoints/

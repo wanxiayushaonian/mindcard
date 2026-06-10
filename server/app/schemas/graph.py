@@ -3,7 +3,6 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-
 # --- Graph Entity ---
 
 class GraphEntityResponse(BaseModel):
@@ -11,6 +10,7 @@ class GraphEntityResponse(BaseModel):
     workspace_id: UUID
     name: str
     entity_type: str | None = None
+    description: str | None = None
     access_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -61,26 +61,6 @@ class GraphRelationUpdate(BaseModel):
     weight: float | None = None
 
 
-# --- Triple Feedback ---
-
-class TripleFeedbackCreate(BaseModel):
-    feedback_type: str  # "good", "bad", "corrected"
-    corrected_head: str | None = None
-    corrected_relation: str | None = None
-    corrected_tail: str | None = None
-
-
-class TripleFeedbackResponse(BaseModel):
-    id: UUID
-    triple_id: UUID | None = None
-    feedback_type: str
-    corrected_head: str | None = None
-    corrected_relation: str | None = None
-    corrected_tail: str | None = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
 
 # --- Graph Search ---
 
@@ -110,31 +90,9 @@ class GraphSearchResponse(BaseModel):
     cards: list[GraphSearchResultCard] = []
 
 
-# --- GNN Training ---
-
-class GNNTrainingRequest(BaseModel):
-    mode: str = "auto"  # "auto", "local_cpu", "local_gpu", "remote_gpu"
-
-
-class GNNTrainingLogResponse(BaseModel):
-    id: UUID
-    workspace_id: UUID
-    training_mode: str
-    graph_size_nodes: int
-    graph_size_edges: int
-    checkpoint_path: str
-    training_duration_seconds: int | None = None
-    status: str
-    error_message: str | None = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 # --- Graph Stats ---
 
 class GraphStatsResponse(BaseModel):
     entity_count: int
     relation_count: int
     relation_type_counts: dict[str, int]
-    last_training: GNNTrainingLogResponse | None = None

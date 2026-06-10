@@ -169,6 +169,27 @@ page {
   margin-top: -4rpx;
 }
 
+/* Emotion Tags */
+.emotion-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.emotion-option {
+  padding: 10rpx 24rpx;
+  border-radius: 32rpx;
+  background: var(--color-bg);
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+}
+
+.emotion-option-active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
 /* Preview */
 .preview-card {
   background: var(--color-white);

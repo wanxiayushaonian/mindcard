@@ -55,11 +55,7 @@ Page({
 
     this.setData({ loading: true });
 
-    api.post('/api/search/' + this.data.mode, {
-      query: query,
-      workspace_id: workspaceId,
-      limit: 20,
-    })
+    api.searchApi.search(query, workspaceId, this.data.mode)
       .then(function (res) {
         var results = (res.results || []).map(function (r) {
           return {

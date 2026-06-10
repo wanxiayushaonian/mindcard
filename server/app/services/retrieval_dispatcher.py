@@ -1,10 +1,10 @@
 import logging
 import uuid
 
-from sqlalchemy import or_, select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.retrieval import EntityContext, RetrievalLevel, RetrievalResult
+from app.schemas.retrieval import ReasoningPathItem, RetrievalLevel, RetrievalResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,24 +25,24 @@ class RetrievalDispatcher:
         chat_id: str | None = None,
     ) -> RetrievalResult:
         """Route query through the appropriate retrieval strategy."""
-        # Auto-detect level if requested
+        logger.info("RetrievalDispatcher.dispatch: level=%s, question=%s, workspace_ids=%s, chat_id=%s",
+                     level, question[:80], workspace_ids, chat_id)
         if level == self.AUTO_LEVEL:
             level = await self.detect_level(question, workspace_ids, db)
 
         level = RetrievalLevel(level) if isinstance(level, int) else level
 
-        if level == RetrievalLevel.FREE:
-            return RetrievalResult(level_used=RetrievalLevel.FREE)
+        if level == RetrievalLevel.CHAT:
+            return RetrievalResult(level_used=RetrievalLevel.CHAT)
 
-        if level == RetrievalLevel.CARD:
+        if level == RetrievalLevel.SEARCH:
             return await self._level_card(question, workspace_ids, db, top_k, card_id)
 
-        if level == RetrievalLevel.GRAPH:
+        if level == RetrievalLevel.EXPLORE:
             return await self._level_graph(question, workspace_ids, db, top_k, card_id)
 
-        if level == RetrievalLevel.FULL:
+        if level == RetrievalLevel.CONTEXT:
             result = await self._level_full(question, workspace_ids, db, top_k, card_id)
-            # Inject topology context if chat_id available
             if chat_id and workspace_ids:
                 topo = await self.get_topology_context(chat_id, workspace_ids[0], db)
                 result.topology_path = topo["path"]
@@ -50,7 +50,10 @@ class RetrievalDispatcher:
                 result.cross_refs = topo["cross_refs"]
             return result
 
-        return RetrievalResult(level_used=RetrievalLevel.FREE)
+        if level == RetrievalLevel.INSIGHT:
+            return await self._level_global(question, workspace_ids, db)
+
+        return RetrievalResult(level_used=RetrievalLevel.CHAT)
 
     # ── Level 1: Card retrieval ──────────────────────────────────────────
 
@@ -63,25 +66,25 @@ class RetrievalDispatcher:
         card_id: str | None,
     ) -> RetrievalResult:
         """Level 1: Hybrid search (vector + fulltext RRF)."""
-        from app.services.search import search_service
         from app.services.rag import rag_service
+        from app.services.search import search_service
 
         if card_id:
             cards = await rag_service._find_similar_cards(db, card_id, top_k)
             return RetrievalResult(
                 cards=cards,
                 card_scores=[1.0] * len(cards),
-                level_used=RetrievalLevel.CARD,
+                level_used=RetrievalLevel.SEARCH,
             )
 
         scored = await search_service.hybrid_search(db, question, workspace_ids, limit=top_k)
         return RetrievalResult(
             cards=[sc.card for sc in scored],
             card_scores=[sc.score for sc in scored],
-            level_used=RetrievalLevel.CARD,
+            level_used=RetrievalLevel.SEARCH,
         )
 
-    # ── Level 2: Graph enhancement ───────────────────────────────────────
+    # ── Level 2: Graph traversal retrieval ──────────────────────────────
 
     async def _level_graph(
         self,
@@ -91,154 +94,60 @@ class RetrievalDispatcher:
         top_k: int,
         card_id: str | None,
     ) -> RetrievalResult:
-        """Level 2: Card retrieval + entity/relation context."""
-        from app.services.embedding import embedding_service
-        from app.models.graph import GraphEntity
+        """Level 2: Graph traversal — entity match → 1/2-hop scoring → card reranking.
 
-        # Step 1: Get card results (same as Level 1)
-        card_result = await self._level_card(question, workspace_ids, db, top_k, card_id)
+        Uses graph_retriever for single-workspace queries. Falls back to CARD
+        level when no workspace is available or graph yields no results.
+        """
+        from app.models.card import Card
+        from app.services.gnn_retriever import graph_retriever
 
-        # Step 2: Extract entities from question
-        entities = await self._extract_entities(question)
+        # card_id mode: fall back to CARD (no graph context needed)
+        if card_id or not workspace_ids:
+            result = await self._level_card(question, workspace_ids, db, top_k, card_id)
+            result.level_used = RetrievalLevel.EXPLORE
+            return result
 
-        # Step 3: Match entities in graph
-        entity_contexts: list[EntityContext] = []
-        for ent_name in entities:
-            matched = await self._match_entity(ent_name, workspace_ids, db)
-            if matched:
-                ctx = await self._build_entity_context(matched, db)
-                entity_contexts.append(ctx)
+        workspace_id = workspace_ids[0]
+        logger.info("RetrievalDispatcher._level_graph: calling graph_retriever.retrieve for workspace %s", workspace_id)
+        graph_response = await graph_retriever.retrieve(question, workspace_id, db, k=top_k)
+        logger.info("RetrievalDispatcher._level_graph: graph returned %d cards, mode=%s, %d reasoning paths",
+                     len(graph_response.cards), graph_response.retrieval_mode, len(graph_response.reasoning_paths))
 
-        # Step 4: If no entity matches, try vector similarity on question
-        if not entity_contexts:
-            try:
-                q_emb = await embedding_service.embed(question)
-                result = await db.execute(
-                    select(GraphEntity)
-                    .where(GraphEntity.workspace_id.in_(workspace_ids))
-                    .where(GraphEntity.embedding.isnot(None))
-                    .order_by(GraphEntity.embedding.cosine_distance(q_emb))
-                    .limit(3)
-                )
-                for ent in result.scalars().all():
-                    ctx = await self._build_entity_context(ent, db)
-                    entity_contexts.append(ctx)
-            except Exception as e:
-                logger.warning("Graph entity vector fallback failed: %s", e)
+        # Convert GraphSearchResultCard → full Card objects
+        cards: list[Card] = []
+        scores: list[float] = []
+        if graph_response.cards:
+            card_ids = [c.id for c in graph_response.cards]
+            result = await db.execute(select(Card).where(Card.id.in_(card_ids)))
+            card_map = {c.id: c for c in result.scalars().all()}
+            for gc in graph_response.cards:
+                card = card_map.get(gc.id)
+                if card:
+                    cards.append(card)
+                    scores.append(gc.score)
+
+        # Fall back to hybrid search when graph finds nothing
+        if not cards:
+            fallback = await self._level_card(question, workspace_ids, db, top_k, card_id)
+            fallback.level_used = RetrievalLevel.EXPLORE
+            return fallback
+
+        # Convert reasoning paths
+        paths = [
+            ReasoningPathItem(
+                entities=p.entities,
+                relations=p.relations,
+                score=p.score,
+            )
+            for p in graph_response.reasoning_paths
+        ]
 
         return RetrievalResult(
-            cards=card_result.cards,
-            card_scores=card_result.card_scores,
-            entities=entity_contexts,
-            level_used=RetrievalLevel.GRAPH,
-        )
-
-    async def _extract_entities(self, text: str) -> list[str]:
-        """Extract entity names from text using the triple extractor."""
-        try:
-            from app.services.triple_extractor import triple_extractor
-            entities = await triple_extractor._extract_entities(text)
-            return [e.name for e in entities]
-        except Exception as e:
-            logger.warning("Entity extraction failed: %s", e)
-            return []
-
-    async def _match_entity(
-        self, name: str, workspace_ids: list[uuid.UUID], db: AsyncSession
-    ) -> "GraphEntity | None":
-        """Match entity by exact name or embedding similarity."""
-        from app.models.graph import GraphEntity
-        from app.services.embedding import embedding_service
-
-        # Try exact match first
-        result = await db.execute(
-            select(GraphEntity)
-            .where(GraphEntity.workspace_id.in_(workspace_ids))
-            .where(func.lower(GraphEntity.name) == name.lower())
-            .limit(1)
-        )
-        exact = result.scalar_one_or_none()
-        if exact:
-            return exact
-
-        # Try embedding similarity
-        try:
-            emb = await embedding_service.embed(name)
-            result = await db.execute(
-                select(GraphEntity)
-                .where(GraphEntity.workspace_id.in_(workspace_ids))
-                .where(GraphEntity.embedding.isnot(None))
-                .order_by(GraphEntity.embedding.cosine_distance(emb))
-                .limit(1)
-            )
-            best = result.scalar_one_or_none()
-            if best and best.embedding:
-                dist_result = await db.execute(
-                    select(GraphEntity.embedding.cosine_distance(emb))
-                    .where(GraphEntity.id == best.id)
-                )
-                d = dist_result.scalar_one_or_none()
-                if d is not None and d < 0.6:
-                    return best
-        except Exception as e:
-            logger.warning("Entity embedding match failed: %s", e)
-        return None
-
-    async def _build_entity_context(
-        self, entity: "GraphEntity", db: AsyncSession
-    ) -> EntityContext:
-        """Build entity context with relations and linked card titles."""
-        from app.models.graph import GraphRelation, EntityCard, GraphEntity
-        from app.models.card import Card
-
-        # Get relations (1-hop)
-        rels_result = await db.execute(
-            select(GraphRelation)
-            .where(
-                or_(
-                    GraphRelation.head_id == entity.id,
-                    GraphRelation.tail_id == entity.id,
-                )
-            )
-            .limit(10)
-        )
-        relations = []
-        rels = rels_result.scalars().all()
-        # Batch-fetch all referenced entities to avoid N+1 queries
-        all_entity_ids: set[uuid.UUID] = set()
-        for rel in rels:
-            all_entity_ids.add(rel.head_id)
-            all_entity_ids.add(rel.tail_id)
-        entity_map: dict[uuid.UUID, "GraphEntity"] = {}
-        if all_entity_ids:
-            fetched = await db.execute(select(GraphEntity).where(GraphEntity.id.in_(all_entity_ids)))
-            entity_map = {e.id: e for e in fetched.scalars().all()}
-
-        for rel in rels:
-            head = entity_map.get(rel.head_id)
-            tail = entity_map.get(rel.tail_id)
-            relations.append({
-                "head_name": head.name if head else "?",
-                "relation": rel.relation,
-                "tail_name": tail.name if tail else "?",
-                "weight": rel.weight,
-            })
-
-        # Get linked card titles
-        cards_result = await db.execute(
-            select(Card.title)
-            .join(EntityCard, EntityCard.card_id == Card.id)
-            .where(EntityCard.entity_id == entity.id)
-            .limit(5)
-        )
-        card_titles = [row[0] for row in cards_result.all() if row[0]]
-
-        return EntityContext(
-            entity_id=str(entity.id),
-            name=entity.name,
-            entity_type=entity.entity_type,
-            relations=relations,
-            linked_card_titles=card_titles,
+            cards=cards,
+            card_scores=scores,
+            reasoning_paths=paths,
+            level_used=RetrievalLevel.EXPLORE,
         )
 
     # ── Level 3: Full awareness ──────────────────────────────────────────
@@ -251,22 +160,120 @@ class RetrievalDispatcher:
         top_k: int,
         card_id: str | None,
     ) -> RetrievalResult:
-        """Level 3: Graph + topology path + topic context."""
+        """Level 3: Graph retrieval + topology path context."""
         graph_result = await self._level_graph(question, workspace_ids, db, top_k, card_id)
         return RetrievalResult(
             cards=graph_result.cards,
             card_scores=graph_result.card_scores,
-            entities=graph_result.entities,
-            level_used=RetrievalLevel.FULL,
+            reasoning_paths=graph_result.reasoning_paths,
+            level_used=RetrievalLevel.CONTEXT,
+        )
+
+    async def _level_global(
+        self,
+        question: str,
+        workspace_ids: list[uuid.UUID],
+        db: AsyncSession,
+    ) -> RetrievalResult:
+        """Level 4: Map-Reduce over community reports for global/thematic questions."""
+        import asyncio
+        from app.models.graph import CommunityReport
+        from app.services.llm import llm_service
+
+        if not workspace_ids:
+            return RetrievalResult(level_used=RetrievalLevel.INSIGHT)
+
+        workspace_id = workspace_ids[0]
+
+        # Load community reports
+        result = await db.execute(
+            select(CommunityReport)
+            .where(CommunityReport.workspace_id == workspace_id)
+            .order_by(CommunityReport.rating.desc())
+        )
+        reports = list(result.scalars().all())
+
+        if not reports:
+            logger.info("Global search: no community reports found, falling back to CARD")
+            card_result = await self._level_card(question, workspace_ids, db, 5, None)
+            card_result.level_used = RetrievalLevel.INSIGHT
+            return card_result
+
+        # ── Map phase: extract scored key points from each report ──
+        map_system = (
+            "你是一个知识分析专家。根据以下社区报告内容，提取与用户问题相关的关键信息点。\n"
+            "每个信息点用 JSON 格式输出：\n"
+            '{"points": [{"description": "信息点描述", "score": 1-10}]}\n'
+            "只输出 JSON，不要解释。如果报告与问题无关，输出 {\"points\": []}"
+        )
+
+        sem = asyncio.Semaphore(3)
+
+        async def _map_report(report: CommunityReport) -> list[dict]:
+            async with sem:
+                try:
+                    user_content = (
+                        f"社区主题：{report.title}\n"
+                        f"摘要：{report.summary}\n"
+                        f"发现：{', '.join(report.findings or [])}\n\n"
+                        f"用户问题：{question}"
+                    )
+                    response = await llm_service.extraction_complete_simple(
+                        system_prompt=map_system,
+                        user_content=user_content,
+                        max_tokens=512,
+                        temperature=0.2,
+                    )
+                    if not response:
+                        return []
+
+                    import json
+                    # Try to parse JSON from response
+                    response = response.strip()
+                    if response.startswith("```"):
+                        response = response.split("```")[1]
+                        if response.startswith("json"):
+                            response = response[4:]
+                    data = json.loads(response)
+                    return data.get("points", [])
+                except Exception as e:
+                    logger.warning("Global map failed for report %s: %s", report.id, e)
+                    return []
+
+        all_points = await asyncio.gather(*[_map_report(r) for r in reports])
+
+        # ── Collect and filter scored points ──
+        scored_points: list[tuple[str, float]] = []
+        for points in all_points:
+            for p in points:
+                desc = p.get("description", "")
+                score = float(p.get("score", 0))
+                if desc and score > 0:
+                    scored_points.append((desc, score))
+
+        scored_points.sort(key=lambda x: x[1], reverse=True)
+
+        # ── Build community context string ──
+        context_parts = [
+            f"## 全局知识库分析（基于 {len(reports)} 个知识社区）\n"
+        ]
+        for desc, score in scored_points[:20]:
+            context_parts.append(f"- [{score:.0f}/10] {desc}")
+
+        community_context = "\n".join(context_parts)
+
+        return RetrievalResult(
+            community_context=community_context,
+            level_used=RetrievalLevel.INSIGHT,
         )
 
     async def get_topology_context(
         self, chat_id: str, workspace_id: uuid.UUID, db: AsyncSession
     ) -> dict:
         """Get topology path context for a chat session."""
-        from app.models.topology import NodeCard
         from app.models.card import Card
         from app.models.chat import AiChat
+        from app.models.topology import NodeCard
 
         chat_uuid = uuid.UUID(chat_id) if isinstance(chat_id, str) else chat_id
 
@@ -285,7 +292,6 @@ class RetrievalDispatcher:
             ancestor_ids.append(node.id)
             current_id = node.parent_id
 
-        # Fetch all ancestors in one query
         path = []
         if ancestor_ids:
             result = await db.execute(select(AiChat).where(AiChat.id.in_(ancestor_ids)))
@@ -301,7 +307,6 @@ class RetrievalDispatcher:
 
         path.reverse()  # root first
 
-        # Get cards bound to current chat
         cards_result = await db.execute(
             select(Card.title)
             .join(NodeCard, NodeCard.card_id == Card.id)
@@ -309,10 +314,30 @@ class RetrievalDispatcher:
         )
         node_card_titles = [row[0] for row in cards_result.all() if row[0]]
 
+        # Cross-references: NodeRef where this node is source or target
+        from app.models.topology import NodeRef
+
+        cross_refs: list[dict] = []
+        refs_result = await db.execute(
+            select(NodeRef).where(
+                (NodeRef.source_chat_id == chat_uuid) | (NodeRef.target_chat_id == chat_uuid)
+            )
+        )
+        for ref in refs_result.scalars().all():
+            other_id = ref.target_chat_id if ref.source_chat_id == chat_uuid else ref.source_chat_id
+            other_node = await db.get(AiChat, other_id)
+            if other_node:
+                cross_refs.append({
+                    "node_id": str(other_id),
+                    "title": other_node.title or "",
+                    "ref_type": ref.ref_type,
+                    "reason": ref.reason or "",
+                })
+
         return {
             "path": path,
             "node_card_titles": node_card_titles,
-            "cross_refs": [],
+            "cross_refs": cross_refs,
         }
 
     # ── Auto-level detection ─────────────────────────────────────────────
@@ -321,15 +346,24 @@ class RetrievalDispatcher:
         self, question: str, workspace_ids: list[uuid.UUID], db: AsyncSession
     ) -> RetrievalLevel:
         """Auto-detect the appropriate retrieval level for a question."""
-        from app.services.embedding import embedding_service
-        from app.models.graph import GraphEntity
-
-        # Short questions with no domain terms -> CARD
+        # Short questions → CARD
         if len(question) < 10:
-            return RetrievalLevel.CARD
+            return RetrievalLevel.SEARCH
 
-        # Check if question contains known entity names
+        # Keywords suggesting broad/global synthesis → GLOBAL
+        global_keywords = ["总览", "全局", "整体概况", "知识库", "所有主题", "涵盖"]
+        if any(kw in question for kw in global_keywords):
+            return RetrievalLevel.INSIGHT
+
+        # Keywords suggesting cross-node synthesis → FULL
+        deep_keywords = ["总结", "梳理", "关联", "对比", "分析", "关系", "结构", "整体", "全貌"]
+        if any(kw in question for kw in deep_keywords):
+            return RetrievalLevel.CONTEXT
+
+        # Check if the question mentions known entity names → GRAPH
         if workspace_ids:
+            from app.models.graph import GraphEntity
+            from app.services.embedding import embedding_service
             try:
                 q_emb = await embedding_service.embed(question)
                 result = await db.execute(
@@ -340,42 +374,30 @@ class RetrievalDispatcher:
                     .limit(1)
                 )
                 best_name = result.scalar_one_or_none()
-                if best_name:
-                    q_lower = question.lower()
-                    if best_name.lower() in q_lower:
-                        return RetrievalLevel.GRAPH
+                if best_name and best_name.lower() in question.lower():
+                    return RetrievalLevel.EXPLORE
             except Exception as e:
                 logger.warning("Auto-level entity detection failed: %s", e)
 
-        # Keywords that suggest deeper analysis
-        deep_keywords = ["总结", "梳理", "关联", "对比", "分析", "关系", "结构", "整体", "全貌"]
-        if any(kw in question for kw in deep_keywords):
-            return RetrievalLevel.FULL
-
-        # Default to GRAPH for substantive questions
-        if len(question) >= 10:
-            return RetrievalLevel.GRAPH
-
-        return RetrievalLevel.CARD
+        # Default substantive questions → CARD (not GRAPH, to avoid LLM NER overhead)
+        return RetrievalLevel.SEARCH
 
     # ── Context string builders ──────────────────────────────────────────
 
     @staticmethod
     def build_entity_context_string(result: RetrievalResult) -> str:
-        """Build a human-readable entity context string for system prompt injection."""
-        if not result.entities:
+        """Build reasoning path context string for system prompt injection."""
+        if not result.reasoning_paths:
             return ""
 
-        lines = ["知识库中的相关概念："]
-        for ctx in result.entities:
-            if ctx.relations:
-                for rel in ctx.relations[:3]:
-                    lines.append(
-                        f"- [{rel['head_name']}] 是 [{rel['tail_name']}] 的 [{rel['relation']}]"
-                    )
-            if ctx.linked_card_titles:
-                titles = "、".join(ctx.linked_card_titles[:3])
-                lines.append(f"  关联卡片：{titles}")
+        lines = ["知识图谱推理路径："]
+        for path in result.reasoning_paths[:5]:
+            if len(path.entities) >= 2 and path.relations:
+                parts = [path.entities[0]]
+                for rel, ent in zip(path.relations, path.entities[1:]):
+                    parts.append(f"—[{rel}]→")
+                    parts.append(ent)
+                lines.append("- " + " ".join(parts))
         return "\n".join(lines)
 
     @staticmethod
@@ -395,7 +417,7 @@ class RetrievalDispatcher:
         if result.cross_refs:
             refs = []
             for ref in result.cross_refs[:3]:
-                refs.append(f"{ref['target_title']}（关系：{ref['ref_type']}）")
+                refs.append(f"{ref['title']}（关系：{ref['ref_type']}）")
             parts.append(f"相关分支：{', '.join(refs)}")
 
         return "\n".join(parts)

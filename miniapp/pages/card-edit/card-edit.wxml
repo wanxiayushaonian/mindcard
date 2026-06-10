@@ -101,6 +101,22 @@
       </view>
     </view>
 
+    <!-- Emotion Tag -->
+    <view class="form-group">
+      <text class="form-label">情绪标签</text>
+      <view class="emotion-list">
+        <view
+          wx:for="{{emotions}}"
+          wx:key="key"
+          class="emotion-option {{selectedEmotion === item.key ? 'emotion-option-active' : ''}}"
+          bindtap="onEmotionSelect"
+          data-emotion="{{item.key}}"
+        >
+          <text>{{item.label}}</text>
+        </view>
+      </view>
+    </view>
+
     <!-- Preview -->
     <view class="form-group">
       <text class="form-label">卡片预览</text>

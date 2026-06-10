@@ -18,6 +18,7 @@ import {
   drag as d3Drag,
 } from "d3";
 import { topologyApi, type TreeNode } from "@/lib/api";
+import { useTranslations } from "next-intl";
 
 interface Props {
   workspaceId: string;
@@ -56,6 +57,8 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 
 export const TopologyTreeView = forwardRef<any, Props>(
   function TopologyTreeView({ workspaceId, highlightId, onNodeClick }, ref) {
+    const t = useTranslations("topology");
+    const tc = useTranslations("common");
     const svgRef = useRef<SVGSVGElement>(null);
     const simRef = useRef<ReturnType<typeof forceSimulation> | null>(null);
     const [treeNodes, setTreeNodes] = useState<TreeNode[]>([]);
@@ -108,7 +111,7 @@ export const TopologyTreeView = forwardRef<any, Props>(
         .filter((n) => depthMap.has(n.id))
         .map((n) => ({
           id: n.id,
-          label: n.title || (n.node_type === "root" ? "主线" : "未命名"),
+          label: n.title || (n.node_type === "root" ? t("mainLine") : tc("unnamed")),
           nodeType: n.node_type,
           status: n.status,
           cardCount: n.card_count ?? 0,
@@ -289,8 +292,8 @@ export const TopologyTreeView = forwardRef<any, Props>(
     if (nodes.length === 0) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 text-text-secondary">
-          <p className="text-sm">暂无拓扑树数据</p>
-          <p className="text-xs">创建卡片后将自动归类到知识拓扑树</p>
+          <p className="text-sm">{t("noTopology")}</p>
+          <p className="text-xs">{t("autoClassify")}</p>
         </div>
       );
     }
@@ -310,9 +313,9 @@ export const TopologyTreeView = forwardRef<any, Props>(
           >
             <div className="font-medium text-text">{hoveredNode.label}</div>
             <div className="text-text-secondary">
-              {{ root: "根节点", branch: "分支", leaf: "叶子" }[hoveredNode.nodeType]} ·{" "}
-              {{ active: "活跃", completed: "已完成", archived: "已归档" }[hoveredNode.status]} ·{" "}
-              {hoveredNode.cardCount} 张卡片
+              {{ root: t("rootNode"), branch: t("branch"), leaf: t("leaf") }[hoveredNode.nodeType]} ·{" "}
+              {{ active: t("active"), completed: t("completed"), archived: t("archived") }[hoveredNode.status]} ·{" "}
+              {t("cards", { count: hoveredNode.cardCount })}
             </div>
           </div>
         )}
@@ -321,30 +324,30 @@ export const TopologyTreeView = forwardRef<any, Props>(
         <div className="absolute bottom-4 left-4 z-10 rounded-xl border border-border bg-surface/90 p-3 text-xs shadow-sm backdrop-blur-sm">
           <div className="mb-1 flex items-center gap-2">
             <span className="inline-block h-3 w-3 rounded-full" style={{ background: NODE_COLORS.root }} />
-            <span className="text-text-secondary">根节点</span>
+            <span className="text-text-secondary">{t("rootNode")}</span>
           </div>
           <div className="mb-1 flex items-center gap-2">
             <span className="inline-block h-3 w-3 rounded-full" style={{ background: NODE_COLORS.branch }} />
-            <span className="text-text-secondary">分支</span>
+            <span className="text-text-secondary">{t("branch")}</span>
           </div>
           <div className="mb-1 flex items-center gap-2">
             <span className="inline-block h-3 w-3 rounded-full" style={{ background: NODE_COLORS.leaf }} />
-            <span className="text-text-secondary">叶子</span>
+            <span className="text-text-secondary">{t("leaf")}</span>
           </div>
           <hr className="my-1.5 border-border" />
           <div className="mb-1 flex items-center gap-2">
             <span className="inline-block h-0.5 w-4" style={{ background: "rgba(148, 180, 200, 0.35)" }} />
-            <span className="text-text-secondary">父子关系</span>
+            <span className="text-text-secondary">{t("parentChild")}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-block h-0.5 w-4 border-t border-dashed" style={{ borderColor: REF_COLORS.related }} />
-            <span className="text-text-secondary">跨分支引用</span>
+            <span className="text-text-secondary">{t("crossReference")}</span>
           </div>
         </div>
 
         {/* Controls hint */}
         <div className="absolute right-4 top-4 z-10 rounded-lg bg-surface/70 px-2.5 py-1.5 text-[10px] text-text-secondary backdrop-blur-sm">
-          拖拽平移 · 滚轮缩放 · 拖动节点
+          {t("controlsHint")}
         </div>
       </div>
     );

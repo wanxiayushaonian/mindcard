@@ -38,10 +38,6 @@ Page({
     inviteWsName: '',
     showJoinModal: false,
     joinCodeInput: '',
-    showMembersModal: false,
-    membersWsName: '',
-    membersList: [],
-    membersWsId: '',
   },
 
   onShow() {
@@ -64,7 +60,7 @@ Page({
     const sharedWorkspaces = (app.globalData.sharedWorkspaces || []).map(ws => ({
       ...ws,
       icon: normalizeIcon(ws.icon),
-      _cardCount: 0, // shared spaces cards loaded separately
+      _cardCount: 0,
       _memberCount: (ws.members || []).length,
       _isShared: true,
     }));
@@ -74,6 +70,43 @@ Page({
       { id: '__join__', _type: 'join' },
     ];
     this.setData({ workspaces, sharedWorkspaces, gridItems });
+    this._loadAllCardCounts();
+  },
+
+  async _loadAllCardCounts() {
+    var app = getApp();
+    var workspaces = app.globalData.workspaces;
+    var self = this;
+    var counts = {};
+
+    function loadWsCards(wsId) {
+      var allCards = [];
+      var cursor = null;
+      function loadPage() {
+        return api.cardsApi.list(wsId, cursor, 50).then(function (resp) {
+          var items = Array.isArray(resp) ? resp : (resp.items || []);
+          allCards = allCards.concat(items);
+          cursor = (resp && resp.next_cursor) || null;
+          if (cursor) return loadPage();
+          counts[wsId] = allCards.length;
+        }).catch(function () { counts[wsId] = 0; });
+      }
+      return loadPage();
+    }
+
+    await Promise.all(workspaces.map(function (ws) {
+      if (ws.id.indexOf('ws_') === 0) return Promise.resolve();
+      return loadWsCards(ws.id);
+    }));
+
+    var updatedWorkspaces = self.data.workspaces.map(function (ws) {
+      return Object.assign({}, ws, { _cardCount: counts[ws.id] || 0 });
+    });
+    var gridItems = updatedWorkspaces.concat([
+      { id: '__add__', _type: 'add' },
+      { id: '__join__', _type: 'join' },
+    ]);
+    self.setData({ workspaces: updatedWorkspaces, gridItems: gridItems });
   },
 
   onStopPropagation() {},
@@ -106,18 +139,7 @@ Page({
     const ws = app.globalData.workspaces.find(w => w.id === id);
     if (!ws) return;
 
-    const isOwner = ws.owner === app.globalData.currentUser.openId;
-    const options = ['编辑空间'];
-
-    if (isOwner || !ws.owner) {
-      options.push('分享空间');
-      if ((ws.members || []).length > 1) {
-        options.push('管理成员');
-      }
-    }
-    if (app.globalData.workspaces.length > 1) {
-      options.push('删除空间');
-    }
+    const options = ['编辑空间', '删除空间'];
 
     wx.showActionSheet({
       itemList: options,
@@ -131,10 +153,6 @@ Page({
             wsIcon: normalizeIcon(ws.icon),
             wsColor: ws.color,
           });
-        } else if (action === '分享空间') {
-          this.onShareWorkspace(id);
-        } else if (action === '管理成员') {
-          this.onManageMembers(id);
         } else if (action === '删除空间') {
           this.setData({
             showDeleteConfirm: true,
@@ -225,59 +243,6 @@ Page({
       wx.hideLoading();
       wx.showToast({ title: e.message || '加入失败', icon: 'none' });
     }
-  },
-
-  // ── Members ──
-
-  async onManageMembers(wsId) {
-    const app = getApp();
-    const ws = app.globalData.workspaces.find(w => w.id === wsId);
-    if (!ws) return;
-
-    this.setData({
-      showMembersModal: true,
-      membersWsId: wsId,
-      membersWsName: ws.name,
-      membersList: [],
-    });
-
-    // Fetch members from API
-    try {
-      const members = await api.get('/api/workspaces/' + wsId + '/members');
-      this.setData({ membersList: members || [] });
-    } catch (e) {
-      wx.showToast({ title: e.message || '加载成员失败', icon: 'none' });
-    }
-  },
-
-  onCloseMembersModal() {
-    this.setData({ showMembersModal: false });
-  },
-
-  onRemoveMember(e) {
-    const { userid, name } = e.currentTarget.dataset;
-    wx.showModal({
-      title: '移除成员',
-      content: '确定移除 ' + (name || '该成员') + '？',
-      success: async (res) => {
-        if (res.confirm) {
-          try {
-            const success = await getApp().removeMember(this.data.membersWsId, userid);
-            if (success) {
-              this.setData({
-                membersList: this.data.membersList.filter(function (m) { return String(m.user_id) !== String(userid); }),
-              });
-              this.loadWorkspaces();
-              wx.showToast({ title: '已移除', icon: 'success' });
-            } else {
-              wx.showToast({ title: '移除失败', icon: 'none' });
-            }
-          } catch (e) {
-            wx.showToast({ title: e.message || '移除失败', icon: 'none' });
-          }
-        }
-      },
-    });
   },
 
   // ── Create / Edit Modal ──

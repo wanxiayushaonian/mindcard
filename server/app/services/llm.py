@@ -9,13 +9,13 @@ from typing import Any
 from app.config import settings
 from app.providers.base import LLMProvider
 from app.providers.factory import make_provider
+from app.tools.base import ChatResponse
 
 logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    """Thin facade over LLMProvider. Keeps the existing interface so consumers
-    (rag.py, ai.py, external.py) need zero changes."""
+    """Thin facade over LLMProvider."""
 
     def __init__(self) -> None:
         self._provider_name: str = settings.default_llm_provider
@@ -30,12 +30,10 @@ class LLMService:
 
     @staticmethod
     def _resolve_credentials(provider_name: str) -> tuple[str, str | None]:
-        """Return (api_key, base_url) for the given provider."""
         from app.providers.registry import PROVIDERS
         spec = PROVIDERS.get(provider_name)
         if not spec:
             return ("", None)
-        # Map provider name to settings fields
         key_map = {
             "deepseek": (settings.deepseek_api_key, settings.deepseek_base_url),
             "openai": (settings.openai_api_key, settings.openai_base_url),
@@ -58,7 +56,6 @@ class LLMService:
         base_url: str | None = None,
         model: str | None = None,
     ) -> None:
-        """Hot-swap the underlying provider (e.g. when user changes settings)."""
         self._provider_name = provider_name
         self._provider = make_provider(provider_name, api_key, base_url, model)
 
@@ -68,7 +65,6 @@ class LLMService:
 
     @property
     def extraction_provider(self) -> LLMProvider:
-        """Provider for lightweight extraction tasks (title, keywords)."""
         if self._extraction_provider is None:
             self._extraction_provider = self._build_extraction_provider()
         return self._extraction_provider
@@ -87,11 +83,10 @@ class LLMService:
         return make_provider(provider_name, api_key, base_url, settings.extraction_llm_model or None)
 
     def reset_extraction_provider(self) -> None:
-        """Reset the cached extraction provider (after config change)."""
         self._extraction_provider = None
 
     # ------------------------------------------------------------------
-    # Original interface — unchanged signatures
+    # Completion methods
     # ------------------------------------------------------------------
 
     async def complete(
@@ -100,10 +95,11 @@ class LLMService:
         max_tokens: int = 4096,
         temperature: float = 0.7,
         timeout: float = 60,
-    ) -> str:
-        """Single-shot completion. Returns the assistant message content."""
+        tools: list[dict[str, Any]] | None = None,
+    ) -> ChatResponse:
         return await self._provider.chat(
-            messages, max_tokens=max_tokens, temperature=temperature, timeout=timeout
+            messages, max_tokens=max_tokens, temperature=temperature,
+            timeout=timeout, tools=tools,
         )
 
     async def complete_simple(
@@ -114,7 +110,6 @@ class LLMService:
         temperature: float = 0.5,
         timeout: float = 30,
     ) -> str:
-        """Convenience: system prompt + user content -> single response string."""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -122,7 +117,7 @@ class LLMService:
         result = await self.complete(
             messages, max_tokens=max_tokens, temperature=temperature, timeout=timeout
         )
-        return result.strip()
+        return result.content.strip()
 
     async def extraction_complete_simple(
         self,
@@ -132,7 +127,6 @@ class LLMService:
         temperature: float = 0.5,
         timeout: float = 30,
     ) -> str:
-        """Like complete_simple but uses the extraction-specific provider."""
         provider = self.extraction_provider
         provider_name = self.extraction_provider_name
         model_name = getattr(provider, 'model', '?')
@@ -145,9 +139,9 @@ class LLMService:
             result = await provider.chat(
                 messages, max_tokens=max_tokens, temperature=temperature, timeout=timeout
             )
-            if not result.strip():
+            if not result.content.strip():
                 logger.warning("extraction_complete_simple: empty response from %s/%s", provider_name, model_name)
-            return result.strip()
+            return result.content.strip()
         except Exception as e:
             logger.error("extraction_complete_simple failed: %s %s: %s", provider_name, model_name, e)
             raise
@@ -157,10 +151,10 @@ class LLMService:
         messages: list[dict[str, str]],
         max_tokens: int = 4096,
         temperature: float = 0.7,
-    ) -> AsyncGenerator[str, None]:
-        """Streaming completion. Yields content chunks."""
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncGenerator[str | dict[str, Any], None]:
         async for chunk in self._provider.chat_stream(
-            messages, max_tokens=max_tokens, temperature=temperature
+            messages, max_tokens=max_tokens, temperature=temperature, tools=tools
         ):
             yield chunk
 

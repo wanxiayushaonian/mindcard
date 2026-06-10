@@ -355,9 +355,9 @@ class TopologyService:
 
         from app.services.llm import llm_service
 
-        summary = await llm_service.complete([{"role": "user", "content": prompt}])
+        response = await llm_service.complete([{"role": "user", "content": prompt}])
 
-        chat.summary = summary.strip()
+        chat.summary = response.content.strip()
         await db.flush()
 
     @staticmethod

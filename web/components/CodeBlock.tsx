@@ -2,6 +2,7 @@
 
 import { Suspense, lazy, useCallback, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 interface CodeBlockProps {
   language?: string;
@@ -69,6 +70,7 @@ export function CodeBlock({
   className,
   highlight = true,
 }: CodeBlockProps) {
+  const t = useTranslations("common");
   const [copied, setCopied] = useState(false);
   const isDark = useIsDark();
 
@@ -97,7 +99,7 @@ export function CodeBlock({
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
-          <span>{copied ? "已复制" : "复制"}</span>
+          <span>{copied ? t("copied") : t("copy")}</span>
         </button>
       </div>
       {highlight ? (

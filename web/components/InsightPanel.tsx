@@ -3,12 +3,14 @@
 import { Lightbulb } from "lucide-react";
 import useSWR from "swr";
 import { insightApi } from "@/lib/api";
+import { useTranslations } from "next-intl";
 
 interface InsightPanelProps {
   chatId: string;
 }
 
 export function InsightPanel({ chatId }: InsightPanelProps) {
+  const t = useTranslations("insight");
   const { data: insights } = useSWR(
     chatId ? ["insights", chatId] : null,
     () => insightApi.list(chatId, false),
@@ -21,7 +23,7 @@ export function InsightPanel({ chatId }: InsightPanelProps) {
     <div className="border-b border-gray-100 px-3 py-2 dark:border-gray-800">
       <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
         <Lightbulb className="h-4 w-4" />
-        <span className="font-medium">{insights.length} 条跨分支洞察</span>
+        <span className="font-medium">{t("crossBranchInsights", { count: insights.length })}</span>
       </div>
       <div className="mt-2 space-y-1">
         {insights.map((insight) => (

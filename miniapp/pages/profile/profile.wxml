@@ -4,7 +4,6 @@
 
 <scroll-view class="scrollarea" scroll-y type="list">
   <!-- Stats Overview -->
-  <!-- #23: Added tempCards stat -->
   <view class="stats-grid">
     <view class="stat-item">
       <text class="stat-number">{{stats.totalCards}}</text>
@@ -22,10 +21,6 @@
       <text class="stat-number">{{stats.tempCards}}</text>
       <text class="stat-label">临时灵感</text>
     </view>
-    <view class="stat-item">
-      <text class="stat-number">{{stats.aiChats}}</text>
-      <text class="stat-label">AI对话</text>
-    </view>
   </view>
 
   <!-- Data Management -->
@@ -36,111 +31,6 @@
         <view class="settings-left">
           <view class="settings-icon-wrap"><icon name="cloud" size="18" color="#555" /></view>
           <text class="settings-text">数据备份</text>
-        </view>
-        <view class="settings-arrow"></view>
-      </view>
-      <view class="settings-item" bindtap="onClearData">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="x" size="18" color="#e74c3c" /></view>
-          <text class="settings-text danger-text">清空数据</text>
-        </view>
-        <view class="settings-arrow"></view>
-      </view>
-      <view class="settings-item" bindtap="onAiChatRecords">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="message-square" size="18" color="#555" /></view>
-          <text class="settings-text">AI对话记录</text>
-        </view>
-        <view class="settings-right-info">
-          <text class="settings-count">{{stats.aiChats}} 条</text>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-    </view>
-  </view>
-
-  <!-- Function Settings -->
-  <view class="settings-section">
-    <text class="settings-section-title">功能设置</text>
-    <view class="settings-list">
-      <view class="settings-item" bindtap="onAgentSettings">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="zap" size="18" color="#555" /></view>
-          <text class="settings-text">Agent推荐灵敏度</text>
-        </view>
-        <view class="settings-right-info">
-          <text class="settings-value">{{agentSensitivity}}</text>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-      <view class="settings-item" bindtap="onDefaultColor">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="palette" size="18" color="#555" /></view>
-          <text class="settings-text">卡片默认配色</text>
-        </view>
-        <view class="settings-right-info">
-          <view class="color-preview" style="background: #D4B5D0;"></view>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-      <view class="settings-item" bindtap="onWalkSettings">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="footprints" size="18" color="#555" /></view>
-          <text class="settings-text">灵感漫游灵敏度</text>
-        </view>
-        <view class="settings-right-info">
-          <text class="settings-value">{{walkSensitivity}}</text>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-    </view>
-  </view>
-
-  <!-- AI Settings -->
-  <view class="settings-section">
-    <text class="settings-section-title">AI设置</text>
-    <view class="settings-list">
-      <view class="settings-item" bindtap="onAiTone">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="mic" size="18" color="#555" /></view>
-          <text class="settings-text">AI对话语气</text>
-        </view>
-        <view class="settings-right-info">
-          <text class="settings-value">{{aiTone}}</text>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-      <view class="settings-item" bindtap="onAiDirection">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="compass" size="18" color="#555" /></view>
-          <text class="settings-text">思路引导方向</text>
-        </view>
-        <view class="settings-right-info">
-          <text class="settings-value">{{aiDirection}}</text>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-      <view class="settings-item" bindtap="onAiAutoRecommend">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="bot" size="18" color="#555" /></view>
-          <text class="settings-text">AI自动推荐编辑</text>
-        </view>
-        <view class="settings-right-info">
-          <view class="toggle {{aiAutoRecommend ? 'toggle-on' : ''}}">
-            <view class="toggle-dot"></view>
-          </view>
-        </view>
-      </view>
-    </view>
-  </view>
-
-  <!-- Help -->
-  <view class="settings-section">
-    <view class="settings-list">
-      <view class="settings-item" bindtap="onHelp">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="help-circle" size="18" color="#555" /></view>
-          <text class="settings-text">操作说明</text>
         </view>
         <view class="settings-arrow"></view>
       </view>
@@ -165,20 +55,3 @@
     <text class="footer-subtext">基于微信小程序原生开发</text>
   </view>
 </scroll-view>
-
-<!-- Clear confirm -->
-<view class="modal-mask" wx:if="{{showClearConfirm}}" bindtap="onHideClear">
-  <view class="confirm-dialog" catchtap="onStopPropagation">
-    <text class="confirm-title">确认清空数据</text>
-    <text class="confirm-msg">清空后所有灵感卡片和AI对话记录将被删除，且无法恢复。</text>
-    <view class="confirm-actions">
-      <view class="confirm-btn confirm-cancel" bindtap="onHideClear">
-        <text>取消</text>
-      </view>
-      <view class="confirm-btn confirm-danger" bindtap="onConfirmClear">
-        <text>清空</text>
-      </view>
-    </view>
-  </view>
-</view>
-

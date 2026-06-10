@@ -13,6 +13,17 @@ Page({
     suggestedKeywords: [],
     selectedColor: '#D4B5D0',
     colors: CARD_COLORS,
+    selectedEmotion: '',
+    emotions: [
+      { key: 'happy', label: '开心' },
+      { key: 'anxious', label: '焦虑' },
+      { key: 'calm', label: '平静' },
+      { key: 'excited', label: '兴奋' },
+      { key: 'confused', label: '困惑' },
+      { key: 'touched', label: '感动' },
+      { key: 'down', label: '沮丧' },
+      { key: 'expectant', label: '期待' },
+    ],
   },
 
   onLoad(options) {
@@ -39,6 +50,7 @@ Page({
         content: card.content || '',
         keywords: card.keywords || [],
         selectedColor: card.color || '#D4B5D0',
+        selectedEmotion: card.emotionTag || '',
       });
     }
   },
@@ -107,13 +119,18 @@ Page({
     this.setData({ selectedColor: e.currentTarget.dataset.color });
   },
 
+  onEmotionSelect(e) {
+    var emotion = e.currentTarget.dataset.emotion;
+    this.setData({ selectedEmotion: this.data.selectedEmotion === emotion ? '' : emotion });
+  },
+
   onAiTitle() {
     const text = this.data.content || this.data.title;
     if (!text || !text.trim()) {
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: '提炼标题中...', icon: 'loading', duration: 3000 });
-    api.post('/api/ai/generate-title', { content: text })
+    api.aiApi.generateTitle(text)
       .then(function (res) {
         this.setData({ title: res.title });
         wx.showToast({ title: '已生成', icon: 'success' });
@@ -129,7 +146,7 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: '提取关键字中...', icon: 'loading', duration: 3000 });
-    api.post('/api/ai/extract-keywords', { content: text })
+    api.aiApi.extractKeywords(text)
       .then(function (res) {
         var kws = res.keywords || [];
         if (kws.length === 0) {
@@ -146,7 +163,7 @@ Page({
   },
 
   async onSave() {
-    const { title, content, keywords, selectedColor, isEdit, cardId } = this.data;
+    const { title, content, keywords, selectedColor, selectedEmotion, isEdit, cardId } = this.data;
     if (!content.trim()) {
       wx.showToast({ title: '请输入灵感内容', icon: 'none' });
       return;
@@ -160,6 +177,7 @@ Page({
           content: content.trim(),
           keywords: keywords,
           color: selectedColor,
+          emotionTag: selectedEmotion,
         });
       } else {
         await app.addCard({
@@ -167,6 +185,7 @@ Page({
           content: content.trim(),
           keywords: keywords,
           color: selectedColor,
+          emotionTag: selectedEmotion,
         });
       }
 
@@ -179,15 +198,20 @@ Page({
 
   onAiGenerate() {
     var prompt = this.data.title || this.data.content || '帮我生成一段关于产品创新的灵感思路';
-    wx.showToast({ title: 'AI生成中...', icon: 'loading', duration: 2000 });
-    api.post('/api/rag/chat/stream', { message: prompt })
-      .then(function (res) {
-        this.setData({ content: res.reply || '' });
+    var self = this;
+    wx.showToast({ title: 'AI生成中...', icon: 'loading', duration: 3000 });
+    api.ragApi.streamChat(prompt, null, null, null,
+      function onChunk(fullContent) {
+        self.setData({ content: fullContent });
+      },
+      function onDone(fullContent) {
+        self.setData({ content: fullContent || '' });
         wx.showToast({ title: '生成完成', icon: 'success' });
-      }.bind(this))
-      .catch(function (err) {
+      },
+      function onError(err) {
         wx.showToast({ title: err.message || '生成失败', icon: 'none' });
-      });
+      }
+    );
   },
 
   onAiPolish() {
@@ -195,7 +219,7 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: 'AI润色中...', icon: 'loading', duration: 2000 });
-    api.post('/api/ai/polish', { content: this.data.content })
+    api.aiApi.polish(this.data.content)
       .then(function (res) {
         this.setData({ content: res.text });
         wx.showToast({ title: '润色完成', icon: 'success' });
@@ -210,7 +234,7 @@ Page({
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
     wx.showToast({ title: 'AI补充中...', icon: 'loading', duration: 2000 });
-    api.post('/api/ai/supplement', { content: this.data.content })
+    api.aiApi.supplement(this.data.content)
       .then(function (res) {
         this.setData({ content: this.data.content + '\n\n' + res.text });
         wx.showToast({ title: '补充完成', icon: 'success' });

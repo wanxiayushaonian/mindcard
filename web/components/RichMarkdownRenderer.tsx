@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTranslations } from "next-intl";
 import "katex/dist/katex.min.css";
 import { processMarkdownContent } from "@/lib/latex";
 import {
@@ -13,9 +14,10 @@ import {
 import type { MarkdownRendererProps } from "./MarkdownRenderer";
 
 function MermaidLoading() {
+  const t = useTranslations("markdown");
   return (
     <div className="my-4 rounded-xl border border-[var(--border)] bg-[var(--muted)]/50 px-4 py-3 text-sm text-[var(--muted-foreground)]">
-      渲染图表中...
+      {t("renderingChart")}
     </div>
   );
 }
@@ -93,6 +95,12 @@ function stripLeadingHashes(children: React.ReactNode): React.ReactNode {
   return children;
 }
 
+function isSafeUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  const trimmed = url.trim().toLowerCase();
+  return !trimmed.startsWith("javascript:") && !trimmed.startsWith("data:") && !trimmed.startsWith("vbscript:");
+}
+
 function sourceLineAttr(node: any): { "data-source-line"?: number } {
   const line = node?.position?.start?.line;
   if (typeof line === "number" && Number.isFinite(line)) {
@@ -111,6 +119,7 @@ export default function RichMarkdownRenderer({
   allowHtml = false,
   trackSourceLines = false,
 }: MarkdownRendererProps) {
+  const t = useTranslations("markdown");
   // When `trackSourceLines` is on the consumer wants `data-source-line`
   // attributes that map back to the *original* markdown lines (e.g. for
   // editor/preview scroll sync). `normalizeMarkdownForDisplay` strips empty
@@ -480,6 +489,10 @@ export default function RichMarkdownRenderer({
       const external =
         href?.startsWith("http://") || href?.startsWith("https://");
 
+      if (!isSafeUrl(href) && !isCitation && !isHashLink) {
+        return <span className="text-red-500 line-through">{children}</span>;
+      }
+
       if (isCitation) {
         const label = extractText(children);
         const ids = label.split(/\s*,\s*/);
@@ -547,16 +560,19 @@ export default function RichMarkdownRenderer({
         </a>
       );
     },
-    img: ({ node, src, alt, ...props }: any) => (
-      <img
-        src={src}
-        alt={alt || ""}
-        loading="lazy"
-        className={`${gap} inline-block max-w-full rounded-lg border border-[var(--border)]`}
-        {...lineAttr(node)}
-        {...props}
-      />
-    ),
+    img: ({ node, src, alt, ...props }: any) =>
+      isSafeUrl(src) ? (
+        <img
+          src={src}
+          alt={alt || ""}
+          loading="lazy"
+          className={`${gap} inline-block max-w-full rounded-lg border border-[var(--border)]`}
+          {...lineAttr(node)}
+          {...props}
+        />
+      ) : (
+        <span className="text-xs text-red-500 italic">[{t("unsafeImage")}]</span>
+      ),
     blockquote: ({ node, ...props }: any) => (
       <blockquote
         className={`${gap} border-l-[3px] border-[var(--muted-foreground)] pl-4 italic text-[var(--muted-foreground)] [&>p]:mb-1`}

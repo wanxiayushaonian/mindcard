@@ -6,12 +6,15 @@ import { MarkdownContent } from "@/components/MarkdownContent";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { toast } from "@/lib/toast";
 import { FileText, Eye, PenLine, Sparkles } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 interface EditorPanelProps {
   workspaceId: string;
 }
 
 export function EditorPanel({ workspaceId }: EditorPanelProps) {
+  const t = useTranslations("editor");
+  const tc = useTranslations("card");
   const { editorContent, setEditorContent } = usePanelStore();
   const [mode, setMode] = useState<"edit" | "preview" | "split">("split");
   const [precipitating, setPrecipitating] = useState(false);
@@ -23,7 +26,7 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
     if (!textarea) return;
     const selected = textarea.value.substring(textarea.selectionStart, textarea.selectionEnd).trim();
     if (!selected) {
-      toast("请先选中要沉淀的文本", "info");
+      toast(tc("noSelection"), "info");
       return;
     }
     setPrecipitating(true);
@@ -42,13 +45,13 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
         keywords,
       });
       window.dispatchEvent(new CustomEvent("card-precipitated"));
-      toast("已沉淀为卡片: " + (title || "未命名"), "success");
+      toast(tc("precipitated", { title: title || tc("unnamedCard") }), "success");
     } catch (e: any) {
-      toast("沉淀失败: " + e.message, "error");
+      toast(tc("precipitateFailed", { error: e.message }), "error");
     } finally {
       setPrecipitating(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, tc]);
 
   const charCount = editorContent.length;
   const lineCount = editorContent ? editorContent.split("\n").length : 0;
@@ -59,20 +62,20 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-1.5">
           <FileText size={14} className="text-text-secondary" />
-          <span className="text-xs font-medium text-text">编辑器</span>
+          <span className="text-xs font-medium text-text">{t("title")}</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setMode(mode === "edit" ? "split" : "edit")}
             className={`rounded p-1 transition ${mode === "edit" ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-gray-100"}`}
-            title="编辑模式"
+            title={t("editMode")}
           >
             <PenLine size={13} />
           </button>
           <button
             onClick={() => setMode(mode === "preview" ? "split" : "preview")}
             className={`rounded p-1 transition ${mode === "preview" ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-gray-100"}`}
-            title="预览模式"
+            title={t("previewMode")}
           >
             <Eye size={13} />
           </button>
@@ -80,10 +83,10 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
             onClick={handlePrecipitateSelection}
             disabled={precipitating}
             className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-secondary transition hover:bg-gray-100 disabled:opacity-50"
-            title="沉淀选中文本为卡片"
+            title={t("precipitateTooltip")}
           >
             <Sparkles size={11} />
-            沉淀
+            {t("precipitate")}
           </button>
         </div>
       </div>
@@ -112,7 +115,7 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
               }}
               onCompositionStart={() => { isComposingRef.current = true; }}
               onCompositionEnd={() => { setTimeout(() => { isComposingRef.current = false; }, 0); }}
-              placeholder="在此编辑内容...&#10;&#10;支持 Markdown 格式&#10;选中文本后点击「沉淀」可创建为卡片"
+              placeholder={t("placeholder")}
               className="flex-1 resize-none bg-transparent p-3 font-mono text-[13px] leading-relaxed text-foreground outline-none placeholder:text-text-secondary/50"
               spellCheck={false}
             />
@@ -126,7 +129,7 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
               </div>
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-text-secondary/50">
-                预览区域
+                {t("previewArea")}
               </div>
             )}
           </div>
@@ -135,7 +138,7 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
 
       {/* Footer */}
       <div className="border-t border-border px-3 py-1.5 text-[10px] text-text-secondary">
-        {charCount} 字符 · {lineCount} 行
+        {t("charLineCount", { chars: charCount, lines: lineCount })}
       </div>
     </div>
   );

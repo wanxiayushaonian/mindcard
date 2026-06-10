@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.card import Card
 from app.schemas.rag import CardSummary
-from app.services.embedding import embedding_service
 from app.services.llm import llm_service
 from app.services.search import search_service
 from app.services.web_search import web_search_service
@@ -114,64 +113,79 @@ MARKDOWN_SYSTEM_PROMPT = f"""你是一个知识问答助手。
 """
 
 
-BRANCH_DETECTION_INSTRUCTION = """
-话题分叉判断规则：
-如果你判断用户的新话题与当前分支的主题明显不同，需要创建新分支，
-请在回复的最开头输出标记：[BRANCH: 简短说明新话题]
-然后正常回复。
+CREATE_FORK_INSTRUCTION = """
+## 话题分叉规则（create_fork 工具）
 
-示例：
-- 当前分支讨论"RAG 原理"，用户问"向量检索怎么优化" → 不分叉（同一话题）
-- 当前分支讨论"RAG 原理"，用户问"怎么做红烧肉" → [BRANCH: 烹饪] 完全不同的话题
-- 当前分支讨论"Python 语法"，用户问"机器学习入门" → [BRANCH: 机器学习] 相关但值得独立探索
+当用户的新问题与当前对话话题**明显不同**时，在回答前先调用 `create_fork` 工具创建新分支。
+工具调用之后立即给出完整回答——回答内容将自动归入新分支。
 
-注意：
-- 只在话题真正偏离时才标记，不要过于敏感
-- 如果只是当前话题的深入或延伸，不要分叉
-- 如果用户明确说"换个话题"或"另一个问题"，考虑分叉
-- 不要在连续几条消息内反复触发分叉
-- 确保新分支的标签与同级已有分支不同
+**应该分叉的情况：**
+- 当前讨论"RAG 原理"，用户问"怎么做红烧肉" → 分叉（完全不同领域）
+- 当前讨论"Python 语法"，用户问"机器学习入门" → 分叉（独立探索方向）
+- 用户明确说"换个话题"或"另一个问题" → 分叉
+
+**不应该分叉的情况：**
+- 同一话题的追问、延伸、澄清、举例
+- 自然的对话流动
+- 刚创建分支后的连续消息（不要连续分叉）
+
+**分叉类型（profile）：**
+- `deep_dive`（深入探讨）：聚焦当前话题的深层细节
+- `explore`（发散探索）：自由联想、头脑风暴
+- `summarize`（总结提炼）：对已有对话进行结构化回顾
+- `challenge`（质疑挑战）：批判性审视当前结论
+
+根据用户的意图选择合适的 profile。不确定时默认用 `deep_dive`。
+"""
+
+MEMORY_EDIT_INSTRUCTION = """
+## 工作区记忆工具使用规则
+
+你可以使用 `memory_edit` 工具来保存重要的知识到工作区的共享记忆中。
+
+**何时使用：**
+- 用户明确要求"记住这个"、"保存这个结论"等
+- 对话中产生了重要的决策或结论，值得在未来对话中引用
+- 用户提供了关于项目的重要背景信息（目标、约束、偏好）
+
+**何时不使用：**
+- 普通问答，用户没有要求记住
+- 临时性的、只在当前对话中有意义的信息
+- 已经存在于记忆中的重复信息
+
+**使用方式：**
+- slug: 使用简短的英文标识（如 "project-goals", "tech-stack"）
+- title: 简短的中文描述
+- body: 结构化的 Markdown 内容
 """
 
 
 async def build_branch_context(
     db: AsyncSession,
     chat_id: str,
-    current_fork_id: str | None,
     workspace_id: str | None,
 ) -> tuple[str, list]:
     """Build branch context string for system prompt injection.
 
-    Includes: parent_context, cross-branch insights, shared memory.
+    Includes: cross-branch insights and shared memory.
+    Parent context is intentionally excluded — it lives in fork-divider
+    metadata for UI display only, following Stello's principle that memory
+    should not enter its own session's context (avoids self-referential noise).
+
     Returns (context_string, unconsumed_insight_ids) — caller should call
     mark_insights_consumed() only after the stream succeeds.
     """
     from app.models.branch_insight import BranchInsight
     from app.models.workspace_memory import WorkspaceMemory
-    from app.models.chat import ChatMessage
 
     parts = []
     consumed_ids = []
 
-    # 1. Parent context from fork divider metadata
-    if current_fork_id:
-        result = await db.execute(
-            select(ChatMessage).where(
-                ChatMessage.fork_id == current_fork_id,
-                ChatMessage.role == "fork-divider",
-            ).limit(1)
-        )
-        fork_divider = result.scalar_one_or_none()
-        if fork_divider and fork_divider.metadata_:
-            parent_ctx = fork_divider.metadata_.get("parent_context_summary")
-            if parent_ctx:
-                parts.append(f"<parent_context>\n{parent_ctx}\n</parent_context>")
-
-    # 2. Unconsumed cross-branch insights (read-only, don't consume yet)
+    # 1. Unconsumed cross-branch insights (read-only, don't consume yet)
     result = await db.execute(
         select(BranchInsight).where(
             BranchInsight.target_chat_id == chat_id,
-            BranchInsight.consumed == False,
+            BranchInsight.consumed.is_(False),
         )
     )
     insights = result.scalars().all()
@@ -180,7 +194,7 @@ async def build_branch_context(
         parts.append(f"<cross_branch_insights>\n来自其他分支的发现：\n{insight_text}\n</cross_branch_insights>")
         consumed_ids = [i.id for i in insights]
 
-    # 3. Shared memory
+    # 2. Shared memory
     if workspace_id:
         result = await db.execute(
             select(WorkspaceMemory).where(
@@ -199,8 +213,9 @@ async def mark_insights_consumed(db: AsyncSession, insight_ids: list) -> None:
     """Mark insights as consumed after successful stream."""
     if not insight_ids:
         return
-    from app.models.branch_insight import BranchInsight
     from sqlalchemy import update as sa_update
+
+    from app.models.branch_insight import BranchInsight
     await db.execute(
         sa_update(BranchInsight)
         .where(BranchInsight.id.in_(insight_ids))
@@ -284,7 +299,8 @@ class RAGService:
         if history:
             messages.extend(history[-10:])
         messages.append({"role": "user", "content": question})
-        answer = await llm_service.complete(messages)
+        response = await llm_service.complete(messages)
+        answer = response.content
 
         # 4. Return with sources
         source_cards = [
@@ -339,7 +355,8 @@ Inspiration cards:
 Respond in JSON format:
 {{"themes": [...], "trends": "...", "unexplored": [...], "suggestions": [...]}}"""
 
-        answer = await llm_service.complete([{"role": "user", "content": prompt}])
+        response = await llm_service.complete([{"role": "user", "content": prompt}])
+        answer = response.content
 
         # Parse JSON from answer
         try:
@@ -409,7 +426,8 @@ Respond in JSON format:
                 user_message = message + "\n\n" + web_search_service.format_results(search_results)
 
         messages.append({"role": "user", "content": user_message})
-        return await llm_service.complete(messages)
+        result = await llm_service.complete(messages)
+        return result.content
 
     async def chat_stream(
         self, message: str, history: list[dict[str, str]] | None = None, web_search: bool = False
@@ -435,8 +453,12 @@ Respond in JSON format:
                 }
 
         messages.append({"role": "user", "content": user_message})
-        async for chunk in llm_service.stream(messages):
-            yield chunk
+        try:
+            async for chunk in llm_service.stream(messages):
+                yield chunk
+        except Exception as e:
+            logger.error("chat_stream LLM error: %s", e)
+            yield {"type": "error", "message": f"AI 回复出错: {e}"}
 
     async def ask_stream(
         self,
@@ -450,8 +472,13 @@ Respond in JSON format:
         retrieval_level: int | None = None,
         chat_id: str | None = None,
         current_fork_id: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AsyncGenerator[str | dict, None]:
-        """Streaming RAG answer: retrieve cards via RetrievalDispatcher, stream LLM, yield sources dict at end."""
+        """Streaming RAG answer: retrieve cards via RetrievalDispatcher, stream LLM, yield sources dict at end.
+
+        When tools is provided, yields a "messages_ready" dict instead of streaming
+        directly — the caller (ws.py tool loop) handles LLM streaming with tool execution.
+        """
         from app.schemas.retrieval import RetrievalLevel
         from app.services.retrieval_dispatcher import retrieval_dispatcher
 
@@ -460,9 +487,12 @@ Respond in JSON format:
             level = RetrievalLevel(retrieval_level)
         else:
             # Default: FREE (pure LLM chat); user can select deeper levels explicitly
-            level = RetrievalLevel.FREE
+            level = RetrievalLevel.CHAT
 
-        ws_ids = [uuid.UUID(w) for w in workspace_ids] if workspace_ids else []
+        logger.info("RAG.ask_stream: level=%s, question=%s, workspace_ids=%s, chat_id=%s",
+                     level, question[:80], workspace_ids, chat_id)
+
+        ws_ids = [w if isinstance(w, uuid.UUID) else uuid.UUID(w) for w in workspace_ids] if workspace_ids else []
 
         retrieval_result = await retrieval_dispatcher.dispatch(
             question=question,
@@ -476,14 +506,18 @@ Respond in JSON format:
 
         context_cards = retrieval_result.cards
 
-        # Build entity and topology context strings
         entity_ctx = retrieval_dispatcher.build_entity_context_string(retrieval_result)
         topo_ctx = retrieval_dispatcher.build_topology_context_string(retrieval_result)
+        community_ctx = retrieval_result.community_context or ""
 
-        # Fall back to FREE if no cards found at higher levels
-        if not context_cards and level != RetrievalLevel.FREE:
-            level = RetrievalLevel.FREE
-            retrieval_result.level_used = RetrievalLevel.FREE
+        logger.info("RAG.ask_stream: dispatch returned %d cards, level_used=%s, %d reasoning_paths, entity_ctx=%d chars, topo_ctx=%d chars, community_ctx=%d chars",
+                     len(context_cards), retrieval_result.level_used, len(retrieval_result.reasoning_paths),
+                     len(entity_ctx), len(topo_ctx), len(community_ctx))
+
+        # Fall back to FREE if no cards found at higher levels (GLOBAL uses community context, not cards)
+        if not context_cards and level not in (RetrievalLevel.CHAT, RetrievalLevel.INSIGHT):
+            level = RetrievalLevel.CHAT
+            retrieval_result.level_used = RetrievalLevel.CHAT
 
         # Build context from cards
         if context_cards:
@@ -511,7 +545,7 @@ Respond in JSON format:
                 }
 
         # Build enhanced system prompt based on retrieval level
-        if level == RetrievalLevel.FREE:
+        if level == RetrievalLevel.CHAT:
             system_parts = [MARKDOWN_SYSTEM_PROMPT]
         else:
             system_parts = [f"你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。\n\n{_MARKDOWN_FORMAT_INSTRUCTIONS}"]
@@ -520,39 +554,35 @@ Respond in JSON format:
             system_parts.append(entity_ctx)
         if topo_ctx:
             system_parts.append(topo_ctx)
+        if community_ctx:
+            system_parts.append(community_ctx)
         if context:
             system_parts.append(f"\n相关灵感卡片：\n{context}")
         if search_context:
             system_parts.append(search_context)
 
-        # Inject branch context (parent_context, insights, shared_memory)
+        # Inject branch context (cross-branch insights + shared memory)
         branch_context, insight_ids = await build_branch_context(
             db, chat_id,
-            current_fork_id=current_fork_id,
             workspace_id=workspace_ids[0] if workspace_ids else None,
         )
         if branch_context:
             system_parts.append(branch_context)
 
-        # Add branch detection instruction if auto-fork is enabled
-        from app.config import settings
-        if getattr(settings, "auto_fork_enabled", True):
-            system_parts.append(BRANCH_DETECTION_INSTRUCTION)
+        # Add memory_edit + fork instructions when tools are available
+        if tools:
+            system_parts.append(CREATE_FORK_INSTRUCTION)
+            system_parts.append(MEMORY_EDIT_INSTRUCTION)
 
         system_prompt = "\n\n".join(system_parts)
 
-        # 3. Stream LLM response
+        # Build messages list
         messages = [{"role": "system", "content": system_prompt}]
         if history:
             messages.extend(history[-10:])
         messages.append({"role": "user", "content": question})
-        async for chunk in llm_service.stream(messages):
-            yield chunk
 
-        # Consume insights only after successful stream
-        await mark_insights_consumed(db, insight_ids)
-
-        # 4. Yield sources as a dict (the endpoint layer will serialize it)
+        # Yield sources (before messages_ready so frontend receives them in tool mode)
         source_cards = [
             CardSummary(
                 id=str(c.id),
@@ -560,13 +590,28 @@ Respond in JSON format:
                 content=c.content[:200],
                 keywords=c.keywords,
                 color=c.color,
-            )
+            ).model_dump()
             for c in context_cards
         ]
         yield {
             "type": "sources",
             "source_cards": source_cards,
         }
+
+        if tools:
+            # Tool-enabled mode: yield prepared messages, let caller run tool loop
+            # Include insight_ids so caller can consume them after stream completes
+            yield {"type": "messages_ready", "messages": messages, "insight_ids": insight_ids}
+        else:
+            # Standard mode: stream LLM response directly
+            try:
+                async for chunk in llm_service.stream(messages):
+                    yield chunk
+            except Exception as e:
+                logger.error("ask_stream LLM error: %s", e)
+                yield {"type": "error", "message": f"AI 回复出错: {e}"}
+            # Consume insights only after successful stream (tool path defers to ws.py)
+            await mark_insights_consumed(db, insight_ids)
 
 
 rag_service = RAGService()

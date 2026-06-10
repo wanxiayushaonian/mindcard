@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTranslations } from "next-intl";
 
 interface ConfirmModalProps {
   title: string;
@@ -14,11 +15,12 @@ interface ConfirmModalProps {
 export function ConfirmModal({
   title,
   message,
-  confirmText = "确认",
+  confirmText,
   danger = false,
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  const t = useTranslations("common");
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,7 +53,7 @@ export function ConfirmModal({
             onClick={onCancel}
             className="rounded-xl px-4 py-2 text-sm text-text-secondary hover:bg-gray-100"
           >
-            取消
+            {t("cancel")}
           </button>
           <button
             onClick={onConfirm}
@@ -59,7 +61,7 @@ export function ConfirmModal({
               danger ? "bg-danger hover:bg-red-600" : "bg-primary hover:bg-primary-dark"
             }`}
           >
-            {confirmText}
+            {confirmText || t("confirm")}
           </button>
         </div>
       </div>

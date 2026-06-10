@@ -60,3 +60,29 @@ class CardRelationCreate(BaseModel):
     related_card_id: str
     relation_type: str = "manual"
     score: float = 0.0
+
+
+class CardBatchItem(BaseModel):
+    """A single card within a batch request."""
+    local_id: str = Field(..., max_length=64)
+    title: str = Field("", max_length=128)
+    content: str = Field(..., min_length=1, max_length=50000)
+    keywords: list[str] = Field(default=[], max_length=5)
+    color: str = Field("#B8D4E3", max_length=16, pattern=r"^#[0-9A-Fa-f]{6}$")
+    emotion_tag: str = Field("", max_length=32)
+    is_favorite: bool = False
+    is_temp: bool = True
+    parent_card_ids: list[str] = Field(default=[])
+
+
+class CardBatchRequest(BaseModel):
+    workspace_id: str
+    chat_id: str | None = None
+    cards: list[CardBatchItem] = Field(..., min_length=1, max_length=500)
+
+
+class CardBatchResponse(BaseModel):
+    created: int
+    failed: int
+    card_ids: list[str]
+    errors: list[dict]

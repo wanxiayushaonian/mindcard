@@ -23,7 +23,7 @@ async function request<T>(path: string, options?: RequestInit & { timeout?: numb
       if (res.status === 401 && typeof window !== "undefined") {
         localStorage.removeItem("token");
         window.location.href = "/login";
-        throw new Error("登录已过期，请重新登录");
+        throw new Error("sessionExpired");
       }
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(err.detail || `HTTP ${res.status}`);
@@ -32,7 +32,7 @@ async function request<T>(path: string, options?: RequestInit & { timeout?: numb
     return res.json();
   } catch (err: any) {
     if (err.name === "AbortError") {
-      throw new Error("请求超时，请检查网络连接");
+      throw new Error("networkTimeout");
     }
     throw err;
   } finally {
@@ -47,9 +47,12 @@ export function streamRequest(
   onChunk: (text: string) => void,
   onDone: () => void,
   onError?: (err: Error) => void,
+  options?: { timeoutMs?: number },
 ): () => void {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const controller = new AbortController();
+  const timeoutMs = options?.timeoutMs ?? 120_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -65,7 +68,7 @@ export function streamRequest(
         if (res.status === 401 && typeof window !== "undefined") {
           localStorage.removeItem("token");
           window.location.href = "/login";
-          throw new Error("登录已过期，请重新登录");
+          throw new Error("sessionExpired");
         }
         const err = await res.json().catch(() => ({ detail: res.statusText }));
         throw new Error(err.detail || `HTTP ${res.status}`);
@@ -73,6 +76,7 @@ export function streamRequest(
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let doneCalled = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -85,7 +89,7 @@ export function streamRequest(
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
             if (data.trim() === "[DONE]") {
-              onDone();
+              if (!doneCalled) { doneCalled = true; onDone(); }
               return;
             }
             // Don't trim the data - preserve whitespace and newlines
@@ -93,15 +97,16 @@ export function streamRequest(
           }
         }
       }
-      onDone();
+      if (!doneCalled) { doneCalled = true; onDone(); }
     })
     .catch((err) => {
       if (err.name !== "AbortError") {
         onError?.(err);
       }
-    });
+    })
+    .finally(() => clearTimeout(timer));
 
-  return () => controller.abort();
+  return () => { clearTimeout(timer); controller.abort(); };
 }
 
 // --- Auth ---
@@ -436,6 +441,7 @@ export interface ChatMessage {
   role: string;
   content: string;
   web_search_results?: WebSearchResult[];
+  source_cards?: Array<{ id: string; title: string; content: string; keywords: string[]; color: string }>;
   fork_id?: string;
   metadata_?: Record<string, any>;  // fork-dividers store child_chat_id here
   created_at: string;
@@ -465,10 +471,10 @@ export const chatApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  addMessage: (chatId: string, role: string, content: string, webSearchResults?: WebSearchResult[], forkId?: string, metadata?: Record<string, any>) =>
+  addMessage: (chatId: string, role: string, content: string, webSearchResults?: WebSearchResult[], forkId?: string, metadata?: Record<string, any>, sourceCards?: Array<{ id: string; title: string; content: string; keywords: string[]; color: string }>) =>
     request<ChatMessage>(`/api/chats/${chatId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, content, web_search_results: webSearchResults, fork_id: forkId, metadata_: metadata }),
+      body: JSON.stringify({ role, content, web_search_results: webSearchResults, source_cards: sourceCards, fork_id: forkId, metadata_: metadata }),
     }),
   updateMessage: (chatId: string, msgId: string, role: string, content: string) =>
     request<ChatMessage>(`/api/chats/${chatId}/messages/${msgId}`, {
@@ -477,6 +483,8 @@ export const chatApi = {
     }),
   delete: (chatId: string) =>
     request<{ ok: boolean }>(`/api/chats/${chatId}`, { method: "DELETE" }),
+  deleteMessage: (chatId: string, msgId: string) =>
+    request<{ ok: boolean }>(`/api/chats/${chatId}/messages/${msgId}`, { method: "DELETE" }),
   deletePreview: (chatId: string) =>
     request<{
       chat_title: string;
@@ -487,6 +495,11 @@ export const chatApi = {
     }>(`/api/chats/${chatId}/delete-preview`),
   getChatPath: (chatId: string) =>
     request<{ path: ChatPathNode[] }>(`/api/chats/${chatId}/path`),
+  fork: (chatId: string, data: { topic?: string; context_strategy?: string }) =>
+    request<{ chat_id: string; context_summary: string; depth: number; node_id: string; divider_msg_id: string }>(`/api/chats/${chatId}/fork`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 // --- AI Text Tools ---
@@ -744,6 +757,7 @@ export interface GraphEntity {
   workspace_id: string;
   name: string;
   entity_type: string | null;
+  description: string | null;
   access_count: number;
   created_at: string;
   updated_at: string;
@@ -790,25 +804,16 @@ export interface GraphStats {
   entity_count: number;
   relation_count: number;
   relation_type_counts: Record<string, number>;
-  last_training: {
-    id: string;
-    status: string;
-    training_mode: string;
-    created_at: string;
-  } | null;
 }
 
-export interface GNNTrainingLog {
+export interface Community {
   id: string;
-  workspace_id: string;
-  training_mode: string;
-  graph_size_nodes: number;
-  graph_size_edges: number;
-  checkpoint_path: string;
-  training_duration_seconds: number | null;
-  status: string;
-  error_message: string | null;
-  created_at: string;
+  title: string;
+  size: number;
+  level: number;
+  summary: string;
+  findings: string[];
+  rating: number;
 }
 
 export const graphApi = {
@@ -830,23 +835,25 @@ export const graphApi = {
       body: JSON.stringify({ query, k }),
     }),
 
-  triggerTraining: (workspaceId: string, mode = "auto") =>
-    request<GNNTrainingLog>(`/api/graph/train?workspace_id=${workspaceId}`, {
-      method: "POST",
-      body: JSON.stringify({ mode }),
-    }),
-
-  getTrainingStatus: (workspaceId: string) =>
-    request<GNNTrainingLog[]>(`/api/graph/training-status?workspace_id=${workspaceId}`),
-
-  submitFeedback: (tripleId: string, feedbackType: string, corrections?: Record<string, string>) =>
-    request<void>(`/api/graph/triples/${tripleId}/feedback`, {
-      method: "POST",
-      body: JSON.stringify({ feedback_type: feedbackType, ...corrections }),
-    }),
 
   getStats: (workspaceId: string) =>
     request<GraphStats>(`/api/graph/stats?workspace_id=${workspaceId}`),
+
+  getCommunities: (workspaceId: string) =>
+    request<{ communities: Community[] }>(`/api/graph/communities?workspace_id=${workspaceId}`),
+
+  detectCommunities: (workspaceId: string, resolution = 1.0) =>
+    request<{ communities_detected: number }>(`/api/graph/communities/detect?workspace_id=${workspaceId}&resolution=${resolution}`, {
+      method: "POST",
+    }),
+
+  cleanupGraph: (workspaceId: string) =>
+    request<{ orphan_entities_removed: number; stale_relations_removed: number }>(`/api/graph/cleanup?workspace_id=${workspaceId}`, {
+      method: "POST",
+    }),
+
+  createHnswIndex: () =>
+    request<{ ok: boolean }>(`/api/graph/hnsw-index`, { method: "POST" }),
 };
 
 // --- Branch Insights ---
@@ -889,9 +896,16 @@ export const memoryApi = {
 };
 
 // --- Fork Settings ---
+export interface ForkProfileInfo {
+  name: string;
+  label: string;
+  description: string;
+}
+
 export interface ForkSettings {
   auto_fork_enabled: boolean;
   fork_context_strategy: string;
+  profiles: ForkProfileInfo[];
 }
 
 export const forkSettingsApi = {
