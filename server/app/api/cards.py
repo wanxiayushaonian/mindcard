@@ -32,6 +32,18 @@ async def _generate_embedding(card_id: UUID, default_chat_id: UUID | None = None
         logger.warning("Embedding generation failed for card %s: %s", card_id, e)
 
 
+def _maybe_trigger_pipeline_on_promote(
+    background_tasks: BackgroundTasks,
+    card: Card,
+    was_temp: bool,
+    update_data: dict,
+) -> None:
+    """Enqueue pipeline when a card is promoted from temporary to permanent."""
+    now_temp = update_data.get("is_temp", was_temp)
+    if was_temp and not now_temp:
+        background_tasks.add_task(_generate_embedding, card.id)
+
+
 @router.get("/", response_model=CardListResponse)
 async def list_cards(
     workspace_id: str,
@@ -239,12 +251,14 @@ async def update_card(
         require_role(membership, "owner", "admin", "editor")
     elif not can_edit_card(membership, card, user):
         raise HTTPException(status_code=403, detail="只能编辑自己创建的卡片")
+    was_temp = card.is_temp
     content_changed = "content" in update_data or "title" in update_data or "keywords" in update_data
     for field, value in update_data.items():
         setattr(card, field, value)
     card.updated_at = datetime.now(timezone.utc)
     if content_changed:
         background_tasks.add_task(_generate_embedding, card.id)
+    _maybe_trigger_pipeline_on_promote(background_tasks, card, was_temp, update_data)
     await db.commit()
     await db.refresh(card)
     return card
