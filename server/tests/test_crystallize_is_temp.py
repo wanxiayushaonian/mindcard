@@ -1,13 +1,14 @@
 # server/tests/test_crystallize_is_temp.py
 import uuid
 
+from app.api.chat import _build_crystallize_card_kwargs
+
 
 def test_crystallize_card_kwargs_is_temp_true():
     """_build_crystallize_card_kwargs must return is_temp=True."""
-    from app.api.chat import _build_crystallize_card_kwargs
     kwargs = _build_crystallize_card_kwargs(
-        workspace_id=str(uuid.uuid4()),
-        user_id=str(uuid.uuid4()),
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
         title="Test title",
         summary="Some content",
         keywords=["a", "b"],
@@ -17,9 +18,8 @@ def test_crystallize_card_kwargs_is_temp_true():
 
 def test_crystallize_card_kwargs_fields():
     """_build_crystallize_card_kwargs must include all required Card fields."""
-    from app.api.chat import _build_crystallize_card_kwargs
-    ws_id = str(uuid.uuid4())
-    u_id = str(uuid.uuid4())
+    ws_id = uuid.uuid4()
+    u_id = uuid.uuid4()
     kwargs = _build_crystallize_card_kwargs(
         workspace_id=ws_id,
         user_id=u_id,

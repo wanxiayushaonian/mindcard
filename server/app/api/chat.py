@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 
 
 def _build_crystallize_card_kwargs(
-    workspace_id: str,
-    user_id: str,
+    workspace_id: uuid.UUID | None,
+    user_id: uuid.UUID,
     title: str,
     summary: str,
-    keywords: list[str],
-) -> dict:
+    keywords: list[str] | None,
+) -> dict[str, object]:
     """Return kwargs for constructing a crystallize Card with is_temp=True."""
     return dict(
         local_id=f"summary_{uuid.uuid4().hex[:16]}",
@@ -702,7 +702,7 @@ async def _generate_summary_card(
                 user_id=user_id,
                 title=title,
                 summary=summary,
-                keywords=keywords or [],
+                keywords=keywords,
             ))
             db.add(card)
             await db.flush()
