@@ -30,30 +30,74 @@ class SearchService:
     async def vector_search(
         self, db: AsyncSession, query: str, workspace_ids: list[uuid.UUID] | None = None, limit: int = 20
     ) -> list[ScoredCard]:
-        """Semantic search using pgvector cosine distance."""
+        """Semantic search using pgvector cosine distance.
+
+        Two-path strategy:
+        - Path A: query CardChunk embeddings (best chunk distance per card)
+        - Path B: fallback to Card.embedding for cards that have no chunks
+        Results are merged and returned sorted by score descending.
+        """
         try:
             query_embedding = await embedding_service.embed(query)
         except Exception as e:
             logger.warning("Embedding failed, skipping vector search: %s", e)
             return []
 
-        stmt = select(Card)
-        for f in _ws_filter(workspace_ids):
-            stmt = stmt.where(f)
-        stmt = stmt.order_by(Card.embedding.cosine_distance(query_embedding)).limit(limit)
+        from app.models.card_chunk import CardChunk
 
-        result = await db.execute(stmt)
-        cards = result.scalars().all()
+        # ------------------------------------------------------------------
+        # Path A: find best-matching chunk per card
+        # ------------------------------------------------------------------
+        chunk_stmt = (
+            select(
+                CardChunk.card_id,
+                func.min(CardChunk.embedding.cosine_distance(query_embedding)).label("best_dist"),
+            )
+            .where(CardChunk.embedding.is_not(None))
+            .group_by(CardChunk.card_id)
+            .order_by("best_dist")
+            .limit(limit)
+        )
+        if workspace_ids:
+            chunk_stmt = chunk_stmt.join(Card, Card.id == CardChunk.card_id).where(
+                Card.workspace_id.in_(workspace_ids)
+            )
 
-        scored = []
-        for card in cards:
-            if card.embedding is not None:
+        chunk_result = await db.execute(chunk_stmt)
+        chunk_rows = chunk_result.all()  # list of Row(card_id, best_dist)
+
+        chunked_card_ids: set[uuid.UUID] = {row.card_id for row in chunk_rows}
+
+        scored: list[ScoredCard] = []
+        if chunked_card_ids:
+            card_stmt = select(Card).where(Card.id.in_(chunked_card_ids))
+            card_result = await db.execute(card_stmt)
+            card_by_id: dict[uuid.UUID, Card] = {c.id: c for c in card_result.scalars().all()}
+            for row in chunk_rows:
+                card = card_by_id.get(row.card_id)
+                if card:
+                    dist = float(row.best_dist) if row.best_dist is not None else 2.0
+                    scored.append(ScoredCard(card=card, score=1.0 - dist / 2.0))
+
+        # ------------------------------------------------------------------
+        # Path B: fallback for cards that have no chunk rows
+        # ------------------------------------------------------------------
+        fallback_limit = limit - len(scored)
+        if fallback_limit > 0:
+            fb_stmt = select(Card).where(Card.embedding.is_not(None))
+            for f in _ws_filter(workspace_ids):
+                fb_stmt = fb_stmt.where(f)
+            if chunked_card_ids:
+                fb_stmt = fb_stmt.where(Card.id.not_in(chunked_card_ids))
+            fb_stmt = fb_stmt.order_by(Card.embedding.cosine_distance(query_embedding)).limit(fallback_limit)
+            fb_result = await db.execute(fb_stmt)
+            for card in fb_result.scalars().all():
                 dist = np_distance(card.embedding, query_embedding)
-                score = 1.0 - dist / 2.0
-            else:
-                score = 0.0
-            scored.append(ScoredCard(card=card, score=score))
-        return scored
+                scored.append(ScoredCard(card=card, score=1.0 - dist / 2.0))
+
+        # Sort combined results by score descending, return top `limit`
+        scored.sort(key=lambda x: x.score, reverse=True)
+        return scored[:limit]
 
     _fts_extension_available: bool | None = None  # Cache extension check
 
