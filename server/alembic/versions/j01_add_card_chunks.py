@@ -9,6 +9,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 from app.config import settings
 
@@ -21,10 +22,10 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         "card_chunks",
-        sa.Column("id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column("id", PG_UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column(
             "card_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            PG_UUID(as_uuid=True),
             sa.ForeignKey("cards.id", ondelete="CASCADE"),
             nullable=False,
             index=True,
