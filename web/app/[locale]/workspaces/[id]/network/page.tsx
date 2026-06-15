@@ -126,16 +126,22 @@ export default function NetworkPage() {
   const { data: relationsMap, isLoading: relationsLoading } = useSWR(
     cards && cards.length > 0 ? `relations-${workspaceId}` : null,
     async () => {
-      const entries = await Promise.all(
-        cards!.map(async (card) => {
-          try {
-            const related = await cardApi.getRelated(card.id);
-            return [card.id, related.map((r) => r.id)] as const;
-          } catch {
-            return [card.id, [] as string[]] as const;
-          }
-        })
-      );
+      const BATCH = 6;
+      const entries: (readonly [string, string[]])[] = [];
+      for (let i = 0; i < cards!.length; i += BATCH) {
+        const batch = cards!.slice(i, i + BATCH);
+        const batchResults = await Promise.all(
+          batch.map(async (card) => {
+            try {
+              const related = await cardApi.getRelated(card.id);
+              return [card.id, related.map((r) => r.id)] as const;
+            } catch {
+              return [card.id, [] as string[]] as const;
+            }
+          })
+        );
+        entries.push(...batchResults);
+      }
       return Object.fromEntries(entries) as Record<string, string[]>;
     }
   );
@@ -314,6 +320,9 @@ export default function NetworkPage() {
 
     svg.selectAll("*").remove();
 
+    // Set SVG dimensions so D3 zoom's defaultExtent() works correctly
+    svg.attr("width", width).attr("height", height);
+
     // Defs for glow filter
     const defs = svg.append("defs");
     const filter = defs.append("filter").attr("id", "glow");
@@ -326,6 +335,7 @@ export default function NetworkPage() {
     const g = svg.append("g");
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
+      .filter((event) => !event.ctrlKey && !event.button)
       .scaleExtent([0.3, 3])
       .on("zoom", (event) => g.attr("transform", event.transform));
     svg.call(zoom);
@@ -609,15 +619,31 @@ export default function NetworkPage() {
 
     // Slow alpha decay loop
     simulation.alpha(0.3).restart();
+    let rafId: number;
     const decay = () => {
       if (simulation.alpha() > 0.001) {
         simulation.alpha(simulation.alpha() * 0.995);
-        requestAnimationFrame(decay);
+        rafId = requestAnimationFrame(decay);
       }
     };
-    requestAnimationFrame(decay);
+    rafId = requestAnimationFrame(decay);
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (!svgRef.current) return;
+      const w = svgRef.current.clientWidth;
+      const h = svgRef.current.clientHeight;
+      svg.attr("width", w).attr("height", h);
+      simulation
+        .force("center", d3.forceCenter(w / 2, h / 2))
+        .force("x", d3.forceX<GraphNode>(w / 2).strength(forceParams.centerStrength))
+        .force("y", d3.forceY<GraphNode>(h / 2).strength(forceParams.centerStrength))
+        .alpha(0.3).restart();
+    });
+    resizeObserver.observe(svgRef.current);
 
     return () => {
+      cancelAnimationFrame(rafId);
+      resizeObserver.disconnect();
       simulation.stop();
     };
   }, [nodes, edges, highlightId, topics, viewMode, forceParams]);
@@ -653,8 +679,26 @@ export default function NetworkPage() {
     }
   }, [visibleIds]);
 
-  if (isLoading || relationsLoading) {
-    return (
+  const handleTreeNodeClick = useCallback(async (nodeId: string) => {
+    if (!nodeId) return;
+    try {
+      const node = await topologyApi.get(nodeId);
+      if (node.chat_id) {
+        localStorage.setItem(`mindcard-active-chat-${workspaceId}`, node.chat_id);
+        router.push(`/workspaces/${workspaceId}`);
+      } else {
+        router.push(`/workspaces/${workspaceId}/network?highlight=${nodeId}`);
+      }
+    } catch (error) {
+      console.error('Failed to fetch node:', error);
+    }
+  }, [workspaceId, router]);
+
+  const handleTreeNodeSynthesize = useCallback((nodeId: string) => {
+    router.push(`/workspaces/${workspaceId}/synthesis?node_id=${nodeId}`);
+  }, [workspaceId, router]);
+
+  if (isLoading || relationsLoading) {    return (
       <div className="flex h-[calc(100vh-56px)] flex-col items-center justify-center gap-3 text-text-secondary">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         <p className="text-sm">
@@ -753,25 +797,8 @@ export default function NetworkPage() {
         <TopologyTreeView
           workspaceId={workspaceId}
           highlightId={highlightId}
-          onNodeClick={async (nodeId) => {
-            if (!nodeId) return;
-
-            // Fetch node to get chat_id
-            try {
-              const node = await topologyApi.get(nodeId);
-
-              if (node.chat_id) {
-                // Open conversation in the workspace page's AiChatPanel
-                localStorage.setItem(`mindcard-active-chat-${workspaceId}`, node.chat_id);
-                router.push(`/workspaces/${workspaceId}`);
-              } else {
-                // No conversation, just highlight node
-                router.push(`/workspaces/${workspaceId}/network?highlight=${nodeId}`);
-              }
-            } catch (error) {
-              console.error('Failed to fetch node:', error);
-            }
-          }}
+          onNodeClick={handleTreeNodeClick}
+          onNodeSynthesize={handleTreeNodeSynthesize}
         />
       ) : (
       <>
@@ -1098,11 +1125,15 @@ export default function NetworkPage() {
           <div className="mb-2 max-h-40 overflow-y-auto text-sm">
             <MarkdownContent content={selectedNode.card.content} />
           </div>
-          {getSharedKeywords(selectedNode.id).length > 0 && (
-            <p className="mb-2 text-xs text-text-secondary">
-              {t("relatedKeywords")}: {getSharedKeywords(selectedNode.id).join(", ")}
-            </p>
-          )}
+          {(() => {
+            const sharedKws = getSharedKeywords(selectedNode.id);
+            if (!sharedKws.length) return null;
+            return (
+              <p className="mb-2 text-xs text-text-secondary">
+                {t("relatedKeywords")}: {sharedKws.join(", ")}
+              </p>
+            );
+          })()}
           <button
             onClick={() =>
               router.push(`/workspaces/${workspaceId}/card/${selectedNode.id}`)

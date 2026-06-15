@@ -86,7 +86,9 @@ async def chat_stream(req: ChatRequest, user: User = Depends(get_current_user), 
             if isinstance(chunk, dict):
                 yield f"data: {_json.dumps(chunk)}\n\n"
             else:
-                yield f"data: {chunk}\n\n"
+                for line in str(chunk).split("\n"):
+                    yield f"data: {line}\n"
+                yield "\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -118,7 +120,9 @@ async def ask_stream(
                 elif chunk_type == "sources":
                     sources = chunk.get("source_cards", [])
             else:
-                yield f"data: {chunk}\n\n"
+                for line in str(chunk).split("\n"):
+                    yield f"data: {line}\n"
+                yield "\n"
         if sources:
             source_data = [
                 {"id": s.id, "title": s.title, "content": s.content, "keywords": s.keywords, "color": s.color}

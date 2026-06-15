@@ -2,21 +2,32 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.card import Card
 from app.models.chat import AiChat
+from app.models.synthesis_template import SynthesisTemplate
 from app.models.topology import NodeCard, NodeRef
 from app.models.user import User
+from app.schemas.card import CardResponse
 from app.schemas.topology import (
     NodeCardAdd,
     NodeRefCreate,
+    NodeSynthesizeRequest,
     TreeNodeCreate,
     TreeNodeListResponse,
     TreeNodeResponse,
     TreeNodeUpdate,
+)
+from app.services.llm import get_llm_service
+from app.services.synthesis import (
+    SYNTHESIS_PROMPTS,
+    build_card_content_block,
+    collect_subtree_card_ids,
+    collect_subtree_node_ids,
 )
 from app.utils.auth import get_current_user, get_workspace_membership, require_role
 from app.utils.helpers import parse_uuid
@@ -176,7 +187,7 @@ async def add_card_to_node(
     """Associate a card with a tree node."""
     node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
-        raise HTTPException(404, "节点不存在")
+        raise HTTPException(404, "Node not found")
     membership = await get_workspace_membership(node.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
@@ -207,7 +218,7 @@ async def remove_card_from_node(
     """Remove a card association from a tree node."""
     node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
-        raise HTTPException(404, "节点不存在")
+        raise HTTPException(404, "Node not found")
     membership = await get_workspace_membership(node.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
@@ -275,7 +286,7 @@ async def remove_ref(
     """Remove a cross-branch reference."""
     node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
-        raise HTTPException(404, "节点不存在")
+        raise HTTPException(404, "Node not found")
     membership = await get_workspace_membership(node.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
@@ -305,7 +316,7 @@ async def update_node(
     """Update a tree node."""
     node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
-        raise HTTPException(404, "节点不存在")
+        raise HTTPException(404, "Node not found")
     membership = await get_workspace_membership(node.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
@@ -348,7 +359,7 @@ async def delete_node(
     """Delete a tree node (cascades to children and associations)."""
     node = await db.get(AiChat, parse_uuid(node_id))
     if not node:
-        raise HTTPException(404, "节点不存在")
+        raise HTTPException(404, "Node not found")
     membership = await get_workspace_membership(node.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
 
@@ -374,3 +385,86 @@ async def rebuild_embeddings(
     await topology_service.rebuild_node_embeddings(db, ws_id)
     await db.commit()
     return {"ok": True}
+
+
+# ── Node synthesis & subtree cards ──────────────────────────────────────
+
+
+@router.get("/{node_id}/subtree-cards")
+async def get_subtree_cards(
+    node_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return all cards from a node and its descendants."""
+    node = await db.get(AiChat, node_id)
+    if not node:
+        raise HTTPException(404, "Node not found")
+    await get_workspace_membership(node.workspace_id, user, db)
+
+    card_ids = await collect_subtree_card_ids(db, node_id)
+    node_ids = await collect_subtree_node_ids(db, node_id)
+
+    cards: list[CardResponse] = []
+    if card_ids:
+        result = await db.execute(select(Card).where(Card.id.in_(card_ids)))
+        for c in result.scalars().all():
+            cards.append(CardResponse.model_validate(c))
+
+    return {"cards": cards, "node_ids": [str(nid) for nid in node_ids]}
+
+
+@router.post("/{node_id}/synthesize")
+async def synthesize_node(
+    node_id: UUID,
+    req: NodeSynthesizeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Stream AI-synthesized content for a node's subtree cards (SSE)."""
+    node = await db.get(AiChat, node_id)
+    if not node:
+        raise HTTPException(404, "Node not found")
+    await get_workspace_membership(node.workspace_id, user, db)
+
+    # Collect card IDs — either from request or subtree
+    if req.card_ids:
+        # Validate that requested cards are in this node's subtree
+        subtree_ids = set(await collect_subtree_card_ids(db, node_id))
+        card_ids = [parse_uuid(cid) for cid in req.card_ids if parse_uuid(cid) in subtree_ids]
+    else:
+        card_ids = await collect_subtree_card_ids(db, node_id)
+
+    if not card_ids:
+        async def empty():
+            yield "data: No cards found in this node and its children.\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(empty(), media_type="text/event-stream")
+
+    result = await db.execute(select(Card).where(Card.id.in_(card_ids)))
+    cards = list(result.scalars().all())
+
+    cards_content = build_card_content_block(cards)
+    system_prompt = SYNTHESIS_PROMPTS.get(req.mode, SYNTHESIS_PROMPTS["free"])
+
+    # Use custom template if provided
+    if req.template_id:
+        template = await db.get(SynthesisTemplate, parse_uuid(req.template_id))
+        if template and template.workspace_id == node.workspace_id:
+            system_prompt = template.prompt
+
+    system_prompt += f"\n\nNode: {node.title or 'Untitled'}"
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Cards to synthesize:\n\n{cards_content}"},
+    ]
+
+    async def event_generator():
+        async for chunk in get_llm_service().stream(messages, max_tokens=8192, temperature=0.5):
+            for line in chunk.split("\n"):
+                yield f"data: {line}\n"
+            yield "\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

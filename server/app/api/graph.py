@@ -391,9 +391,15 @@ async def cleanup_graph(
 
 @router.post("/hnsw-index")
 async def create_hnsw_index(
+    workspace_id: str = Query(...),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    ws_id = _parse_uuid(workspace_id, "workspace_id")
+    membership = await get_workspace_membership(ws_id, user, db)
+    from app.utils.auth import require_role
+    require_role(membership, "owner", "admin")
+
     from app.services.graph_cleanup import graph_cleaner
 
     await graph_cleaner.create_hnsw_index(db)

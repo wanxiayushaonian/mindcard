@@ -20,6 +20,7 @@ class ChatForkRequest(BaseModel):
     mode: str = "rag"
     title: str = ""
     context_strategy: str = "compress"  # none | inherit | compress
+    profile: str | None = None  # Fork profile key (overrides context_strategy if set)
     fork_id: str | None = None  # parent fork_id for nested forks
 
 

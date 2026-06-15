@@ -1,6 +1,6 @@
 // pages/card-edit/card-edit.js
 const { CARD_COLORS } = require('../../utils/mock-data');
-var api = require('../../utils/api');
+const api = require('../../utils/api');
 
 Page({
   data: {
@@ -25,6 +25,8 @@ Page({
       { key: 'expectant', label: '期待' },
     ],
   },
+
+  _aiLoading: false,   // M1: prevent concurrent AI requests
 
   onLoad(options) {
     if (options.id) {
@@ -120,46 +122,52 @@ Page({
   },
 
   onEmotionSelect(e) {
-    var emotion = e.currentTarget.dataset.emotion;
+    const emotion = e.currentTarget.dataset.emotion;
     this.setData({ selectedEmotion: this.data.selectedEmotion === emotion ? '' : emotion });
   },
 
   onAiTitle() {
+    if (this._aiLoading) return;
     const text = this.data.content || this.data.title;
     if (!text || !text.trim()) {
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
+    this._aiLoading = true;
     wx.showToast({ title: '提炼标题中...', icon: 'loading', duration: 3000 });
     api.aiApi.generateTitle(text)
-      .then(function (res) {
+      .then((res) => {
         this.setData({ title: res.title });
         wx.showToast({ title: '已生成', icon: 'success' });
-      }.bind(this))
-      .catch(function (err) {
+      })
+      .catch((err) => {
         wx.showToast({ title: err.message || '生成失败', icon: 'none' });
-      });
+      })
+      .finally(() => { this._aiLoading = false; });
   },
 
   onAiKeywords() {
+    if (this._aiLoading) return;
     const text = this.data.content;
     if (!text || !text.trim()) {
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
+    this._aiLoading = true;
     wx.showToast({ title: '提取关键字中...', icon: 'loading', duration: 3000 });
     api.aiApi.extractKeywords(text)
-      .then(function (res) {
-        var kws = res.keywords || [];
+      .then((res) => {
+        const kws = res.keywords || [];
         if (kws.length === 0) {
           wx.showToast({ title: '未提取到关键字', icon: 'none' });
           return;
         }
         this.setData({ keywords: kws });
         this._updateSuggestions(kws);
-        wx.showToast({ title: '已提取 ' + kws.length + ' 个关键字', icon: 'success' });
-      }.bind(this))
-      .catch(function (err) {
+        wx.showToast({ title: `已提取 ${kws.length} 个关键字`, icon: 'success' });
+      })
+      .catch((err) => {
         wx.showToast({ title: err.message || '提取失败', icon: 'none' });
-      });
+      })
+      .finally(() => { this._aiLoading = false; });
   },
 
   async onSave() {
@@ -197,50 +205,60 @@ Page({
   },
 
   onAiGenerate() {
-    var prompt = this.data.title || this.data.content || '帮我生成一段关于产品创新的灵感思路';
-    var self = this;
+    if (this._aiLoading) return;
+    const prompt = this.data.title || this.data.content || '帮我生成一段关于产品创新的灵感思路';
+    const self = this;
+    this._aiLoading = true;
     wx.showToast({ title: 'AI生成中...', icon: 'loading', duration: 3000 });
     api.ragApi.streamChat(prompt, null, null, null,
-      function onChunk(fullContent) {
+      (fullContent) => {
         self.setData({ content: fullContent });
       },
-      function onDone(fullContent) {
+      (fullContent) => {
         self.setData({ content: fullContent || '' });
+        self._aiLoading = false;
         wx.showToast({ title: '生成完成', icon: 'success' });
       },
-      function onError(err) {
+      (err) => {
+        self._aiLoading = false;
         wx.showToast({ title: err.message || '生成失败', icon: 'none' });
       }
     );
   },
 
   onAiPolish() {
+    if (this._aiLoading) return;
     if (!this.data.content.trim()) {
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
+    this._aiLoading = true;
     wx.showToast({ title: 'AI润色中...', icon: 'loading', duration: 2000 });
     api.aiApi.polish(this.data.content)
-      .then(function (res) {
+      .then((res) => {
         this.setData({ content: res.text });
         wx.showToast({ title: '润色完成', icon: 'success' });
-      }.bind(this))
-      .catch(function (err) {
+      })
+      .catch((err) => {
         wx.showToast({ title: err.message || '润色失败', icon: 'none' });
-      });
+      })
+      .finally(() => { this._aiLoading = false; });
   },
 
   onAiSupplement() {
+    if (this._aiLoading) return;
     if (!this.data.content.trim()) {
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
+    this._aiLoading = true;
     wx.showToast({ title: 'AI补充中...', icon: 'loading', duration: 2000 });
     api.aiApi.supplement(this.data.content)
-      .then(function (res) {
-        this.setData({ content: this.data.content + '\n\n' + res.text });
+      .then((res) => {
+        this.setData({ content: `${this.data.content}\n\n${res.text}` });
         wx.showToast({ title: '补充完成', icon: 'success' });
-      }.bind(this))
-      .catch(function (err) {
+      })
+      .catch((err) => {
         wx.showToast({ title: err.message || '补充失败', icon: 'none' });
-      });
+      })
+      .finally(() => { this._aiLoading = false; });
   },
 });

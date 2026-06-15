@@ -30,8 +30,8 @@ async function request<T>(path: string, options?: RequestInit & { timeout?: numb
     }
 
     return res.json();
-  } catch (err: any) {
-    if (err.name === "AbortError") {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
       throw new Error("networkTimeout");
     }
     throw err;
@@ -47,12 +47,13 @@ export function streamRequest(
   onChunk: (text: string) => void,
   onDone: () => void,
   onError?: (err: Error) => void,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; onCancel?: () => void },
 ): () => void {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const controller = new AbortController();
   const timeoutMs = options?.timeoutMs ?? 120_000;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let doneCalled = false;
 
   fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -73,10 +74,24 @@ export function streamRequest(
         const err = await res.json().catch(() => ({ detail: res.statusText }));
         throw new Error(err.detail || `HTTP ${res.status}`);
       }
-      const reader = res.body!.getReader();
+      if (!res.body) {
+        throw new Error("Response body is null");
+      }
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let doneCalled = false;
+      let dataLines: string[] = [];
+
+      const flushDataLines = () => {
+        if (dataLines.length === 0) return;
+        const data = dataLines.join("\n");
+        dataLines = [];
+        if (data.trim() === "[DONE]") {
+          if (!doneCalled) { doneCalled = true; onDone(); }
+          return;
+        }
+        onChunk(data);
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -87,20 +102,27 @@ export function streamRequest(
         buffer = lines.pop() || "";
         for (const line of lines) {
           if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data.trim() === "[DONE]") {
-              if (!doneCalled) { doneCalled = true; onDone(); }
-              return;
-            }
-            // Don't trim the data - preserve whitespace and newlines
-            onChunk(data);
+            dataLines.push(line.slice(6));
+          } else if (line === "") {
+            // Blank line = end of SSE event → flush accumulated data lines
+            flushDataLines();
+            if (doneCalled) return;
           }
         }
       }
+      flushDataLines();
       if (!doneCalled) { doneCalled = true; onDone(); }
     })
     .catch((err) => {
-      if (err.name !== "AbortError") {
+      if (err instanceof Error && err.name === "AbortError") {
+        // User cancelled — call onCancel if provided, otherwise fall back to onDone for UI reset
+        if (options?.onCancel) {
+          options.onCancel();
+        } else if (!doneCalled) {
+          doneCalled = true;
+          onDone();
+        }
+      } else {
         onError?.(err);
       }
     })
@@ -495,7 +517,7 @@ export const chatApi = {
     }>(`/api/chats/${chatId}/delete-preview`),
   getChatPath: (chatId: string) =>
     request<{ path: ChatPathNode[] }>(`/api/chats/${chatId}/path`),
-  fork: (chatId: string, data: { topic?: string; context_strategy?: string }) =>
+  fork: (chatId: string, data: { topic?: string; context_strategy?: string; profile?: string }) =>
     request<{ chat_id: string; context_summary: string; depth: number; node_id: string; divider_msg_id: string }>(`/api/chats/${chatId}/fork`, {
       method: "POST",
       body: JSON.stringify(data),
@@ -612,10 +634,11 @@ export const topicApi = {
     onDone: () => void,
     onError?: (err: Error) => void,
     cardIds?: string[],
+    templateId?: string,
   ) =>
     streamRequest(
       "/api/topics/synthesize",
-      { topic_id: topicId, mode, card_ids: cardIds ?? [] },
+      { topic_id: topicId, mode, card_ids: cardIds ?? [], template_id: templateId ?? null },
       onChunk,
       onDone,
       onError,
@@ -749,6 +772,24 @@ export const topologyApi = {
     }),
   removeRef: (nodeId: string, targetId: string) =>
     request<{ ok: boolean }>(`/api/topology/${nodeId}/refs/${targetId}`, { method: "DELETE" }),
+  subtreeCards: (nodeId: string) =>
+    request<{ cards: Card[]; node_ids: string[] }>(`/api/topology/${nodeId}/subtree-cards`),
+  synthesize: (
+    nodeId: string,
+    mode: string,
+    onChunk: (text: string) => void,
+    onDone: () => void,
+    onError?: (err: Error) => void,
+    cardIds?: string[],
+    templateId?: string,
+  ) =>
+    streamRequest(
+      `/api/topology/${nodeId}/synthesize`,
+      { mode, card_ids: cardIds ?? [], template_id: templateId ?? null },
+      onChunk,
+      onDone,
+      onError,
+    ),
 };
 
 // --- Graph Memory API ---
@@ -881,6 +922,8 @@ export interface Memory {
   slug: string;
   title: string;
   body: string;
+  updated_at?: string;
+  source_chat_id?: string;
 }
 
 export const memoryApi = {
@@ -915,4 +958,34 @@ export const forkSettingsApi = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+};
+
+// --- Synthesis Templates ---
+export interface SynthesisTemplate {
+  id: string;
+  workspace_id: string;
+  name: string;
+  prompt: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export const synthesisTemplateApi = {
+  list: (wsId: string) =>
+    request<{ templates: SynthesisTemplate[] }>(`/api/workspaces/${wsId}/synthesis-templates`),
+  get: (wsId: string, id: string) =>
+    request<SynthesisTemplate>(`/api/workspaces/${wsId}/synthesis-templates/${id}`),
+  create: (wsId: string, data: { name: string; prompt: string; description?: string }) =>
+    request<SynthesisTemplate>(`/api/workspaces/${wsId}/synthesis-templates`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (wsId: string, id: string, data: { name?: string; prompt?: string; description?: string }) =>
+    request<SynthesisTemplate>(`/api/workspaces/${wsId}/synthesis-templates/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  delete: (wsId: string, id: string) =>
+    request<{ ok: boolean }>(`/api/workspaces/${wsId}/synthesis-templates/${id}`, { method: "DELETE" }),
 };

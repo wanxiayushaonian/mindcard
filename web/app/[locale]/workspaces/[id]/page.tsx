@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { cardApi, workspaceApi, topicApi, topologyApi, aiApi, type Card, type CardFilters, type Topic, type TreeNode } from "@/lib/api";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { RichEditor } from "@/components/editor";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
 import { FormField } from "@/components/FormField";
@@ -114,7 +115,8 @@ export default function WorkspacePage() {
 
   const { data: listResp, isLoading, error, mutate: revalidate } = useSWR(
     workspaceId ? `cards-${workspaceId}-${filterKey}` : null,
-    () => cardApi.list(workspaceId, { limit: PAGE_SIZE, ...filters })
+    () => cardApi.list(workspaceId, { limit: PAGE_SIZE, ...filters }),
+    { keepPreviousData: true }
   );
 
   const [allCards, setAllCards] = useState<Card[] | null>(null);
@@ -569,6 +571,7 @@ export default function WorkspacePage() {
               topicName={topic?.name}
               topicColor={topic ? topicColor(topic.id) : undefined}
               onContextMenu={(e) => handleContextMenu(e, card)}
+              onMention={(detail) => window.dispatchEvent(new CustomEvent("card-mention-request", { detail }))}
               compact={leftCollapsed}
             />
           );
@@ -622,13 +625,14 @@ export default function WorkspacePage() {
           </FormField>
 
           <FormField label={t("contentRequired")}>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
+            <RichEditor
+              content={content}
+              onChange={setContent}
+              workspaceId={workspaceId}
               placeholder={t("contentPlaceholder")}
-              rows={5}
-              autoFocus
-              className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-text outline-none focus:border-primary resize-none"
+              className="rounded-xl border border-border"
+              showToolbar={true}
+              minHeight="120px"
             />
           </FormField>
 

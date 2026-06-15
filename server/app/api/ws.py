@@ -26,11 +26,20 @@ MAX_TOOL_ROUNDS = 5
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-def _strip_thinking(text: str) -> str:
-    """Remove thinking blocks from LLM response (handles both <think> and <thinking> tags)."""
-    text = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
-    text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL)
-    return text.strip()
+def _strip_thinking(text: str) -> tuple[str, str]:
+    """Remove thinking blocks from LLM response, returning (clean_text, thinking_content).
+
+    Handles both <think> and <thinking> tags.
+    """
+    thinking_parts: list[str] = []
+
+    def _collect(match: re.Match) -> str:
+        thinking_parts.append(match.group(1).strip())
+        return ""
+
+    clean = re.sub(r"<think>(.*?)</think>\s*", _collect, text, flags=re.DOTALL)
+    clean = re.sub(r"<thinking>(.*?)</thinking>\s*", _collect, clean, flags=re.DOTALL)
+    return clean.strip(), "\n\n".join(thinking_parts)
 
 
 
@@ -131,7 +140,7 @@ async def chat_websocket(websocket: WebSocket):
         When create_fork succeeds, emits a fork_created event so the frontend
         switches context before the LLM streams its answer in the next round.
         """
-        from app.services.llm import llm_service
+        from app.services.llm import get_llm_service
         from app.tools.registry import get_tool
 
         active_fork_id = current_fork_id
@@ -143,7 +152,7 @@ async def chat_websocket(websocket: WebSocket):
             logger.info("_run_tool_loop: round %d, %d messages, %d tools",
                         round_idx + 1, len(messages), len(tools))
             try:
-                async for chunk in llm_service.stream(messages, tools=tools):
+                async for chunk in get_llm_service().stream(messages, tools=tools):
                     if isinstance(chunk, dict):
                         if chunk.get("type") == "tool_call":
                             tool_calls_collected.append(chunk)
@@ -187,6 +196,12 @@ async def chat_websocket(websocket: WebSocket):
                 tool = get_tool(tc["name"])
                 if tool:
                     try:
+                        # Notify frontend that tool is executing (loading state)
+                        yield {
+                            "type": "tool_executing",
+                            "tool_name": tc["name"],
+                            "arguments": tc["arguments"],
+                        }
                         result = await tool.execute(
                             tc["arguments"],
                             {
@@ -223,12 +238,13 @@ async def chat_websocket(websocket: WebSocket):
                                     }
                             except (json.JSONDecodeError, KeyError):
                                 pass
-                        else:
-                            yield {
-                                "type": "tool_executed",
-                                "tool_name": tc["name"],
-                                "result": result,
-                            }
+                        # Always emit tool_executed (including create_fork)
+                        yield {
+                            "type": "tool_executed",
+                            "tool_name": tc["name"],
+                            "arguments": tc["arguments"],
+                            "result": result,
+                        }
                     except Exception as e:
                         logger.warning("Tool %s execution failed: %s", tc["name"], e)
                         messages.append({
@@ -256,6 +272,7 @@ async def chat_websocket(websocket: WebSocket):
 
         try:
             full_response = ""
+            streamed_thinking = False
             tools = get_all_tool_specs() if workspace_id else None
 
             if tools:
@@ -287,6 +304,8 @@ async def chat_websocket(websocket: WebSocket):
                         chat_id=chat_id, current_fork_id=current_fork_id,
                     ):
                         if isinstance(chunk, dict):
+                            if chunk.get("type") == "thinking":
+                                streamed_thinking = True
                             await safe_send(chunk)
                         else:
                             full_response += chunk
@@ -295,14 +314,18 @@ async def chat_websocket(websocket: WebSocket):
             else:
                 async for chunk in rag_service.chat_stream(message, history=history, web_search=web_search):
                     if isinstance(chunk, dict):
+                        if chunk.get("type") == "thinking":
+                            streamed_thinking = True
                         await safe_send(chunk)
                     else:
                         full_response += chunk
                         await safe_send({"type": "content", "content": chunk})
 
-            # Strip thinking blocks
-            if full_response:
-                clean = _strip_thinking(full_response)
+            # Strip thinking blocks only if not already streamed in real-time
+            if full_response and not streamed_thinking:
+                clean, thinking = _strip_thinking(full_response)
+                if thinking:
+                    await safe_send({"type": "thinking", "content": thinking})
                 if clean != full_response:
                     await safe_send({"type": "content_replace", "content": clean})
 
@@ -347,6 +370,7 @@ async def chat_websocket(websocket: WebSocket):
         retrieval_level: int | None = None,
         chat_id: str | None = None,
         current_fork_id: str | None = None,
+        context_card_ids: list[str] | None = None,
     ):
         """Handle RAG query. Creates its own DB session to avoid lifecycle issues."""
         from app.tools.registry import get_all_tool_specs
@@ -357,6 +381,7 @@ async def chat_websocket(websocket: WebSocket):
             async for db in get_db():
                 # Collect full response for branch marker parsing
                 full_response = ""
+                streamed_thinking = False
 
                 # Decide whether to use tool loop for RAG
                 tools = get_all_tool_specs() if ws_id else None
@@ -376,6 +401,7 @@ async def chat_websocket(websocket: WebSocket):
                         chat_id=chat_id,
                         current_fork_id=current_fork_id,
                         tools=tools,
+                        context_card_ids=context_card_ids,
                     )
 
                     # ask_stream with tools yields a "messages_ready" dict instead of
@@ -387,6 +413,8 @@ async def chat_websocket(websocket: WebSocket):
                             messages_for_llm = chunk["messages"]
                             insight_ids = chunk.get("insight_ids", [])
                         elif isinstance(chunk, dict):
+                            if chunk.get("type") == "thinking":
+                                streamed_thinking = True
                             await safe_send(chunk)
                         else:
                             full_response += chunk
@@ -399,6 +427,8 @@ async def chat_websocket(websocket: WebSocket):
                             chat_id=chat_id, current_fork_id=current_fork_id,
                         ):
                             if isinstance(chunk, dict):
+                                if chunk.get("type") == "thinking":
+                                    streamed_thinking = True
                                 await safe_send(chunk)
                             else:
                                 full_response += chunk
@@ -421,16 +451,21 @@ async def chat_websocket(websocket: WebSocket):
                         retrieval_level=retrieval_level,
                         chat_id=chat_id,
                         current_fork_id=current_fork_id,
+                        context_card_ids=context_card_ids,
                     ):
                         if isinstance(chunk, dict):
+                            if chunk.get("type") == "thinking":
+                                streamed_thinking = True
                             await safe_send(chunk)
                         else:
                             full_response += chunk
                             await safe_send({"type": "content", "content": chunk})
 
-                # Strip thinking blocks
-                if full_response:
-                    clean = _strip_thinking(full_response)
+                # Strip thinking blocks only if not already streamed in real-time
+                if full_response and not streamed_thinking:
+                    clean, thinking = _strip_thinking(full_response)
+                    if thinking:
+                        await safe_send({"type": "thinking", "content": thinking})
                     if clean != full_response:
                         await safe_send({"type": "content_replace", "content": clean})
 
@@ -519,6 +554,7 @@ async def chat_websocket(websocket: WebSocket):
                 retrieval_level = msg.get("retrieval_level")
                 chat_id = msg.get("chat_id")
                 current_fork_id = msg.get("current_fork_id")
+                context_card_ids = msg.get("context_card_ids")
 
                 # Verify chat ownership
                 if chat_id and not await _verify_chat_ownership(chat_id):
@@ -530,6 +566,7 @@ async def chat_websocket(websocket: WebSocket):
                         question, workspace_ids, card_id, top_k,
                         web_search, history, retrieval_level, chat_id,
                         current_fork_id=current_fork_id,
+                        context_card_ids=context_card_ids,
                     )
                 )
 

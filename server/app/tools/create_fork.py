@@ -24,6 +24,8 @@ _SPEC = ToolSpec(
         "the question, so the answer streams into the new branch. "
         "Do NOT fork for follow-up questions, elaborations, clarifications, or natural "
         "conversation flow within the same topic. Do NOT fork repeatedly in consecutive messages.\n\n"
+        "When the user EXPLICITLY requests a fork (e.g. '创建分支', '分叉', 'branch'), "
+        "set force=true to bypass rate limits.\n\n"
         f"Available profiles: {_profile_names}. "
         "Choose the profile that best matches the user's intent."
     ),
@@ -48,6 +50,11 @@ _SPEC = ToolSpec(
                 ),
                 "enum": list(FORK_PROFILES.keys()),
             },
+            "force": {
+                "type": "boolean",
+                "description": "Set to true when the user explicitly requests a fork. Bypasses rate limits.",
+                "default": False,
+            },
         },
         "required": ["branch_label", "reason"],
     },
@@ -66,14 +73,16 @@ class CreateForkTool(Tool):
 
         branch_label = arguments.get("branch_label", "新分支").strip()
         profile_name = arguments.get("profile", "deep_dive")
+        force = arguments.get("force", False)
         profile = get_profile(profile_name)
         if not profile:
             profile = get_profile("deep_dive")
 
-        # SplitGuard check
+        # SplitGuard check (skip when user explicitly requested)
         from app.services.split_guard import split_guard
-        if not await split_guard.can_fork(db, chat_id, current_fork_id, branch_label):
-            return json.dumps({"status": "blocked", "reason": "split_guard protection active"})
+        if not force:
+            if not await split_guard.can_fork(db, chat_id, current_fork_id, branch_label):
+                return json.dumps({"status": "blocked", "reason": "split_guard protection active"})
 
         # Resolve parent chat — prefer active fork over root chat
         parent_chat = None
@@ -104,15 +113,8 @@ class CreateForkTool(Tool):
         from app.services.fork_compress import fork_compressor
         summary = await fork_compressor.compress(msgs, strategy=profile.context_strategy)
 
-        # Walk parent chain to compute depth
-        depth = 0
-        cursor = parent_chat.parent_id
-        max_walk = 20
-        while cursor and max_walk > 0:
-            max_walk -= 1
-            depth += 1
-            row = await db.execute(select(AiChat.parent_id).where(AiChat.id == cursor))
-            cursor = row.scalar_one_or_none()
+        # Derive depth directly from parent — no N+1 loop needed
+        depth = (parent_chat.depth or 0) + 1
 
         # Create child AiChat
         child_chat = AiChat(
@@ -123,6 +125,7 @@ class CreateForkTool(Tool):
             mode="rag",
             title=branch_label,
             node_type="branch",
+            depth=depth,
         )
         db.add(child_chat)
         await db.flush()
@@ -148,6 +151,11 @@ class CreateForkTool(Tool):
 
         logger.info("Fork created: %s → %s (label=%s, profile=%s)", parent_chat.id, child_chat.id, branch_label, profile_name)
 
+        # Build suffix: profile instructions + parent context summary
+        suffix = profile.system_prompt_suffix
+        if summary:
+            suffix += f"\n\n## 父对话上下文摘要\n以下是创建分支前的对话摘要，帮助你理解讨论背景：\n\n{summary}"
+
         return json.dumps({
             "status": "created",
             "chat_id": str(child_chat.id),
@@ -155,5 +163,5 @@ class CreateForkTool(Tool):
             "depth": depth,
             "divider_msg_id": str(divider.id),
             "profile": profile_name,
-            "system_prompt_suffix": profile.system_prompt_suffix,
+            "system_prompt_suffix": suffix,
         })

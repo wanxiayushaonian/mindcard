@@ -6,6 +6,7 @@ export interface MarkdownRendererProps {
   content: string;
   className?: string;
   variant?: "default" | "compact" | "prose" | "trace";
+  streaming?: boolean;
   enableMath?: boolean;
   enableCode?: boolean;
   enableMermaid?: boolean;
@@ -17,6 +18,7 @@ export default function MarkdownRenderer({
   content,
   className = "",
   variant = "default",
+  streaming = false,
 }: MarkdownRendererProps) {
   // For now, always use SimpleMarkdownRenderer
   // RichMarkdownRenderer can be added later if needed
@@ -25,6 +27,7 @@ export default function MarkdownRenderer({
       content={content}
       className={className}
       variant={variant}
+      streaming={streaming}
     />
   );
 }

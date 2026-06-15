@@ -1,0 +1,238 @@
+/* ── ProseMirror / Tiptap content styles ── */
+
+.tiptap {
+  outline: none;
+  min-height: 200px;
+  padding: 0.75rem;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-foreground);
+}
+
+/* Placeholder */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+  pointer-events: none;
+  height: 0;
+}
+
+/* ── Typography ── */
+
+.tiptap h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0.8em 0 0.4em;
+  line-height: 1.3;
+}
+
+.tiptap h2 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.7em 0 0.35em;
+  line-height: 1.35;
+}
+
+.tiptap h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+  line-height: 1.4;
+}
+
+.tiptap p {
+  margin: 0.25em 0;
+}
+
+/* ── Inline formatting ── */
+
+.tiptap strong {
+  font-weight: 600;
+}
+
+.tiptap em {
+  font-style: italic;
+}
+
+.tiptap s {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.tiptap code {
+  background: var(--color-gray-100, #f3f4f6);
+  border-radius: 3px;
+  padding: 0.15em 0.35em;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.9em;
+}
+
+.tiptap mark {
+  background-color: #fef08a;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* ── Links ── */
+
+.tiptap a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.tiptap a:hover {
+  opacity: 0.8;
+}
+
+/* ── Block elements ── */
+
+.tiptap blockquote {
+  border-left: 3px solid var(--color-primary, #6366f1);
+  margin: 0.5em 0;
+  padding: 0.25em 0 0.25em 0.75em;
+  color: var(--color-text-secondary);
+}
+
+.tiptap hr {
+  border: none;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  margin: 1em 0;
+}
+
+/* ── Code blocks ── */
+
+.tiptap pre {
+  background: var(--color-gray-100, #f3f4f6);
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+.tiptap pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* ── Lists ── */
+
+.tiptap ul {
+  list-style: disc;
+  padding-left: 1.5em;
+  margin: 0.25em 0;
+}
+
+.tiptap ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+  margin: 0.25em 0;
+}
+
+.tiptap li {
+  margin: 0.15em 0;
+}
+
+.tiptap li p {
+  margin: 0;
+}
+
+/* ── Task lists ── */
+
+.tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.tiptap ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4em;
+}
+
+.tiptap ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 0.15em;
+}
+
+.tiptap ul[data-type="taskList"] li > label input[type="checkbox"] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--color-border, #d1d5db);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+}
+
+.tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  background: var(--color-primary, #6366f1);
+  border-color: var(--color-primary, #6366f1);
+}
+
+.tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.tiptap ul[data-type="taskList"] li[data-checked="true"] > div > p {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* ── Wiki-links ── */
+
+.tiptap .wiki-link {
+  background: var(--color-primary, #6366f1);
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--color-primary, #6366f1);
+  border-radius: 3px;
+  padding: 0.05em 0.3em;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+
+.tiptap .wiki-link:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+/* ── Selection / gapcursor ── */
+
+.tiptap .ProseMirror-selectednode {
+  outline: 2px solid var(--color-primary, #6366f1);
+  border-radius: 3px;
+}
+
+.tiptap .ProseMirror-gapcursor::after {
+  border-top: 1px solid var(--color-foreground);
+}
+
+/* ── Dark mode overrides ── */
+
+.dark .tiptap code {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dark .tiptap pre {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dark .tiptap mark {
+  background-color: rgba(250, 204, 21, 0.25);
+}

@@ -15,6 +15,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { RichEditor } from "@/components/editor";
 import { TagChip } from "@/components/TagChip";
 import { translateBackendError } from "@/lib/backend-errors";
 import { formatDateTime } from "@/lib/format";
@@ -74,6 +75,15 @@ export default function CardDetailPage() {
     down: "沮丧",
     expectant: "期待",
   }), []);
+
+  // Reverse map: Chinese DB value -> translation key
+  const reverseEmotionMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [key, value] of Object.entries(emotionMap)) {
+      map[value] = key;
+    }
+    return map;
+  }, [emotionMap]);
 
   // Permission: owner/admin can do everything, editor can edit own cards, viewer/pending are read-only
   const role = workspace?.member_role;
@@ -269,7 +279,9 @@ export default function CardDetailPage() {
           ))}
           {card.emotion_tag && (
             <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-text-secondary">
-              {card.emotion_tag}
+              {reverseEmotionMap[card.emotion_tag]
+                ? tEmotion(reverseEmotionMap[card.emotion_tag] as "happy" | "anxious" | "calm" | "excited" | "confused" | "touched" | "down" | "expectant")
+                : card.emotion_tag}
             </span>
           )}
         </div>
@@ -471,11 +483,13 @@ export default function CardDetailPage() {
           </FormField>
 
           <FormField label={t("content")}>
-            <textarea
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              rows={5}
-              className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-text outline-none focus:border-primary resize-none"
+            <RichEditor
+              content={editContent}
+              onChange={setEditContent}
+              workspaceId={workspaceId}
+              className="rounded-xl border border-border"
+              showToolbar={true}
+              minHeight="120px"
             />
           </FormField>
 

@@ -1,11 +1,84 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import dynamic from "next/dynamic";
+import { Check, Copy } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { normalizeMarkdownForDisplay } from "@/lib/markdown-display";
 import type { MarkdownRendererProps } from "./MarkdownRenderer";
+
+import "katex/dist/katex.min.css";
+
+const LazyMermaid = dynamic(() => import("./Mermaid"), { ssr: false });
+
+// --- Streaming-aware markdown throttle ---
+
+const SHORT_STREAM_COMMIT_MS = 80;
+const MEDIUM_STREAM_COMMIT_MS = 140;
+const LONG_STREAM_COMMIT_MS = 220;
+
+function streamingCommitDelay(length: number): number {
+  if (length > 24_000) return LONG_STREAM_COMMIT_MS;
+  if (length > 8_000) return MEDIUM_STREAM_COMMIT_MS;
+  return SHORT_STREAM_COMMIT_MS;
+}
+
+function useStreamingMarkdownSource(source: string, streaming: boolean): string {
+  const [renderedSource, setRenderedSource] = useState(source);
+  const latestSourceRef = useRef(source);
+  const renderedSourceRef = useRef(source);
+  const timerRef = useRef<number | null>(null);
+
+  const clearPendingCommit = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const commitSource = useCallback((next: string, urgent: boolean) => {
+    if (renderedSourceRef.current === next) return;
+    renderedSourceRef.current = next;
+    if (urgent) {
+      setRenderedSource(next);
+      return;
+    }
+    startTransition(() => setRenderedSource(next));
+  }, []);
+
+  const scheduleCommit = useCallback(() => {
+    if (timerRef.current !== null) return;
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      commitSource(latestSourceRef.current, false);
+    }, streamingCommitDelay(latestSourceRef.current.length));
+  }, [commitSource]);
+
+  latestSourceRef.current = source;
+
+  useLayoutEffect(() => {
+    latestSourceRef.current = source;
+    if (!streaming) {
+      clearPendingCommit();
+      commitSource(source, true);
+    }
+  }, [clearPendingCommit, commitSource, source, streaming]);
+
+  useEffect(() => {
+    latestSourceRef.current = source;
+    if (!streaming) return;
+    scheduleCommit();
+  }, [scheduleCommit, source, streaming]);
+
+  useEffect(() => clearPendingCommit, [clearPendingCommit]);
+
+  return renderedSource;
+}
 
 function isSafeUrl(url: string | undefined): boolean {
   if (!url) return false;
@@ -70,15 +143,49 @@ function stripLeadingHashes(children: React.ReactNode): React.ReactNode {
   return children;
 }
 
+function CodeBlockWithCopy({ code, language, className }: { code: string; language?: string; className?: string }) {
+  const t = useTranslations("common");
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = useCallback(() => {
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1_500);
+    });
+  }, [code]);
+
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between border-b border-border px-4 py-1.5 text-xs text-text-secondary">
+        <span className="font-mono lowercase">{language || "code"}</span>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-gray-200 hover:text-text dark:hover:bg-gray-300"
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <span>{copied ? t("copied") : t("copy")}</span>
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-4 text-sm leading-relaxed text-text">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
 export default function SimpleMarkdownRenderer({
   content,
   className = "",
   variant = "default",
+  streaming = false,
 }: MarkdownRendererProps) {
   const t = useTranslations("markdown");
+  const renderedSource = useStreamingMarkdownSource(content, streaming);
   const normalizedContent = useMemo(
-    () => normalizeMarkdownForDisplay(content),
-    [content],
+    () => normalizeMarkdownForDisplay(renderedSource),
+    [renderedSource],
   );
   const isTrace = variant === "trace";
   const gap = isTrace ? "my-1" : variant === "compact" ? "my-2" : "my-4";
@@ -316,18 +423,20 @@ export default function SimpleMarkdownRenderer({
     pre: ({ children }: any) => <>{children}</>,
     code: ({ node, children, ...props }: any) => {
       const raw = String(children).replace(/\n$/, "");
+      const isMermaid = props.className?.includes("language-mermaid");
+
+      if (isMermaid && raw.includes("\n")) {
+        return <LazyMermaid chart={raw} className={gap} />;
+      }
 
       if (raw.includes("\n")) {
+        const lang = props.className?.replace("language-", "") || "";
         return (
-          <div
-            className={`md-code-block ${gap} overflow-hidden rounded-xl border border-[var(--border)] bg-[#292524]`}
-          >
-            <pre className="overflow-x-auto p-4 text-sm leading-relaxed text-[#D6D3D1]">
-              <code className="md-code-block__code" {...props}>
-                {raw}
-              </code>
-            </pre>
-          </div>
+          <CodeBlockWithCopy
+            code={raw}
+            language={lang}
+            className={`md-code-block ${gap} overflow-hidden rounded-xl border border-border bg-bg`}
+          />
         );
       }
 
@@ -480,7 +589,8 @@ export default function SimpleMarkdownRenderer({
     [isTrace, variant],
   );
 
-  const remarkPlugins = useMemo(() => [remarkGfm], []);
+  const remarkPlugins = useMemo(() => [remarkBreaks, remarkGfm, remarkMath], []);
+  const rehypePlugins = useMemo(() => [rehypeKatex], []);
 
   const rootClasses = isTrace
     ? "md-renderer max-w-none font-sans text-[11px] leading-[1.55] text-[var(--muted-foreground)]"
@@ -490,7 +600,7 @@ export default function SimpleMarkdownRenderer({
 
   return (
     <div className={`${rootClasses} ${className}`}>
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
         {normalizedContent}
       </ReactMarkdown>
     </div>

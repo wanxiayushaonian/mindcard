@@ -32,7 +32,7 @@ export default function ApiKeysPage() {
     if (creating) return;
     setCreating(true);
     try {
-      const result = await apiKeyApi.create(newKeyName || "Chrome 插件");
+      const result = await apiKeyApi.create(newKeyName || t("apiKeyDefaultName"));
       setCreatedKey(result);
       setNewKeyName("");
       setShowCreate(false);

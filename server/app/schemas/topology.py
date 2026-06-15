@@ -52,6 +52,12 @@ class NodeCardAdd(BaseModel):
     card_id: str
 
 
+class NodeSynthesizeRequest(BaseModel):
+    mode: str = Field("free", pattern=r"^(timeline|argument|comparison|free)$")
+    card_ids: list[str] = Field(default=[])  # optional subset
+    template_id: str | None = None  # optional custom template
+
+
 class NodeRefCreate(BaseModel):
     target_chat_id: str
     ref_type: str = Field("related", pattern=r"^(related|contradicts|extends)$")

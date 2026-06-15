@@ -3,7 +3,7 @@ import re
 import uuid
 from dataclasses import dataclass
 
-from app.services.llm import llm_service
+from app.services.llm import get_llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class TripleExtractor:
             )
 
         try:
-            response = await llm_service.extraction_complete_simple(
+            response = await get_llm_service().extraction_complete_simple(
                 system_prompt=system,
                 user_content=text[:500],
                 max_tokens=64,
@@ -116,7 +116,7 @@ class TripleExtractor:
         user_prompt = self._build_user_prompt(text)
 
         logger.info("Extraction: calling LLM (text_len=%d, lang=%s)", len(text[:3000]), language)
-        response = await llm_service.extraction_complete_simple(
+        response = await get_llm_service().extraction_complete_simple(
             system_prompt=system_prompt,
             user_content=user_prompt,
             max_tokens=4096,
@@ -151,7 +151,7 @@ class TripleExtractor:
                 f"If nothing was missed, output {_COMPLETE}"
             )
 
-        response = await llm_service.extraction_complete_simple(
+        response = await get_llm_service().extraction_complete_simple(
             system_prompt=self._build_system_prompt(language),
             user_content=prompt,
             max_tokens=2048,

@@ -1,0 +1,27 @@
+<view
+  class="card"
+  style="border-left: 6rpx solid {{card.color}};"
+  bindtap="onTap"
+  bindlongpress="onLongPress"
+>
+  <view class="card-keywords" wx:if="{{card.keywords && card.keywords.length > 0}}">
+    <view
+      wx:for="{{card.keywords}}"
+      wx:for-item="kw"
+      wx:key="*this"
+      class="card-kw"
+      style="background: {{card.color}};"
+    >
+      <text>{{kw}}</text>
+    </view>
+  </view>
+  <text class="card-title" wx:if="{{card.title}}">{{card.title}}</text>
+  <text class="card-content-text">{{card.preview}}</text>
+  <view class="card-footer">
+    <text class="card-time">{{card.createdAt}}</text>
+    <view class="card-badges">
+      <text wx:if="{{card.hasAiChat}}" class="card-ai-badge">AI</text>
+      <icon wx:if="{{card.isFavorite}}" name="star" size="24" color="#f0a500" />
+    </view>
+  </view>
+</view>

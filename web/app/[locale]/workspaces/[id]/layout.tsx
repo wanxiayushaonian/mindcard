@@ -21,6 +21,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { translateBackendError } from "@/lib/backend-errors";
+import { useAuthStore } from "@/lib/store";
 
 
 class ChatErrorBoundary extends Component<{ children: ReactNode; errorLabel: string; resetLabel: string }, { hasError: boolean }> {
@@ -74,6 +75,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.id as string;
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const [mounted, setMounted] = useState(false);
 
   const t = useTranslations("workspace");
   const tCommon = useTranslations("common");
@@ -93,10 +96,19 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const showAiChat = usePanelStore((s) => s.showAiChat);
   const setShowAiChat = usePanelStore((s) => s.setShowAiChat);
 
+  useEffect(() => { setMounted(true); }, []);
+
   // Hydrate panel state from localStorage after mount (avoids SSR hydration mismatch)
   useEffect(() => {
     usePanelStore.getState().hydrate();
   }, []);
+
+  // Auth guard: redirect unauthenticated users to login
+  useEffect(() => {
+    if (mounted && !isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [mounted, isAuthenticated, router]);
 
   // Cmd+K / Ctrl+K to open search
   useEffect(() => {
@@ -109,6 +121,15 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, []);
+
+  // SSR + initial client render: always render the same shell to avoid hydration mismatch
+  if (!mounted) {
+    return <div className="flex h-screen bg-bg" />;
+  }
+
+  if (!isAuthenticated) {
+    return <div className="flex h-screen items-center justify-center text-text-secondary"><p>Redirecting…</p></div>;
+  }
 
   // Build breadcrumb items
   const breadcrumbs: BreadcrumbItem[] = [
@@ -128,6 +149,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   } else if (pathname.endsWith("/knowledge-graph")) {
     breadcrumbs.push({ label: wsName, href: `/workspaces/${workspaceId}` });
     breadcrumbs.push({ label: t("knowledgeGraph") });
+  } else if (pathname.endsWith("/activities")) {
+    breadcrumbs.push({ label: wsName, href: `/workspaces/${workspaceId}` });
+    breadcrumbs.push({ label: t("activities") });
   } else {
     breadcrumbs.push({ label: wsName });
   }
@@ -140,7 +164,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     { label: t("insights"), href: `/workspaces/${workspaceId}/insights`, highlight: false, icon: <Lightbulb size={14} /> },
     { label: t("relatedNetwork"), href: `/workspaces/${workspaceId}/network`, highlight: false, icon: <Network size={14} /> },
     { label: t("knowledgeGraph"), href: `/workspaces/${workspaceId}/knowledge-graph`, highlight: false, icon: <GitBranch size={14} /> },
-    { label: t("insights"), href: `/workspaces/${workspaceId}/activities`, highlight: false, icon: <Activity size={14} /> },
+    { label: t("activities"), href: `/workspaces/${workspaceId}/activities`, highlight: false, icon: <Activity size={14} /> },
   ];
 
   const navigate = (href: string) => {
@@ -544,7 +568,7 @@ function PanelLayout({
   if (!canShowAiChat) {
     return (
       <div className="flex h-full w-full">
-        <div className="h-full w-full overflow-y-auto">{children}</div>
+        <div className="h-full w-full overflow-hidden">{children}</div>
       </div>
     );
   }

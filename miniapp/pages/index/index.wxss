@@ -180,41 +180,38 @@ page {
   color: #E8A0A0;
 }
 
-/* Bottom Action Bar */
-.bottom-bar {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-around;
-  background: var(--color-white);
-  border-top: 1rpx solid var(--color-border);
-  padding: 12rpx 24rpx;
-  padding-bottom: calc(12rpx + env(safe-area-inset-bottom));
-}
-
-.bar-item {
+/* Floating Action Buttons */
+.fab-container {
+  position: fixed;
+  right: 32rpx;
+  bottom: calc(140rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 8rpx 0;
-  min-width: 100rpx;
+  gap: 16rpx;
+  z-index: 100;
 }
 
-.bar-label {
-  font-size: 20rpx;
-  color: var(--color-text-secondary);
-  margin-top: 4rpx;
-}
-
-.bar-item-center {
+.fab-primary {
   width: 96rpx;
   height: 96rpx;
   border-radius: 50%;
   background: var(--color-primary);
-  margin-top: -40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-shadow: 0 8rpx 24rpx rgba(148, 180, 200, 0.4);
+}
+
+.fab-secondary {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: var(--color-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
 }
 
 /* Modal mask */
@@ -228,7 +225,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 1000;
 }
 
 /* Flash Note Modal */

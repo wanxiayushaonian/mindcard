@@ -2,18 +2,23 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { chatApi, aiApi, cardApi, workspaceApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode, type TopologyNode } from "@/lib/api";
-import { UnifiedWSClient, createWSUrl, type StreamEvent } from "@/lib/unified-ws";
+import { UnifiedWSClient, createWSUrl, type StreamEvent, type ContextDebugData, type ToolCall } from "@/lib/unified-ws";
 import { ModelSelector } from "@/components/ModelSelector";
 import { toast } from "@/lib/toast";
 import AssistantResponse from "@/components/AssistantResponse";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { ForkDivider } from "@/components/ForkDivider";
 import { ForkBreadcrumb } from "@/components/ForkBreadcrumb";
+import { ContextDebugPanel } from "@/components/ContextDebugPanel";
+import { MemoryPanel } from "@/components/MemoryPanel";
+import { ThinkingBlock } from "@/components/ThinkingBlock";
+import { ToolCallsBlock } from "@/components/ToolCallsBlock";
+import { CardMentionPopup } from "@/components/CardMentionPopup";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { useTranslations, useLocale } from "next-intl";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2 } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain } from "lucide-react";
 import { formatTimeShort } from "@/lib/format";
 
 const FORK_PREFIX = "__FORK__";
@@ -34,6 +39,13 @@ function encodeForkContent(meta: Omit<ForkMetaEntry, "msgId">): string {
   return FORK_PREFIX + JSON.stringify(meta);
 }
 
+const FORK_PROFILES_UI = [
+  { key: "deep_dive", labelKey: "deepDive" as const, descKey: "deepDiveDesc" as const },
+  { key: "explore", labelKey: "explore" as const, descKey: "exploreDesc" as const },
+  { key: "summarize", labelKey: "summarize" as const, descKey: "summarizeDesc" as const },
+  { key: "challenge", labelKey: "challenge" as const, descKey: "challengeDesc" as const },
+];
+
 function decodeForkContent(content: string): Omit<ForkMetaEntry, "msgId"> | null {
   if (!content.startsWith(FORK_PREFIX)) return null;
   try {
@@ -49,9 +61,14 @@ interface Message {
   status?: "done" | "error";
   sources?: RAGResponse["source_cards"];
   webSearchResults?: WebSearchResult[];
+  contextDebug?: ContextDebugData;
+  thinking?: string;
+  toolCalls?: ToolCall[];
   childChatId?: string;
   createdAt?: string;
   _isStreaming?: boolean;
+  _isSearching?: boolean;
+  _key?: string;
 }
 
 interface AiChatPanelProps {
@@ -69,9 +86,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [cursorPosition, setCursorPosition] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatId, setChatIdRaw] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatSession[]>([]);
+  const [mentionedCards, setMentionedCards] = useState<Array<{ cardId: string; title: string; color: string }>>([]);
 
   // Persist active chatId per workspace
   const chatStorageKey = `mindcard-active-chat-${workspaceId || "global"}`;
@@ -84,6 +103,32 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     }
   };
   const [showHistory, setShowHistory] = useState(false);
+  const [showMemory, setShowMemory] = useState(false);
+  const { mutate: swrMutate } = useSWRConfig();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustTextareaHeight = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = Math.min(Math.max(el.scrollHeight, 28), 160);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > 160 ? "auto" : "hidden";
+  }, []);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    setCursorPosition(e.target.selectionStart ?? e.target.value.length);
+    requestAnimationFrame(adjustTextareaHeight);
+  }, [adjustTextareaHeight]);
+
+  // Reset height when input is cleared programmatically (e.g. after sending)
+  useEffect(() => {
+    if (input === "" && textareaRef.current) {
+      textareaRef.current.style.height = "28px";
+      textareaRef.current.style.overflowY = "hidden";
+    }
+  }, [input]);
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
   const [deletePreview, setDeletePreview] = useState<{
     chat_title: string; messages: number; child_chats: number;
@@ -103,6 +148,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const streamContentRef = useRef("");
   const webSearchResultsRef = useRef<WebSearchResult[] | undefined>(undefined);
   const sourceCardsRef = useRef<RAGResponse["source_cards"] | undefined>(undefined);
+  const streamThinkingRef = useRef("");
+  const streamToolCallsRef = useRef<ToolCall[]>([]);
+  const streamContextDebugRef = useRef<ContextDebugData | undefined>(undefined);
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
   const precipitatedBlocksRef = useRef(precipitatedBlocks);
   precipitatedBlocksRef.current = precipitatedBlocks;
@@ -111,6 +159,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number>>(new Set());
   const [forkMode, setForkMode] = useState(false);
   const [isCreatingFork, setIsCreatingFork] = useState(false);
+  const [forkPickerMsgIdx, setForkPickerMsgIdx] = useState<number | null>(null);
   const [forkMeta, setForkMeta] = useState<Record<string, ForkMetaEntry>>({});
   const [retrievalLevel, setRetrievalLevel] = useState<number | undefined>(undefined);
   const lastRagLevelRef = useRef<number | undefined>(undefined);
@@ -228,7 +277,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                     : { title: m.metadata_?.branch_label || m.content || t('newBranch'), nodeId: "", collapsed: false, completed: true, msgId: m.id, depth: m.metadata_?.depth || 0, messageCount: m.metadata_?.child_message_count, profile: m.metadata_?.fork_profile };
                   return { role: "fork-divider" as const, content: m.metadata_?.branch_label || parsed?.title || m.content || t('newBranch'), childChatId: nestedId };
                 }
-                return { role: m.role as "user" | "assistant", content: m.content, childChatId: forkId, webSearchResults: m.web_search_results || undefined, sources: m.source_cards || undefined, createdAt: m.created_at };
+                return { role: m.role as "user" | "assistant", content: m.content, childChatId: forkId, webSearchResults: m.web_search_results || undefined, sources: m.source_cards || undefined, createdAt: m.created_at, thinking: m.metadata_?.thinking || undefined, toolCalls: m.metadata_?.tool_calls || undefined, contextDebug: m.metadata_?.context_debug || undefined };
               });
               // Update the live message count for this fork
               setForkMeta((prev) => ({ ...prev, [forkId]: { ...prev[forkId], messageCount: realMsgCount }, ...nestedForkMeta }));
@@ -255,6 +304,31 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       return next;
     });
   }, []);
+
+  const handleCreateFork = useCallback((topic: string, profile: string) => {
+    const parentId = activeChatIdRef.current || chatIdRef.current;
+    if (!parentId) return;
+    setForkPickerMsgIdx(null);
+    setIsCreatingFork(true);
+    chatApi.fork(parentId, { topic: topic.slice(0, 50), profile })
+      .then((res) => {
+        setIsCreatingFork(false);
+        const realId = res.node_id || res.chat_id;
+        const title = topic.slice(0, 30) || t('newBranch');
+        const depth = res.depth || 0;
+        const meta: ForkMetaEntry = { title, nodeId: realId, collapsed: false, completed: true, depth, profile };
+        setForkMeta((prev) => ({ ...prev, [realId]: meta }));
+        setMessages((prev) => [...prev, { role: "fork-divider" as const, content: encodeForkContent(meta), childChatId: realId }]);
+        syncExpandedForks((prev) => new Set([...prev, realId]));
+        if (res.divider_msg_id && chatIdRef.current) {
+          chatApi.updateMessage(chatIdRef.current, res.divider_msg_id, "fork-divider", encodeForkContent(meta))
+            .then(() => setForkMeta((p) => ({ ...p, [realId]: { ...p[realId], msgId: res.divider_msg_id } })))
+            .catch(() => {});
+        }
+        toast(t('forkCreated', { title }), "success");
+      })
+      .catch((err) => { setIsCreatingFork(false); toast(t('forkFailed', { error: err.message }), "error"); });
+  }, [t, syncExpandedForks]);
 
   // Navigate breadcrumb — always expand target (for breadcrumb clicks)
   const handleForkNavigate = useCallback(async (targetChatId: string) => {
@@ -316,7 +390,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 : { title: m.metadata_?.branch_label || m.content || t('newBranch'), nodeId: "", collapsed: false, completed: true, msgId: m.id, depth: m.metadata_?.depth || 0, messageCount: m.metadata_?.child_message_count, profile: m.metadata_?.fork_profile };
               return { role: "fork-divider" as const, content: m.metadata_?.branch_label || parsed?.title || m.content || t('newBranch'), childChatId: nestedId };
             }
-            return { role: m.role as "user" | "assistant", content: m.content, childChatId: targetChatId, webSearchResults: m.web_search_results || undefined, sources: m.source_cards || undefined, createdAt: m.created_at };
+            return { role: m.role as "user" | "assistant", content: m.content, childChatId: targetChatId, webSearchResults: m.web_search_results || undefined, sources: m.source_cards || undefined, createdAt: m.created_at, thinking: m.metadata_?.thinking || undefined, toolCalls: m.metadata_?.tool_calls || undefined, contextDebug: m.metadata_?.context_debug || undefined };
           });
           setForkMeta((prev) => ({ ...prev, [targetChatId]: { ...prev[targetChatId], messageCount: realMsgCount }, ...nestedForkMeta }));
           forkMetaRef.current = { ...forkMetaRef.current, [targetChatId]: { ...forkMetaRef.current[targetChatId], messageCount: realMsgCount }, ...nestedForkMeta };
@@ -349,12 +423,12 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       for (let j = msgs.length - 1; j >= 0; j--) {
         if (msgs[j]._isStreaming) return j;
       }
-      return msgs.length - 1;
+      return -1;  // not found — callers must guard with si >= 0
     };
 
     const handleEvent = (event: StreamEvent) => {
       // Stream-scoped events: only process if we're actively streaming
-      const isStreamEvent = ["content", "web_search_results", "sources", "content_replace", "tool_executed", "done", "error"].includes(event.type);
+      const isStreamEvent = ["content", "web_search_results", "sources", "context_debug", "thinking", "content_replace", "tool_executing", "tool_executed", "done", "error"].includes(event.type);
       if (isStreamEvent && !streamingChatIdRef.current) return;
 
       if (event.type === "content" && event.content) {
@@ -374,7 +448,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         setMessages((prev) => {
           const updated = [...prev];
           const si = streamIdx(updated);
-          updated[si] = { ...updated[si], webSearchResults: event.results, content: "" };
+          updated[si] = { ...updated[si], webSearchResults: event.results, content: "", _isSearching: undefined };
           setExpandedSearchResults((s) => new Set(s).add(si));
           return updated;
         });
@@ -387,17 +461,76 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           updated[si] = { ...updated[si], sources: event.source_cards };
           return updated;
         });
-      } else if (event.type === "tool_executed" && event.tool_name) {
-        // Tool execution notification — show as a subtle inline indicator
-        const toolName = event.tool_name;
+      } else if (event.type === "context_debug" && event.context_debug) {
+        // Context debug metadata — capture in ref for persistence on done
+        streamContextDebugRef.current = event.context_debug;
+        setMessages((prev) => {
+          const updated = [...prev];
+          const si = streamIdx(updated);
+          updated[si] = { ...updated[si], contextDebug: event.context_debug };
+          return updated;
+        });
+      } else if (event.type === "thinking" && event.content) {
+        // AI thinking content
+        streamThinkingRef.current += event.content;
         setMessages((prev) => {
           const updated = [...prev];
           const si = streamIdx(updated);
           if (si >= 0 && updated[si].role === "assistant") {
-            const currentContent = updated[si].content || "";
-            const toolIndicator = `\n\n> ${t('toolExecuted', { name: toolName })}`;
-            if (!currentContent.includes(toolIndicator)) {
-              updated[si] = { ...updated[si], content: currentContent + toolIndicator };
+            const existing = updated[si].thinking || "";
+            updated[si] = { ...updated[si], thinking: existing + event.content };
+          }
+          return updated;
+        });
+      } else if (event.type === "tool_executing" && event.tool_name) {
+        // Tool is executing — show pending state
+        const pendingCall: ToolCall = {
+          name: event.tool_name,
+          arguments: event.arguments || {},
+          result: "",
+          status: "pending",
+        };
+        setMessages((prev) => {
+          const updated = [...prev];
+          const si = streamIdx(updated);
+          if (si >= 0 && updated[si].role === "assistant") {
+            const existing = updated[si].toolCalls || [];
+            updated[si] = { ...updated[si], toolCalls: [...existing, pendingCall] };
+          }
+          return updated;
+        });
+      } else if (event.type === "tool_executed" && event.tool_name) {
+        // Tool execution complete — replace pending or append
+        if (event.tool_name === "memory_edit") {
+          swrMutate(["memories", workspaceId]);
+        }
+        const toolCall: ToolCall = {
+          name: event.tool_name,
+          arguments: event.arguments || {},
+          result: event.result || "",
+          status: "done",
+        };
+        streamToolCallsRef.current = [
+          ...streamToolCallsRef.current.filter(tc => !(tc.name === event.tool_name && tc.status === "pending")),
+          toolCall,
+        ];
+        setMessages((prev) => {
+          const updated = [...prev];
+          const si = streamIdx(updated);
+          if (si >= 0 && updated[si].role === "assistant") {
+            const existing = updated[si].toolCalls || [];
+            // Replace the last pending tool call with same name, or append
+            const pendingIdx = [...existing].reverse().findIndex(
+              (tc) => tc.name === event.tool_name && tc.status === "pending"
+            );
+            if (pendingIdx >= 0) {
+              const actualIdx = existing.length - 1 - pendingIdx;
+              updated[si] = {
+                ...updated[si],
+                toolCalls: existing.map((tc, j) => j === actualIdx ? toolCall : tc),
+              };
+            } else {
+              updated[si] = { ...updated[si], toolCalls: [...existing, toolCall] };
             }
           }
           return updated;
@@ -535,7 +668,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         streamingChatIdRef.current = null;
         if (chatIdRef.current && streamContentRef.current && !completedForkId) {
           // Only save root assistant responses to root chat
-          saveMessage(chatIdRef.current, "assistant", streamContentRef.current, webSearchResultsRef.current, undefined, sourceCardsRef.current);
+          const streamMeta: Record<string, any> = {};
+          if (streamThinkingRef.current) streamMeta.thinking = streamThinkingRef.current;
+          if (streamToolCallsRef.current.length > 0) streamMeta.tool_calls = streamToolCallsRef.current;
+          if (streamContextDebugRef.current) streamMeta.context_debug = streamContextDebugRef.current;
+          saveMessage(chatIdRef.current, "assistant", streamContentRef.current, webSearchResultsRef.current, Object.keys(streamMeta).length > 0 ? streamMeta : undefined, sourceCardsRef.current);
         }
         // Mark the correct fork as completed (collapsible)
         // Keep activeForkId pointing to the fork — breadcrumb and message tagging depend on it
@@ -561,7 +698,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           forkChildIdRef.current = null;
           const contentToSave = streamContentRef.current;
           if (contentToSave) {
-            chatApi.addMessage(childId, "assistant", contentToSave, undefined, undefined, undefined, sourceCardsRef.current).catch(() => {});
+            const childMeta: Record<string, any> = {};
+            if (streamThinkingRef.current) childMeta.thinking = streamThinkingRef.current;
+            if (streamToolCallsRef.current.length > 0) childMeta.tool_calls = streamToolCallsRef.current;
+            if (streamContextDebugRef.current) childMeta.context_debug = streamContextDebugRef.current;
+            chatApi.addMessage(childId, "assistant", contentToSave, undefined, undefined, Object.keys(childMeta).length > 0 ? childMeta : undefined, sourceCardsRef.current).catch(() => {});
           }
         } else {
           forkChildIdRef.current = null;
@@ -615,6 +756,21 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  // Listen for card mention requests from the card list
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.cardId) {
+        setMentionedCards((prev) => {
+          if (prev.some((c) => c.cardId === detail.cardId)) return prev;
+          return [...prev, detail];
+        });
+      }
+    };
+    window.addEventListener("card-mention-request", handler);
+    return () => window.removeEventListener("card-mention-request", handler);
+  }, []);
 
   // Fetch chat path — prefer active fork, fall back to root chat
   useEffect(() => {
@@ -675,6 +831,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           webSearchResults: m.web_search_results || undefined,
           sources: m.source_cards || undefined,
           createdAt: m.created_at,
+          thinking: m.metadata_?.thinking || undefined,
+          toolCalls: m.metadata_?.tool_calls || undefined,
+          contextDebug: m.metadata_?.context_debug || undefined,
         };
       });
 
@@ -778,6 +937,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     streamContentRef.current = "";
     webSearchResultsRef.current = undefined;
     sourceCardsRef.current = undefined;
+    streamThinkingRef.current = "";
+    streamToolCallsRef.current = [];
+    streamContextDebugRef.current = undefined;
     forkChildIdRef.current = null;
   }, []);
 
@@ -850,22 +1012,22 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     return deepest;
   }, []);
 
-    const doSend = async (question: string) => {
-    if (!question.trim() || isStreaming) return;
+  const doSend = async (question: string, force = false) => {
+    if (!question.trim() || (!force && isStreaming)) return;
 
     setIsStreaming(true);
-    streamContentRef.current = "";
-    webSearchResultsRef.current = undefined;
-    sourceCardsRef.current = undefined;
 
     const activeChildChatId = getDeepestExpandedFork();  // route to deepest non-collapsed fork
     streamingForkIdRef.current = activeChildChatId;  // track which fork this stream belongs to
     if (activeChildChatId) activeStreamForkRef.current = activeChildChatId;
     const nowIso = new Date().toISOString();
+    const rand = Math.random().toString(36).slice(2);
+    const userKey = `u-${nowIso}-${rand}`;
+    const asstKey = `a-${nowIso}-${rand}`;
     const loadingHint = webSearch ? t('searchingWeb') : "";
+    const userMsg: Message = { role: "user", content: question, childChatId: activeChildChatId || undefined, createdAt: nowIso, _key: userKey };
+    const asstMsg: Message = { role: "assistant", content: loadingHint, childChatId: activeChildChatId || undefined, createdAt: nowIso, _isStreaming: true, _isSearching: webSearch ? true : undefined, _key: asstKey };
     setMessages((prev) => {
-      const userMsg: Message = { role: "user", content: question, childChatId: activeChildChatId || undefined, createdAt: nowIso };
-      const asstMsg: Message = { role: "assistant", content: loadingHint, childChatId: activeChildChatId || undefined, createdAt: nowIso, _isStreaming: true };
       if (!activeChildChatId) return [...prev, userMsg, asstMsg];
       // Insert after the last message belonging to this fork so renderBlock finds them inside the fork block
       for (let j = prev.length - 1; j >= 0; j--) {
@@ -906,10 +1068,18 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     streamContentRef.current = "";
     webSearchResultsRef.current = undefined;
     sourceCardsRef.current = undefined;
+    streamThinkingRef.current = "";
+    streamToolCallsRef.current = [];
+    streamContextDebugRef.current = undefined;
 
-    // Build history (exclude fork dividers) — use ref to avoid stale closure
+    // Build history — only include root messages + messages from the active fork
+    // This prevents sibling fork messages from leaking into the current branch's context
     const hist = messagesRef.current
-      .filter((m) => m.content && m.role !== "fork-divider")
+      .filter((m) => {
+        if (!m.content || m.role === "fork-divider") return false;
+        if (!activeChildChatId) return !m.childChatId;
+        return !m.childChatId || m.childChatId === activeChildChatId;
+      })
       .map((m) => ({ role: m.role, content: m.content }));
 
     // Send via WebSocket — wait up to 3s in case WS reconnected during async ops above
@@ -923,6 +1093,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     });
     if (!wsReady) {
       toast.error(t('wsNotConnected'));
+      // Remove the user + assistant placeholders by key — they may not be at the end of the array
+      // when inserted inside a fork block
+      setMessages((prev) => prev.filter((m) => m._key !== userKey && m._key !== asstKey));
       setIsStreaming(false);
       return;
     }
@@ -938,7 +1111,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       retrieval_level: retrievalLevel,
       chat_id: currentChatId || undefined,
       current_fork_id: activeChildChatId || undefined,
+      context_card_ids: mentionedCards.length > 0 ? mentionedCards.map(c => c.cardId) : undefined,
     });
+    setMentionedCards([]);
 
     // Set abort function to cancel via WebSocket
     abortRef.current = () => {
@@ -950,6 +1125,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     if (!input.trim() || isStreaming) return;
     const question = input.trim();
     setInput("");
+    setForkPickerMsgIdx(null);
     if (forkMode) {
       setForkMode(false);
       const parentChatId = activeForkId || chatIdRef.current;
@@ -977,7 +1153,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 .then(() => setForkMeta((p) => ({ ...p, [realId]: { ...p[realId], msgId: res.divider_msg_id } })))
                 .catch((e) => console.error("Failed to update fork divider:", e));
             }
-            doSend(question);
+            // doSend takes over the isStreaming=true guard from here,
+            // passing force=true so it doesn't re-check the stale state value
+            doSend(question, true);
           })
           .catch((err) => {
             console.error("Fork creation failed:", err);
@@ -1076,7 +1254,16 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           {!rightCollapsed && (
             <>
               <button
-                onClick={() => setShowHistory(!showHistory)}
+                onClick={() => { setShowMemory(!showMemory); setShowHistory(false); }}
+                className={`rounded-lg p-1.5 transition ${
+                  showMemory ? "bg-primary/10 text-primary-dark" : "text-text-secondary hover:bg-muted"
+                }`}
+                title={t('showMemory')}
+              >
+                <Brain size={15} />
+              </button>
+              <button
+                onClick={() => { setShowHistory(!showHistory); setShowMemory(false); }}
                 className={`rounded-lg p-1.5 transition ${
                   showHistory ? "bg-primary/10 text-primary-dark" : "text-text-secondary hover:bg-muted"
                 }`}
@@ -1106,6 +1293,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       </div>
 
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Memory sub-panel */}
+        {showMemory && (
+          <MemoryPanel workspaceId={workspaceId} onClose={() => setShowMemory(false)} />
+        )}
+
         {/* History sub-panel */}
         {showHistory && (
           <div className="absolute inset-0 z-10 flex flex-col bg-bg">
@@ -1245,49 +1437,67 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 if (parentForkId !== undefined && (msg.childChatId ?? null) !== (parentForkId ?? null)) break;
                 // ── Root message: render normally ──
                 out.push(
-                  <div key={`msg-${i}`} data-fork-child={msg.childChatId || ""} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div key={msg._key || `msg-${i}`} data-fork-child={msg.childChatId || ""} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 backdrop-blur-sm ${msg.role === "user" ? "bg-primary/20 text-foreground border border-primary/30 shadow-sm" : "bg-surface text-text shadow-sm"}`}>
                       {msg.role === "assistant" ? (
-                        msg.content === t('searchingWeb') ? (
-                          <div className="flex items-center gap-2 text-sm text-text-secondary"><Globe size={14} className="animate-pulse" /><span className="animate-pulse">{msg.content}</span></div>
-                        ) : isStreaming && i === messages.length - 1 && !msg.content ? (
+                        msg._isSearching ? (
+                          <div className="flex items-center gap-2 text-sm text-text-secondary"><Globe size={14} className="animate-pulse" /><span className="animate-pulse">{t('searchingWeb')}</span></div>
+                        ) : msg._isStreaming && !msg.content && !msg.thinking ? (
                           <div className="flex items-center gap-2 text-sm text-text-secondary"><Loader2 size={14} className="animate-spin text-primary" /><span className="animate-pulse">{t('thinking')}</span></div>
                         ) : (
                           <>
+                            {msg.thinking && (
+                              <ThinkingBlock
+                                content={msg.thinking}
+                                isStreaming={!!msg._isStreaming}
+                                hasContent={!!(msg.content && msg.content.trim())}
+                              />
+                            )}
+                            {msg.toolCalls && msg.toolCalls.length > 0 && <ToolCallsBlock calls={msg.toolCalls} />}
                             <AssistantResponse content={msg.content || " "} className="text-[14px] leading-[1.75]" />
                             {msg.status === "error" && <p className="mt-1 text-xs text-amber-600">{t('responseInterrupted')}</p>}
                             {msg.content && msg.content.trim() && (
-                              <div className="mt-2 flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100">
-                                <button onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (isCreatingFork) return;
-                                  const pi = i > 0 ? messages[i-1] : null;
-                                  const forkPrompt = pi?.content || t('continueExplore');
-                                  const parentId = activeForkId || chatIdRef.current;
-                                  if (parentId) {
-                                    setIsCreatingFork(true);
-                                    chatApi.fork(parentId, { topic: forkPrompt.slice(0, 50) })
-                                      .then((res) => {
-                                        setIsCreatingFork(false);
-                                        const realId = res.node_id || res.chat_id;
-                                        const title = forkPrompt.slice(0, 30) || t('newBranch');
-                                        const depth = res.depth || 0;
-                                        const meta: ForkMetaEntry = { title, nodeId: realId, collapsed: false, completed: true, depth };
-                                        setForkMeta((prev) => ({ ...prev, [realId]: meta }));
-                                        setMessages((prev) => [...prev, { role: "fork-divider" as const, content: encodeForkContent(meta), childChatId: realId }]);
-                                        syncExpandedForks((prev) => new Set([...prev, realId]));
-                                        if (res.divider_msg_id && chatIdRef.current) {
-                                          chatApi.updateMessage(chatIdRef.current, res.divider_msg_id, "fork-divider", encodeForkContent(meta))
-                                            .then(() => setForkMeta((p) => ({ ...p, [realId]: { ...p[realId], msgId: res.divider_msg_id } })))
-                                            .catch(() => {});
-                                        }
-                                        toast(t('forkCreated', { title }), "success");
-                                      })
-                                      .catch((err) => { setIsCreatingFork(false); toast(t('forkFailed', { error: err.message }), "error"); });
-                                  }
-                                }} disabled={isCreatingFork} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-green-50 hover:text-green-600 disabled:cursor-not-allowed disabled:opacity-50" title={t('forkFromHere')}>{isCreatingFork ? <Loader2 size={10} className="animate-spin" /> : <GitBranch size={10} />}{t('fork')}</button>
-                                <button onClick={(e) => { e.stopPropagation(); usePanelStore.getState().appendToEditor(msg.content); toast(t('copyToEditor'), "success"); }} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-muted hover:text-foreground" title={t('copyToEditor')}><Copy size={10} />{t('copyToEditor')}</button>
-                              </div>
+                              <>
+                                {forkPickerMsgIdx === i && (
+                                  <div className="mt-2 rounded-lg border border-border bg-surface p-2 shadow-sm">
+                                    <p className="mb-1.5 text-[10px] font-medium text-text-secondary">{t('selectForkProfile')}</p>
+                                    <div className="grid grid-cols-2 gap-1">
+                                      {FORK_PROFILES_UI.map((fp) => (
+                                        <button
+                                          key={fp.key}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const pi = i > 0 ? messages[i - 1] : null;
+                                            const topic = pi?.content || t('continueExplore');
+                                            handleCreateFork(topic, fp.key);
+                                          }}
+                                          className="flex flex-col items-start rounded p-1.5 text-left transition-colors hover:bg-green-50"
+                                        >
+                                          <span className="text-[11px] font-medium text-text">{tFork(fp.labelKey)}</span>
+                                          <span className="text-[10px] text-text-secondary">{tFork(fp.descKey)}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="mt-2 flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (isCreatingFork) return;
+                                      setForkPickerMsgIdx(forkPickerMsgIdx === i ? null : i);
+                                    }}
+                                    disabled={isCreatingFork}
+                                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-green-50 hover:text-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                    title={t('forkFromHere')}
+                                  >
+                                    {isCreatingFork ? <Loader2 size={10} className="animate-spin" /> : <GitBranch size={10} />}
+                                    {t('fork')}
+                                  </button>
+                                  <button onClick={(e) => { e.stopPropagation(); usePanelStore.getState().appendToEditor(msg.content); toast(t('copyToEditor'), "success"); }} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-muted hover:text-foreground" title={t('copyToEditor')}><Copy size={10} />{t('copyToEditor')}</button>
+                                </div>
+                              </>
                             )}
                           </>
                         )
@@ -1319,6 +1529,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                           )}
                         </div>
                       )}
+                      {msg.contextDebug && (
+                        <ContextDebugPanel data={msg.contextDebug} />
+                      )}
                       {msg.createdAt && (
                         <p className={`mt-1.5 text-[10px] text-text-secondary/50 ${msg.role === "user" ? "text-right" : "text-left"}`}>
                           {formatTimeShort(msg.createdAt, locale)}
@@ -1347,20 +1560,23 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 <span>{t('creatingBranch')}</span>
               </div>
             )}
-            <div className="rounded-2xl border border-border bg-card shadow-sm">
+            <div className="relative rounded-2xl border border-border bg-card shadow-sm">
+              {/* Card mention popup */}
+              <CardMentionPopup
+                workspaceId={workspaceId || ""}
+                inputValue={input}
+                cursorPosition={cursorPosition}
+                mentionedCards={mentionedCards}
+                onAdd={(card) => setMentionedCards((prev) => [...prev, card])}
+                onRemove={(cardId) => setMentionedCards((prev) => prev.filter((c) => c.cardId !== cardId))}
+              />
               {/* Textarea area */}
               <div className="px-3 pt-2.5 pb-1">
                 <textarea
-                  ref={(el) => {
-                    if (el) {
-                      el.style.height = "28px";
-                      const next = Math.min(Math.max(el.scrollHeight, 28), 160);
-                      el.style.height = `${next}px`;
-                      el.style.overflowY = el.scrollHeight > 160 ? "auto" : "hidden";
-                    }
-                  }}
+                  ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={handleInputChange}
+                  onSelect={(e) => setCursorPosition((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey && !isComposingRef.current) {
                       e.preventDefault();

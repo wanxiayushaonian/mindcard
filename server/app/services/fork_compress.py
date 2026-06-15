@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from app.services.llm import llm_service
+from app.services.llm import get_llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class ForkCompressor:
 {conversation}
 
 请用简洁的中文输出摘要。"""
-        summary = await llm_service.complete_simple(
+        summary = await get_llm_service().complete_simple(
             system_prompt="你是一个对话摘要助手。",
             user_content=prompt,
             max_tokens=500,

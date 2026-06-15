@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.models.user import User
-from app.services.llm import llm_service
+from app.services.llm import get_llm_service
 from app.utils.auth import get_current_user
 from app.utils.rate_limit import ai_rate_limit
 
@@ -44,7 +44,7 @@ class SegmentResponse(BaseModel):
 @router.post("/polish", response_model=TextResponse)
 async def polish_text(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
     """润色文字，保持原意，优化表达。"""
-    result = await llm_service.complete_simple(
+    result = await get_llm_service().complete_simple(
         "你是一个文字润色专家。请润色以下灵感文字，保持原意不变，优化语言表达和逻辑结构。直接输出润色后的文字，不要加任何前缀说明或解释。",
         req.content,
     )
@@ -54,7 +54,7 @@ async def polish_text(req: TextRequest, user: User = Depends(get_current_user), 
 @router.post("/supplement", response_model=TextResponse)
 async def supplement_text(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
     """拓展灵感内容，补充思路。"""
-    result = await llm_service.complete_simple(
+    result = await get_llm_service().complete_simple(
         "你是一个灵感拓展助手。基于用户的灵感内容，从多个角度补充拓展思路。直接输出补充内容，格式清晰有条理。",
         req.content,
     )
@@ -64,11 +64,11 @@ async def supplement_text(req: TextRequest, user: User = Depends(get_current_use
 @router.post("/generate-title", response_model=TitleResponse)
 async def generate_title(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
     """生成简短标题。"""
-    provider_name = llm_service.extraction_provider_name
-    model_name = llm_service.extraction_model_name or "(默认)"
+    provider_name = get_llm_service().extraction_provider_name
+    model_name = get_llm_service().extraction_model_name or "(默认)"
     logger.info("generate-title: provider=%s, model=%s, content_len=%d", provider_name, model_name, len(req.content))
 
-    raw = await llm_service.extraction_complete_simple(
+    raw = await get_llm_service().extraction_complete_simple(
         "请用不超过20个字概括以下内容的主题，作为标题。只输出标题文字本身，绝对不要加引号、书名号、序号或其他任何符号。",
         req.content,
         max_tokens=64,
@@ -91,11 +91,11 @@ async def generate_title(req: TextRequest, user: User = Depends(get_current_user
 @router.post("/extract-keywords", response_model=KeywordsResponse)
 async def extract_keywords(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
     """提取关键词。"""
-    provider_name = llm_service.extraction_provider_name
-    model_name = llm_service.extraction_model_name or "(默认)"
+    provider_name = get_llm_service().extraction_provider_name
+    model_name = get_llm_service().extraction_model_name or "(默认)"
     logger.info("extract-keywords: provider=%s, model=%s, content_len=%d", provider_name, model_name, len(req.content))
 
-    raw = await llm_service.extraction_complete_simple(
+    raw = await get_llm_service().extraction_complete_simple(
         "从以下内容中提取3-5个核心关键字。每个关键字2-6个字，用逗号分隔，不要加序号、解释或其他符号。",
         req.content,
         max_tokens=128,
@@ -122,7 +122,7 @@ async def extract_keywords(req: TextRequest, user: User = Depends(get_current_us
 @router.post("/segment-content", response_model=SegmentResponse)
 async def segment_content(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
     """将 AI 输出智能分段为多个独立内容块。"""
-    raw = await llm_service.complete_simple(
+    raw = await get_llm_service().complete_simple(
         "你是一个内容分析助手。请将以下内容按逻辑主题分段。每段需要有一个简短标题（不超过10字）和对应的正文内容。"
         "输出严格的 JSON 数组格式：[{\"title\": \"段落标题\", \"content\": \"段落内容\"}]。"
         "分段原则：每个独立观点、主题或建议作为一段；表格数据作为一段；列表中的每个大项可作为独立段落。"

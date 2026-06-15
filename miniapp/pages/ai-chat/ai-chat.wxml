@@ -1,5 +1,8 @@
 <!--pages/ai-chat/ai-chat.wxml-->
 <navigation-bar title="AI灵感助手" back="{{true}}" background="#F9FAFC">
+  <view slot="right" class="nav-history-btn" bindtap="onToggleHistory">
+    <text>历史</text>
+  </view>
 </navigation-bar>
 
 <scroll-view class="scrollarea" scroll-y scroll-into-view="{{scrollTarget}}">
@@ -39,7 +42,8 @@
           </view>
           <!-- Normal AI message -->
           <view wx:else class="msg-bubble msg-bubble-ai">
-            <markdown-render content="{{item.content || ''}}" />
+            <text wx:if="{{item.streaming}}" class="streaming-text">{{item.content}}</text>
+            <markdown-render wx:else content="{{item.content || ''}}" />
           </view>
           <!-- Source cards (RAG mode) -->
           <view class="source-cards" wx:if="{{item.sources && item.sources.length > 0}}">
@@ -70,8 +74,8 @@
             </view>
           </view>
           <view class="msg-actions">
-            <view class="msg-action-btn" bindtap="onApplyToCard" data-msg-id="{{item.id}}">
-              <text>应用到卡片</text>
+            <view class="msg-action-btn" bindtap="onSaveAsNewCard" data-msg-id="{{item.id}}">
+              <text>另存为新卡片</text>
             </view>
           </view>
           <text class="msg-time">{{item.time}}</text>
@@ -141,3 +145,36 @@
   bind:select="onContextPickerSelect"
   bind:close="onContextPickerClose"
 />
+
+<!-- History overlay -->
+<view class="history-overlay {{showHistory ? 'history-overlay-show' : ''}}" bindtap="onToggleHistory">
+    <view class="history-panel" catchtap="noop">
+    <view class="history-header">
+      <text class="history-title">对话历史</text>
+      <view class="history-close" bindtap="onToggleHistory">
+        <text>关闭</text>
+      </view>
+    </view>
+    <scroll-view class="history-list" scroll-y wx:if="{{chatHistory.length > 0}}">
+      <view
+        wx:for="{{chatHistory}}"
+        wx:key="id"
+        class="history-item"
+        bindtap="onSelectHistoryChat"
+        data-id="{{item.id}}"
+        bindlongpress="onDeleteHistoryChat"
+        data-idx="{{index}}"
+      >
+        <view class="history-item-top">
+          <text class="history-item-title">{{item.title || '灵感对话'}}</text>
+          <text class="history-item-count">{{item._displayCount || item.messageCount || 0}}条</text>
+        </view>
+        <text class="history-item-preview" wx:if="{{item.lastMessage}}">{{item.lastMessage}}</text>
+        <text class="history-item-time">{{item.createdAt || ''}}</text>
+      </view>
+    </scroll-view>
+    <view class="history-empty" wx:else>
+      <text>暂无对话记录</text>
+    </view>
+  </view>
+</view>

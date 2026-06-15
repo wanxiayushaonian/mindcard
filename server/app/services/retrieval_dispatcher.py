@@ -178,7 +178,7 @@ class RetrievalDispatcher:
         """Level 4: Map-Reduce over community reports for global/thematic questions."""
         import asyncio
         from app.models.graph import CommunityReport
-        from app.services.llm import llm_service
+        from app.services.llm import get_llm_service
 
         if not workspace_ids:
             return RetrievalResult(level_used=RetrievalLevel.INSIGHT)
@@ -218,7 +218,7 @@ class RetrievalDispatcher:
                         f"发现：{', '.join(report.findings or [])}\n\n"
                         f"用户问题：{question}"
                     )
-                    response = await llm_service.extraction_complete_simple(
+                    response = await get_llm_service().extraction_complete_simple(
                         system_prompt=map_system,
                         user_content=user_content,
                         max_tokens=512,

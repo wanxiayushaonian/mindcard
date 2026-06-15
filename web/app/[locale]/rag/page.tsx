@@ -17,6 +17,7 @@ type ChatMode = "rag" | "chat";
 interface Message {
   role: "user" | "assistant";
   content: string;
+  status?: "done" | "error";
   sources?: RAGResponse["source_cards"];
   webSearchResults?: WebSearchResult[];
 }
@@ -42,6 +43,16 @@ function RAGContent() {
 
   const [mode, setMode] = useState<ChatMode>("rag");
   const [messages, setMessages] = useState<Message[]>([]);
+  const updateMessages = useCallback((updater: Message[] | ((prev: Message[]) => Message[])) => {
+    updateMessages((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      messagesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  // Sync on initial/external load too
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -59,6 +70,7 @@ function RAGContent() {
   }, [deleteTarget]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
+  const messagesRef = useRef<Message[]>([]);
   const streamContentRef = useRef("");
   const webSearchResultsRef = useRef<WebSearchResult[] | undefined>(undefined);
   const [precipitatedBlocks, setPrecipitatedBlocks] = useState<Set<string>>(new Set());
@@ -71,7 +83,7 @@ function RAGContent() {
     workspaceId ? `workspace-${workspaceId}` : null,
     () => workspaceApi.get(workspaceId)
   );
-  const canPrecipitate = workspace?.member_role === "owner";
+  const canPrecipitate = ["owner", "admin", "editor"].includes(workspace?.member_role ?? "");
 
   const ragDisabled = mode === "rag" && !workspaceId && !globalRag;
 
@@ -91,16 +103,18 @@ function RAGContent() {
     if (precipitatedBlocks.has(key)) return;
     setPrecipitatingBlock(key);
     try {
-      const [titleRes, kwRes] = await Promise.all([
+      const [titleRes, kwRes] = await Promise.allSettled([
         aiApi.generateTitle(blockText),
         aiApi.extractKeywords(blockText),
       ]);
+      const title = titleRes.status === "fulfilled" ? titleRes.value.title : blockText.slice(0, 30);
+      const keywords = kwRes.status === "fulfilled" ? kwRes.value.keywords : [];
       await cardApi.create({
         local_id: "card_" + Date.now(),
         workspace_id: workspaceId,
-        title: titleRes.title,
+        title,
         content: blockText,
-        keywords: kwRes.keywords,
+        keywords,
       });
       setPrecipitatedBlocks((prev) => new Set(prev).add(key));
       toast(t("precipitated"), "success");
@@ -133,7 +147,7 @@ function RAGContent() {
       const detail = await chatApi.get(id);
       setChatId(detail.id);
       setMode(detail.mode as ChatMode);
-      setMessages(
+      updateMessages(
         detail.messages.map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
@@ -147,7 +161,7 @@ function RAGContent() {
   const startNewChat = () => {
     stopStream();
     setChatId(null);
-    setMessages([]);
+    updateMessages([]);
   };
 
   const stopStream = useCallback(() => {
@@ -173,10 +187,10 @@ function RAGContent() {
     streamContentRef.current = "";
     webSearchResultsRef.current = undefined;
 
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
+    updateMessages((prev) => [...prev, { role: "user", content: question }]);
     // Show loading hint when web search is enabled
     const loadingHint = webSearch ? tChat("searchingWeb") : "";
-    setMessages((prev) => [...prev, { role: "assistant", content: loadingHint }]);
+    updateMessages((prev) => [...prev, { role: "assistant", content: loadingHint }]);
 
     let currentChatId = chatId;
     if (!currentChatId) {
@@ -192,6 +206,10 @@ function RAGContent() {
         loadHistory();
       } catch (e) {
         console.error("Failed to create chat:", e);
+        // Remove the orphaned user + assistant placeholders and unlock the input
+        updateMessages((prev) => prev.slice(0, -2));
+        setIsStreaming(false);
+        return;
       }
     }
 
@@ -208,7 +226,7 @@ function RAGContent() {
             // Show web search results immediately and reset content
             streamContentRef.current = "";
             webSearchResultsRef.current = parsed.results;
-            setMessages((prev) => {
+            updateMessages((prev) => {
               const updated = [...prev];
               updated[updated.length - 1] = {
                 ...updated[updated.length - 1],
@@ -222,7 +240,7 @@ function RAGContent() {
             return;
           }
           if (parsed.type === "sources" && parsed.cards) {
-            setMessages((prev) => {
+            updateMessages((prev) => {
               const updated = [...prev];
               updated[updated.length - 1] = {
                 ...updated[updated.length - 1],
@@ -236,7 +254,7 @@ function RAGContent() {
       }
       streamContentRef.current += text;
       const content = streamContentRef.current;
-      setMessages((prev) => {
+      updateMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = { ...updated[updated.length - 1], content };
         return updated;
@@ -253,12 +271,13 @@ function RAGContent() {
 
     const onError = (err: Error) => {
       console.error("Stream error:", err);
-      setMessages((prev) => {
+      updateMessages((prev) => {
         const updated = [...prev];
         const last = updated[updated.length - 1];
         updated[updated.length - 1] = {
           ...last,
           content: last.content || tChat("errorOccurred"),
+          status: "error",
         };
         return updated;
       });
@@ -269,14 +288,14 @@ function RAGContent() {
       }
     };
 
-    const hist = messages
+    const hist = messagesRef.current
       .filter((m) => m.content)
       .map((m) => ({ role: m.role, content: m.content }));
     if (mode === "chat") {
       abortRef.current = ragApi.chatStream(question, onChunk, onDone, onError, hist, webSearch);
     } else {
       if (!workspaceId && !globalRag) {
-        setMessages((prev) => [
+        updateMessages((prev) => [
           ...prev.slice(0, -1),
           { role: "assistant", content: t("enterFromSpace") },
         ]);
@@ -296,7 +315,7 @@ function RAGContent() {
       setHistory((prev) => prev.filter((c) => c.id !== deleteTarget.id));
       if (chatId === deleteTarget.id) {
         setChatId(null);
-        setMessages([]);
+        updateMessages([]);
       }
     } catch {}
     setDeleteTarget(null);
@@ -306,7 +325,7 @@ function RAGContent() {
     stopStream();
     setMode(newMode);
     setChatId(null);
-    setMessages([]);
+    updateMessages([]);
   };
 
   return (
@@ -448,11 +467,16 @@ function RAGContent() {
                         <span className="animate-pulse">{msg.content}</span>
                       </div>
                     ) : (
-                      <MarkdownContent
-                        content={msg.content || " "}
-                        streaming={isStreaming && i === messages.length - 1}
-                        onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
-                      />
+                      <>
+                        <MarkdownContent
+                          content={msg.content || " "}
+                          streaming={isStreaming && i === messages.length - 1}
+                          onPrecipitateBlock={canPrecipitate && !isStreaming ? handlePrecipitateBlock : undefined}
+                        />
+                        {msg.status === "error" && (
+                          <p className="mt-1 text-xs text-amber-600">{tChat("responseInterrupted")}</p>
+                        )}
+                      </>
                     )
                   ) : (
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
@@ -578,7 +602,7 @@ function RAGContent() {
         if (deletePreview) {
           if (deletePreview.messages > 0) impacts.push(tChat("deleteImpactMessages", { count: deletePreview.messages }));
           if (deletePreview.child_chats > 0) impacts.push(tChat("deleteImpactForks", { count: deletePreview.child_chats }));
-          if (deletePreview.node_will_archive) impacts.push(tChat("deleteImpactNode", { title: deletePreview.node_title }));
+          if (deletePreview.node_will_archive) impacts.push(tChat("deleteImpactNode", { title: deletePreview.node_title ?? "" }));
         }
         const impactText = impacts.length > 0 ? `\n${tChat("deleteImpactPrefix")}${impacts.join(", ")}` : "";
         return (

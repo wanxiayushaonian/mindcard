@@ -65,8 +65,15 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
       if (menuRef.current && menuRef.current.contains(target)) return;
       setOpenMenu(null);
     };
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenMenu(null);
+    };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", keyHandler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", keyHandler);
+    };
   }, [openMenu]);
 
   useEffect(() => {
@@ -99,7 +106,7 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
       const parentNode = d > 0 ? nodeMap.get(path[d - 1].node_id) : null;
       const siblings = d === 0
         ? (topologyNodes || []).filter((n) => !n.parent_id).sort((a, b) => a.sort_order - b.sort_order)
-        : parentNode ? getChildren(parentNode.id!) : [];
+        : parentNode ? getChildren(parentNode.id) : [];
       dropdownItems = siblings
         .filter((s) => s.id !== menuNode.node_id)
         .map((s) => ({
@@ -121,7 +128,7 @@ export function ForkBreadcrumb({ path, activeChatId, onNavigate, topologyNodes }
         const parentNode = depth > 0 ? nodeMap.get(path[depth - 1].node_id) : null;
         const siblings = depth === 0
           ? (topologyNodes || []).filter((n) => !n.parent_id).sort((a, b) => a.sort_order - b.sort_order)
-          : parentNode ? getChildren(parentNode.id!) : [];
+          : parentNode ? getChildren(parentNode.id) : [];
         const hasSiblings = siblings.filter((s) => s.id !== node.node_id).length > 0;
 
         return (

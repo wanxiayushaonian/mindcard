@@ -1,57 +1,130 @@
 // pages/profile/profile.js
-var api = require('../../utils/api');
+const api = require('../../utils/api');
+const { CARD_COLORS } = require('../../utils/mock-data');
 
 Page({
   data: {
+    user: { nickName: '' },
     stats: {
+      totalWorkspaces: 0,
       totalCards: 0,
-      weeklyNew: 0,
-      favorites: 0,
-      tempCards: 0,
+      currentWeeklyNew: 0,
+      currentFavorites: 0,
+      currentTempCards: 0,
+      currentWorkspaceName: '',
     },
+    loadingStats: true,
+    // Settings
+    walkSensitivity: '中',
+    defaultColor: '#D4B5D0',
+    autoExtract: true,
+    colors: CARD_COLORS,
   },
 
   onShow() {
-    this.loadStats();
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ selected: 2 });
+    }
+    this._loadUser();
+    this._loadSettings();
+    this._loadStats();
   },
 
-  loadStats() {
-    const app = getApp();
-    const cards = app.getWorkspaceCards();
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const weeklyNew = cards.filter(c => {
-      const d = new Date(c.createdAt.replace(/-/g, '/'));
-      return d >= weekAgo;
-    }).length;
+  _loadUser() {
+    const user = getApp().getCurrentUser();
+    this.setData({ user });
+  },
 
+  _loadSettings() {
+    const app = getApp();
     this.setData({
-      stats: {
-        totalCards: cards.length,
-        weeklyNew,
-        favorites: cards.filter(c => c.isFavorite).length,
-        tempCards: cards.filter(c => c.isTemp).length,
+      walkSensitivity: app.getSetting('walkSensitivity', '中'),
+      defaultColor: app.getSetting('defaultColor', '#D4B5D0'),
+      autoExtract: app.getSetting('autoExtract', true),
+    });
+  },
+
+  async _loadStats() {
+    this.setData({ loadingStats: true });
+    try {
+      const stats = await getApp().loadGlobalStats();
+      this.setData({ stats, loadingStats: false });
+    } catch (e) {
+      this.setData({ loadingStats: false });
+    }
+  },
+
+  // ── Settings handlers ──
+
+  onSensitivityTap() {
+    const opts = ['高', '中', '低'];
+    const self = this;
+    wx.showActionSheet({
+      itemList: opts,
+      success: (res) => {
+        const val = opts[res.tapIndex];
+        getApp().saveSetting('walkSensitivity', val);
+        self.setData({ walkSensitivity: val });
       },
     });
   },
 
-  onBackup() {
+  onColorSelect(e) {
+    const color = e.currentTarget.dataset.color;
+    getApp().saveSetting('defaultColor', color);
+    this.setData({ defaultColor: color });
+  },
+
+  onAutoExtractToggle() {
+    const newVal = !this.data.autoExtract;
+    getApp().saveSetting('autoExtract', newVal);
+    this.setData({ autoExtract: newVal });
+  },
+
+  // ── Data management ──
+
+  onExportCurrent() {
     const app = getApp();
-    const wsCards = app.getWorkspaceCards();
+    const ws = app.getCurrentWorkspace();
+    const cards = app.getWorkspaceCards();
     const data = {
-      workspace: app.getCurrentWorkspace().name,
-      cards: wsCards,
+      workspace: ws ? ws.name : '',
+      cards,
       exportedAt: new Date().toISOString(),
     };
-    const json = JSON.stringify(data);
+    this._doExport(data, '当前空间');
+  },
+
+  onExportAll() {
+    const app = getApp();
+    const workspaces = app.globalData.workspaces;
+    const allData = {
+      workspaces: workspaces.map((ws) => ({
+        name: ws.name,
+        cards: ws.id === app.globalData.currentWorkspaceId
+          ? app.getWorkspaceCards()
+          : [],
+      })),
+      exportedAt: new Date().toISOString(),
+    };
+    const note = app.globalData.currentWorkspaceId
+      ? '（仅当前空间卡片已加载，其他空间请单独导出）'
+      : '';
+    this._doExport(allData, `全部空间${note}`);
+  },
+
+  _doExport(data, label) {
+    const json = JSON.stringify(data, null, 2);
     wx.setStorageSync('inspiration_backup', json);
     wx.setClipboardData({
       data: json,
-      success: function () {
-        wx.showToast({ title: '已复制到剪贴板', icon: 'success' });
+      success: () => {
+        wx.showToast({ title: `${label}数据已复制`, icon: 'success' });
       },
     });
   },
+
+  // ── Account ──
 
   onLogout() {
     wx.showModal({
@@ -63,7 +136,7 @@ Page({
         if (res.confirm) {
           api.clearToken();
           wx.removeStorageSync('user_identity');
-          wx.redirectTo({ url: '/pages/login/login' });
+          wx.reLaunch({ url: '/pages/login/login' });
         }
       },
     });

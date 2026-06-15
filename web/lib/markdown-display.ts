@@ -569,13 +569,80 @@ function fixAIMarkdownFormatting(content: string): string {
   return fixed.join("\n");
 }
 
+/** Check if a line looks like a markdown structural element (not plain paragraph text). */
+function isStructuralLine(line: string): boolean {
+  const t = line.trimStart();
+  if (!t) return true; // empty line
+  if (/^#{1,6}\s/.test(t)) return true; // heading
+  if (/^[-*+]\s/.test(t)) return true; // list item
+  if (/^\d+\.\s/.test(t)) return true; // ordered list
+  if (/^>\s?/.test(t)) return true; // blockquote
+  if (/^\|/.test(t)) return true; // table row
+  if (/^```/.test(t)) return true; // fenced code
+  if (/^---+$/.test(t) || /^\*\*\*+$/.test(t)) return true; // hr
+  if (/^<\w/.test(t)) return true; // HTML tag
+  return false;
+}
+
+/**
+ * Ensure blank lines between consecutive paragraph-like lines.
+ * LLMs often output paragraphs separated by single newlines, but standard
+ * Markdown requires double newlines to create separate <p> elements.
+ * Without this fix, all paragraphs collapse into one <p> with <br> breaks,
+ * losing the margin that Tailwind's `prose` class applies to <p> elements.
+ */
+function ensureParagraphSeparation(content: string): string {
+  if (!content) return "";
+  const lines = content.split("\n");
+  const result: string[] = [];
+  let inFencedCode = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+
+    // Track fenced code blocks
+    if (/^```/.test(trimmed)) {
+      inFencedCode = !inFencedCode;
+      result.push(line);
+      continue;
+    }
+
+    if (inFencedCode) {
+      result.push(line);
+      continue;
+    }
+
+    // If current line is a non-empty paragraph-like line and the previous
+    // result line is also a non-empty paragraph-like line, insert a blank line.
+    if (trimmed && !isStructuralLine(line)) {
+      const prevIdx = result.length - 1;
+      if (prevIdx >= 0) {
+        const prevLine = result[prevIdx];
+        const prevTrimmed = prevLine.trim();
+        if (prevTrimmed && !isStructuralLine(prevLine)) {
+          // Both current and previous are paragraph text — ensure separation
+          result.push(""); // blank line
+        }
+      }
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
+}
+
 export function normalizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
 
   // Apply AI formatting fixes first
   const fixed = fixAIMarkdownFormatting(content);
 
-  const normalized = stripInvisibleCharacters(fixed)
+  // Ensure paragraph separation (single \n → \n\n between plain text lines)
+  const separated = ensureParagraphSeparation(fixed);
+
+  const normalized = stripInvisibleCharacters(separated)
     .replace(/\r\n/g, "\n")
     .replace(EMPTY_DETAILS_REGEX, "")
     .replace(EMPTY_SUMMARY_REGEX, "")

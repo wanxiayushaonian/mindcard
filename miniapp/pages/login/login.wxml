@@ -30,7 +30,7 @@
     <!-- Password -->
     <view class="input-group">
       <text class="input-label">密码</text>
-      <input class="input-field" type="number" password placeholder="至少6位" value="{{password}}" bindinput="onPasswordInput" />
+      <input class="input-field" type="text" password placeholder="至少6位" value="{{password}}" bindinput="onPasswordInput" />
     </view>
 
     <!-- Nickname (register only) -->

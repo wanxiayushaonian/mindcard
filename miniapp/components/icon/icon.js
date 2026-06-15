@@ -1,7 +1,7 @@
 // components/icon/icon.js
 // Skyline-compatible icon paths — using only SVG primitives (<circle>, <line>, <rect>, <polygon>, <polyline>)
 // No <path> elements to avoid Skyline SVG rendering issues
-var ICON_PATHS = {
+const ICON_PATHS = {
   // Navigation
   'plus': '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   'x': '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
@@ -67,25 +67,30 @@ var ICON_PATHS = {
   'target': '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   'footprints': '<rect x="3" y="2" width="5" height="8" rx="2.5" transform="rotate(10 5 6)"/><rect x="3" y="12" width="4" height="4" rx="2"/><line x1="4" y1="13" x2="8" y2="13"/><rect x="14" y="6" width="5" height="8" rx="2.5" transform="rotate(-10 16 10)"/><rect x="16" y="16" width="4" height="4" rx="2"/><line x1="16" y1="17" x2="20" y2="17"/>',
   'mic': '<rect x="9" y="2" width="6" height="13" rx="3"/><circle cx="12" cy="12" r="6"/><line x1="12" y1="19" x2="12" y2="22"/>',
+
+  // UI Layout
+  'grid': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  'layers': '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+  'bell': '<polygon points="18 8 18 13 20 17 4 17 6 13 6 8"/><circle cx="12" cy="20" r="2"/><line x1="12" y1="2" x2="12" y2="4"/>',
 };
 
 function iconToSvgDataUri(name, color, size) {
-  var paths = ICON_PATHS[name];
+  const paths = ICON_PATHS[name];
   if (!paths) return '';
-  paths = paths.replace(/currentColor/g, color);
-  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2">' + paths + '</svg>';
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  const colored = paths.replace(/currentColor/g, color);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${colored}</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function svgToBase64(svg) {
-  var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  var result = '';
-  var len = svg.length;
-  var i = 0;
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let result = '';
+  const len = svg.length;
+  let i = 0;
   while (i < len) {
-    var a = svg.charCodeAt(i++);
-    var b = i < len ? svg.charCodeAt(i++) : 0;
-    var c = i < len ? svg.charCodeAt(i++) : 0;
+    const a = svg.charCodeAt(i++);
+    const b = i < len ? svg.charCodeAt(i++) : 0;
+    const c = i < len ? svg.charCodeAt(i++) : 0;
     result += chars[a >> 2];
     result += chars[((a & 3) << 4) | (b >> 4)];
     result += i > len + 1 ? '=' : chars[((b & 15) << 2) | (c >> 6)];

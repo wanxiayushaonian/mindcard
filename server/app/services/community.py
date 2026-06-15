@@ -193,7 +193,7 @@ class CommunityDetector:
         rel_map: dict[str, GraphRelation],
     ) -> CommunityReport:
         """Generate a single community report via LLM."""
-        from app.services.llm import llm_service
+        from app.services.llm import get_llm_service
 
         # Build context: entity names/types/descriptions + relation descriptions
         entity_lines = []
@@ -229,7 +229,7 @@ class CommunityDetector:
             f"关系列表：\n" + "\n".join(rel_lines)
         )
 
-        response = await llm_service.extraction_complete_simple(
+        response = await get_llm_service().extraction_complete_simple(
             system_prompt=system_prompt,
             user_content=user_content,
             max_tokens=1024,

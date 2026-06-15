@@ -97,7 +97,7 @@ class ConsolidationService:
 
     async def _run_llm_extraction(self, context: str) -> dict | None:
         """Single LLM call to extract summary, insights, and knowledge."""
-        from app.services.llm import llm_service
+        from app.services.llm import get_llm_service
 
         prompt = f"""分析以下对话，提取三类信息。严格按JSON格式输出。
 
@@ -122,7 +122,7 @@ class ConsolidationService:
 只输出JSON，不要其他内容。"""
 
         try:
-            raw = await llm_service.extraction_complete_simple(
+            raw = await get_llm_service().extraction_complete_simple(
                 system_prompt="你是一个对话分析助手。只输出JSON。",
                 user_content=prompt,
                 max_tokens=512,

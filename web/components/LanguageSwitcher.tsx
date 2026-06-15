@@ -1,11 +1,12 @@
 "use client";
 
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 
 export function LanguageSwitcher() {
   const locale = useLocale();
   const router = useRouter();
+  const t = useTranslations("common");
 
   const toggle = () => {
     const next = locale === "zh" ? "en" : "zh";
@@ -17,7 +18,7 @@ export function LanguageSwitcher() {
     <button
       onClick={toggle}
       className="rounded-lg px-2 py-1 text-xs text-text-secondary hover:bg-muted"
-      title={locale === "zh" ? "Switch to English" : "切换到中文"}
+      title={locale === "zh" ? t("switchToEn") : t("switchToZh")}
     >
       {locale === "zh" ? "EN" : "中"}
     </button>

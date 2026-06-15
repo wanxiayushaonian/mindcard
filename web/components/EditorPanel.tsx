@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { cardApi, aiApi } from "@/lib/api";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { RichEditor, type RichEditorHandle } from "@/components/editor";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { toast } from "@/lib/toast";
 import { FileText, Eye, PenLine, Sparkles } from "lucide-react";
@@ -18,13 +19,10 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
   const { editorContent, setEditorContent } = usePanelStore();
   const [mode, setMode] = useState<"edit" | "preview" | "split">("split");
   const [precipitating, setPrecipitating] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isComposingRef = useRef(false);
+  const editorRef = useRef<RichEditorHandle>(null);
 
   const handlePrecipitateSelection = useCallback(async () => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    const selected = textarea.value.substring(textarea.selectionStart, textarea.selectionEnd).trim();
+    const selected = editorRef.current?.getSelection()?.trim() || "";
     if (!selected) {
       toast(tc("noSelection"), "info");
       return;
@@ -94,30 +92,16 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
         {(mode === "edit" || mode === "split") && (
-          <div className={`${mode === "split" ? "w-1/2 border-r border-border" : "w-full"} flex flex-col`}>
-            <textarea
-              ref={textareaRef}
-              value={editorContent}
-              onChange={(e) => setEditorContent(e.target.value)}
-              onKeyDown={(e) => {
-                // Tab key inserts tab
-                if (e.key === "Tab") {
-                  e.preventDefault();
-                  const textarea = e.currentTarget;
-                  const start = textarea.selectionStart;
-                  const end = textarea.selectionEnd;
-                  const next = editorContent.substring(0, start) + "  " + editorContent.substring(end);
-                  setEditorContent(next);
-                  requestAnimationFrame(() => {
-                    textarea.selectionStart = textarea.selectionEnd = start + 2;
-                  });
-                }
-              }}
-              onCompositionStart={() => { isComposingRef.current = true; }}
-              onCompositionEnd={() => { setTimeout(() => { isComposingRef.current = false; }, 0); }}
+          <div className={`${mode === "split" ? "w-1/2 border-r border-border" : "w-full"} flex flex-col overflow-hidden`}>
+            <RichEditor
+              ref={editorRef}
+              content={editorContent}
+              onChange={setEditorContent}
+              workspaceId={workspaceId}
               placeholder={t("placeholder")}
-              className="flex-1 resize-none bg-transparent p-3 font-mono text-[13px] leading-relaxed text-foreground outline-none placeholder:text-text-secondary/50"
-              spellCheck={false}
+              className="flex-1 border-0"
+              showToolbar={mode === "edit"}
+              minHeight="100%"
             />
           </div>
         )}

@@ -36,6 +36,7 @@ class AiChat(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     summary: Mapped[str] = mapped_column(Text, default="")
     chat_status: Mapped[str] = mapped_column(String(20), default="active")  # active | completed | archived
+    depth: Mapped[int] = mapped_column(Integer, default=0)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)

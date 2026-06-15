@@ -14,7 +14,7 @@ from app.models.card import Card
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.schemas.card import CardResponse
-from app.services.llm import llm_service
+from app.services.llm import get_llm_service
 from app.utils.activity import create_activity
 from app.utils.auth import get_current_user_from_api_key, get_workspace_membership, require_role
 from app.utils.helpers import parse_uuid
@@ -26,7 +26,7 @@ router = APIRouter()
 async def _ai_generate_title(content: str) -> str:
     """Use AI to generate a short title from content."""
     try:
-        raw = await llm_service.extraction_complete_simple(
+        raw = await get_llm_service().extraction_complete_simple(
             "请用不超过20个字概括以下内容的主题，作为标题。只输出标题文字本身，绝对不要加引号、书名号、序号或其他任何符号。",
             content,
             max_tokens=32,
@@ -45,7 +45,7 @@ async def _ai_generate_title(content: str) -> str:
 async def _ai_extract_keywords(content: str, max_keywords: int = 5) -> list[str]:
     """Use AI to extract keywords from content."""
     try:
-        raw = await llm_service.extraction_complete_simple(
+        raw = await get_llm_service().extraction_complete_simple(
             "从以下内容中提取3-5个核心关键字。每个关键字2-6个字，用逗号分隔，不要加序号、解释或其他符号。",
             content,
             max_tokens=64,

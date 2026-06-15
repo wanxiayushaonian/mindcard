@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -11,12 +12,12 @@ class WorkspaceMemoryCreate(BaseModel):
 
 
 class WorkspaceMemoryResponse(BaseModel):
-    id: str
-    workspace_id: str
+    id: UUID
+    workspace_id: UUID
     slug: str
     title: str
     body: str
-    source_chat_id: str | None
+    source_chat_id: UUID | None
     updated_at: datetime | None
     created_at: datetime
 

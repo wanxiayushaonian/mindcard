@@ -15,7 +15,7 @@ from app.models.user import User, UserSetting
 from app.models.workspace import WorkspaceMember
 from app.providers.factory import make_provider
 from app.providers.registry import PROVIDERS
-from app.services.llm import llm_service
+from app.services.llm import get_llm_service
 from app.utils.auth import get_current_user
 
 router = APIRouter()
@@ -129,9 +129,9 @@ async def list_providers(user: User = Depends(get_current_user)):
 @router.get("/current", response_model=CurrentProviderResponse)
 async def get_current_provider(user: User = Depends(get_current_user)):
     """Get the currently active provider."""
-    provider = llm_service.current_provider
+    provider = get_llm_service().current_provider
     return CurrentProviderResponse(
-        provider=llm_service._provider_name,
+        provider=get_llm_service()._provider_name,
         model=provider.model,
         backend=type(provider).__name__,
     )
@@ -156,7 +156,7 @@ async def switch_provider(
     base_url = _resolve_base_url_for_provider(req.provider)
     model = req.model or _resolve_model_for_provider(req.provider)
 
-    llm_service.switch_provider(req.provider, api_key, base_url, model)
+    get_llm_service().switch_provider(req.provider, api_key, base_url, model)
 
     # Persist user preference
     result = await db.execute(select(UserSetting).where(UserSetting.user_id == user.id))
@@ -243,8 +243,8 @@ async def get_extraction_provider(user: User = Depends(get_current_user)):
             available.append(name)
 
     return ExtractionProviderResponse(
-        provider=llm_service.extraction_provider_name,
-        model=llm_service.extraction_model_name or "(默认)",
+        provider=get_llm_service().extraction_provider_name,
+        model=get_llm_service().extraction_model_name or "(默认)",
         available_providers=available,
     )
 
@@ -253,6 +253,7 @@ async def get_extraction_provider(user: User = Depends(get_current_user)):
 async def update_extraction_provider(
     req: UpdateExtractionProviderRequest,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Switch the extraction LLM provider (writes to .env)."""
     if req.provider not in PROVIDERS:
@@ -274,7 +275,7 @@ async def update_extraction_provider(
     # Update runtime config
     settings.extraction_llm_provider = req.provider
     settings.extraction_llm_model = req.model or ""
-    llm_service.reset_extraction_provider()
+    get_llm_service().reset_extraction_provider()
 
     return {"ok": True, "provider": req.provider, "model": req.model or "(默认)"}
 

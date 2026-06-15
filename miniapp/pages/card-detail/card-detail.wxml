@@ -30,6 +30,36 @@
     </view>
   </view>
 
+  <!-- Card Relations -->
+  <view class="relations-section" wx:if="{{relatedCards.length > 0 || !loadingRelations}}">
+    <view class="relations-header">
+      <text class="relations-title">关联卡片</text>
+      <view class="relations-add-btn" bindtap="onAddRelation" wx:if="{{canEditRelations}}">
+        <icon name="plus" size="32" color="#7A9BB0" />
+        <text>添加关联</text>
+      </view>
+    </view>
+    <view class="relations-empty" wx:if="{{relatedCards.length === 0 && !loadingRelations}}">
+      <text class="relations-empty-text">{{canEditRelations ? '暂无关联卡片，点击上方添加' : '暂无关联卡片'}}</text>
+    </view>
+    <view class="relations-list" wx:if="{{relatedCards.length > 0}}">
+      <view
+        wx:for="{{relatedCards}}"
+        wx:key="id"
+        class="relation-card"
+        style="border-left: 4rpx solid {{item.color || '#B8D4E3'}};"
+        bindtap="onRelationTap"
+        data-id="{{item.id}}"
+      >
+        <text class="relation-title" wx:if="{{item.title}}">{{item.title}}</text>
+        <text class="relation-content" overflow="ellipsis" max-lines="2">{{item.preview || item.content}}</text>
+        <view class="relation-remove" wx:if="{{canEditRelations}}" catchtap="onRemoveRelation" data-id="{{item.id}}">
+          <icon name="x" size="28" color="#999" />
+        </view>
+      </view>
+    </view>
+  </view>
+
   <!-- Bottom spacer for bottom bar -->
   <view style="height: 160rpx;"></view>
 </scroll-view>
@@ -37,19 +67,19 @@
 <!-- Bottom Action Bar -->
 <view class="bottom-bar">
   <view class="bar-item" bindtap="onToggleFav">
-    <icon name="star" size="22" color="{{card.isFavorite ? '#f0a500' : '#555'}}" />
+    <icon name="star" size="44" color="{{card.isFavorite ? '#f0a500' : '#555'}}" />
     <text class="bar-label" style="{{card.isFavorite ? 'color: #f0a500;' : ''}}">收藏</text>
   </view>
   <view class="bar-item" bindtap="onEdit">
-    <icon name="pencil" size="22" color="#555" />
+    <icon name="pencil" size="44" color="#555" />
     <text class="bar-label">编辑</text>
   </view>
   <view class="bar-item" bindtap="onAiChat">
-    <icon name="sparkles" size="22" color="#555" />
+    <icon name="sparkles" size="44" color="#555" />
     <text class="bar-label">AI对话</text>
   </view>
   <view class="bar-item" bindtap="onDelete">
-    <icon name="trash-2" size="22" color="#E25D5D" />
+    <icon name="trash-2" size="44" color="#E25D5D" />
     <text class="bar-label" style="color: #E25D5D;">删除</text>
   </view>
 </view>
@@ -77,3 +107,12 @@
     </view>
   </view>
 </view>
+
+<!-- Card Picker for adding relations -->
+<card-picker
+  visible="{{showCardPicker}}"
+  title="选择关联卡片"
+  excludeIds="{{excludeIds}}"
+  bind:select="onRelationPickerSelect"
+  bind:close="onRelationPickerClose"
+/>

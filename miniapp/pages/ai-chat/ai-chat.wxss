@@ -6,6 +6,13 @@ page {
   background: var(--color-bg);
 }
 
+.streaming-text {
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #2C3E50;
+  white-space: pre-wrap;
+}
+
 /* Source cards */
 .source-cards {
   margin-top: 16rpx;
@@ -309,4 +316,124 @@ page {
   font-size: 24rpx;
   color: #666;
   line-height: 1.5;
+}
+
+/* History overlay */
+.nav-history-btn {
+  padding: 8rpx 16rpx;
+  font-size: 26rpx;
+  color: var(--color-primary-dark);
+}
+
+.history-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.history-overlay-show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.history-panel {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  max-height: 65vh;
+  background: #fff;
+  border-radius: 24rpx 24rpx 0 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 30rpx 32rpx;
+  border-bottom: 1rpx solid #F0F2F5;
+}
+
+.history-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #2C3E50;
+}
+
+.history-close {
+  padding: 8rpx 16rpx;
+  font-size: 26rpx;
+  color: #8E9AAF;
+}
+
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 32rpx;
+}
+
+.history-item {
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #F5F6F8;
+}
+
+.history-item:active {
+  background: #F8F9FB;
+  margin: 0 -32rpx;
+  padding-left: 32rpx;
+  padding-right: 32rpx;
+}
+
+.history-item-top {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8rpx;
+}
+
+.history-item-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: #2C3E50;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-count {
+  font-size: 22rpx;
+  color: #C0C4CC;
+  flex-shrink: 0;
+  margin-left: 16rpx;
+}
+
+.history-item-preview {
+  display: block;
+  font-size: 24rpx;
+  color: #8E9AAF;
+  margin-bottom: 6rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-time {
+  font-size: 20rpx;
+  color: #C0C4CC;
+}
+
+.history-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 80rpx;
+  font-size: 26rpx;
+  color: #C0C4CC;
 }

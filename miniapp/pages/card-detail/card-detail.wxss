@@ -182,3 +182,86 @@ page {
   background: #E25D5D;
   color: #fff;
 }
+
+/* Relations Section */
+.relations-section {
+  margin: 0 24rpx 24rpx;
+  padding: 24rpx;
+  background: var(--color-white);
+  border-radius: 20rpx;
+  box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.04);
+}
+
+.relations-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
+.relations-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.relations-add-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6rpx;
+  padding: 8rpx 20rpx;
+  background: rgba(148, 180, 200, 0.12);
+  border-radius: 20rpx;
+  font-size: 22rpx;
+  color: var(--color-primary-dark);
+}
+
+.relations-empty {
+  padding: 24rpx 0;
+}
+
+.relations-empty-text {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.relations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.relation-card {
+  position: relative;
+  padding: 20rpx 24rpx;
+  background: #F9FAFC;
+  border-radius: 16rpx;
+}
+
+.relation-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 6rpx;
+}
+
+.relation-content {
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.relation-remove {
+  position: absolute;
+  top: 16rpx;
+  right: 16rpx;
+  width: 40rpx;
+  height: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

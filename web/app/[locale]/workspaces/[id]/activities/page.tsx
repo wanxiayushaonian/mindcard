@@ -58,9 +58,9 @@ function getActionConfig(
       icon: <Shield size={14} />,
       label: (a) => {
         const oldRole =
-          tRole(roleMap[a.metadata?.old_role || ""] as any) || a.metadata?.old_role;
+          tRole(roleMap[a.metadata?.old_role || ""] as any) || a.metadata?.old_role || "";
         const newRole =
-          tRole(roleMap[a.metadata?.new_role || ""] as any) || a.metadata?.new_role;
+          tRole(roleMap[a.metadata?.new_role || ""] as any) || a.metadata?.new_role || "";
         return t("roleChanged", { from: oldRole, to: newRole });
       },
     },

@@ -295,6 +295,20 @@
                 <h3>团队协作</h3>
                 <p>基于工作区的协作模式，四级权限管理。活动日志和通知系统保持团队同步。</p>
             </div>
+            <div class="feature-card">
+                <div class="feature-icon" style="background: rgba(6,182,212,0.12);">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
+                </div>
+                <h3>对话分支（Fork）</h3>
+                <p>将任意 AI 对话 Fork 为拓扑子节点，在子话题下深入探索。4 种分支模式：深入探讨、发散探索、总结提炼、质疑挑战。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon" style="background: rgba(234,179,8,0.12);">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <h3>工作区记忆</h3>
+                <p>AI 在对话过程中自主维护持久化 slug 键值记忆条目，注入 RAG 上下文，提供个性化的连续性回答。</p>
+            </div>
         </div>
     </div>
 </section>
@@ -309,8 +323,8 @@
         <div class="steps">
             <div class="step"><div class="step-number">1</div><h3>捕捉</h3><p>从灵感、网页、AI 对话中创建卡片</p></div>
             <div class="step"><div class="step-number">2</div><h3>连接</h3><p>AI 自动关联相关卡片，提取关键话题</p></div>
-            <div class="step"><div class="step-number">3</div><h3>探索</h3><p>可视化知识图谱，发现隐藏模式</p></div>
-            <div class="step"><div class="step-number">4</div><h3>综合</h3><p>AI 将聚类整理为结构化知识笔记</p></div>
+            <div class="step"><div class="step-number">3</div><h3>分支探索</h3><p>Fork 对话为子话题深入钻研，可视化知识图谱</p></div>
+            <div class="step"><div class="step-number">4</div><h3>综合沉淀</h3><p>AI 将聚类整理为结构化笔记，记忆持久保存</p></div>
         </div>
     </div>
 </section>
@@ -340,7 +354,7 @@
                     <li>基于 pgvector 的增量语义聚类</li>
                     <li>自适应阈值，基于工作区相似度分布</li>
                     <li>4 种 AI 整理模式：自由组织 / 时间线 / 论点论据 / 对比分类</li>
-                    <li>对话可 fork 为拓扑子节点</li>
+                    <li>对话可 Fork 为拓扑子节点，4 种分支模式</li>
                 </ul>
             </div>
             <div class="highlight-card">
@@ -354,15 +368,18 @@
                 </ul>
             </div>
             <div class="highlight-card">
-                <h3>全平台覆盖</h3>
-                <p>Web、小程序、浏览器扩展，随时随地记录</p>
+                <h3>工作区记忆</h3>
+                <p>AI 自主维护持久化记忆，实现个性化连续对话</p>
                 <ul class="highlight-list">
-                    <li>Next.js 14 Web 应用，支持 i18n</li>
-                    <li>微信小程序，Skyline 渲染器</li>
-                    <li>Chrome / Firefox 浏览器扩展</li>
-                    <li>一键保存网页内容为卡片</li>
+                    <li>slug 键值 Markdown 记忆条目，对话中实时增删改</li>
+                    <li>记忆注入 RAG 上下文，提供连续性个性化回答</li>
+                    <li>支持通过记忆面板手动查看和编辑</li>
+                    <li>跨对话持久保存，工作区范围内共享</li>
                 </ul>
             </div>
+        </div>
+    </div>
+</section>
         </div>
     </div>
 </section>

@@ -2,13 +2,14 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import asdict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.card import Card
 from app.schemas.rag import CardSummary
-from app.services.llm import llm_service
+from app.services.llm import get_llm_service
 from app.services.search import search_service
 from app.services.web_search import web_search_service
 
@@ -91,43 +92,28 @@ Obsidian是一个强大的知识管理工具。
 MARKDOWN_SYSTEM_PROMPT = f"""你是一个知识问答助手。
 
 {_MARKDOWN_FORMAT_INSTRUCTIONS}
-
-## 思考与回答分离（强制）
-
-你的回复必须严格按以下顺序输出，**第一个字符必须是 `<`**：
-
-```
-<thinking>
-你的所有分析推理过程：理解用户意图、判断是否需要分叉、规划回答要点等。
-</thinking>
-
-最终回答内容（Markdown格式）
-```
-
-**绝对规则（违反将导致渲染错误）：**
-1. `<thinking>` 标签必须是回复的**第一个内容**，前面不能有任何文字
-2. 所有分析、推理、意图判断必须放在 `<thinking>` 块内
-3. `</thinking>` 之后只输出最终回答，不要再有分析性文字
-4. 最终回答必须完整、独立可读，不依赖 thinking 内容
-5. 不要在最终回答中重复 thinking 中的分析过程
 """
 
 
 CREATE_FORK_INSTRUCTION = """
 ## 话题分叉规则（create_fork 工具）
 
-当用户的新问题与当前对话话题**明显不同**时，在回答前先调用 `create_fork` 工具创建新分支。
+**最高优先级：用户明确要求创建分支时，必须无条件执行，且设置 force=true。**
+当用户说"创建分支""分叉""开个新分支""branch"等明确指令时，立即调用 `create_fork(force=true)`，不要判断话题是否相同。
+
+在其他情况下，当用户的新问题与当前对话话题**明显不同**时，在回答前先调用 `create_fork` 工具创建新分支。
 工具调用之后立即给出完整回答——回答内容将自动归入新分支。
 
 **应该分叉的情况：**
+- 用户明确要求创建分支（最高优先级，force=true，无条件执行）
 - 当前讨论"RAG 原理"，用户问"怎么做红烧肉" → 分叉（完全不同领域）
 - 当前讨论"Python 语法"，用户问"机器学习入门" → 分叉（独立探索方向）
 - 用户明确说"换个话题"或"另一个问题" → 分叉
 
 **不应该分叉的情况：**
-- 同一话题的追问、延伸、澄清、举例
+- 同一话题的追问、延伸、澄清、举例（但用户明确要求分叉时除外）
 - 自然的对话流动
-- 刚创建分支后的连续消息（不要连续分叉）
+- 刚创建分支后的连续消息（不要连续分叉，除非用户明确要求）
 
 **分叉类型（profile）：**
 - `deep_dive`（深入探讨）：聚焦当前话题的深层细节
@@ -210,18 +196,21 @@ async def build_branch_context(
 
 
 async def mark_insights_consumed(db: AsyncSession, insight_ids: list) -> None:
-    """Mark insights as consumed after successful stream."""
+    """Mark insights as consumed after successful stream.
+
+    Uses a savepoint to avoid committing the caller's entire session.
+    """
     if not insight_ids:
         return
     from sqlalchemy import update as sa_update
 
     from app.models.branch_insight import BranchInsight
-    await db.execute(
-        sa_update(BranchInsight)
-        .where(BranchInsight.id.in_(insight_ids))
-        .values(consumed=True)
-    )
-    await db.commit()
+    async with db.begin_nested():
+        await db.execute(
+            sa_update(BranchInsight)
+            .where(BranchInsight.id.in_(insight_ids))
+            .values(consumed=True)
+        )
 
 
 class RAGService:
@@ -299,7 +288,7 @@ class RAGService:
         if history:
             messages.extend(history[-10:])
         messages.append({"role": "user", "content": question})
-        response = await llm_service.complete(messages)
+        response = await get_llm_service().complete(messages)
         answer = response.content
 
         # 4. Return with sources
@@ -355,7 +344,7 @@ Inspiration cards:
 Respond in JSON format:
 {{"themes": [...], "trends": "...", "unexplored": [...], "suggestions": [...]}}"""
 
-        response = await llm_service.complete([{"role": "user", "content": prompt}])
+        response = await get_llm_service().complete([{"role": "user", "content": prompt}])
         answer = response.content
 
         # Parse JSON from answer
@@ -426,7 +415,7 @@ Respond in JSON format:
                 user_message = message + "\n\n" + web_search_service.format_results(search_results)
 
         messages.append({"role": "user", "content": user_message})
-        result = await llm_service.complete(messages)
+        result = await get_llm_service().complete(messages)
         return result.content
 
     async def chat_stream(
@@ -439,6 +428,7 @@ Respond in JSON format:
 
         # Optional web search - yield results immediately
         user_message = message
+        search_results = []
         if web_search:
             search_results = await web_search_service.search(message, max_results=8)
             if search_results:
@@ -453,8 +443,33 @@ Respond in JSON format:
                 }
 
         messages.append({"role": "user", "content": user_message})
+
+        # Yield context debug metadata
+        yield {
+            "type": "context_debug",
+            "context_debug": {
+                "retrieval_level": 0,
+                "reasoning_paths": [],
+                "card_scores": [],
+                "entities": [],
+                "topology_path": [],
+                "node_card_titles": [],
+                "cross_refs": [],
+                "source_cards": [],
+                "entity_context": "",
+                "topology_context": "",
+                "community_context": "",
+                "branch_context": "",
+                "web_search_results": [
+                    {"title": r.title, "snippet": r.snippet, "url": r.url}
+                    for r in search_results
+                ],
+                "system_prompt": messages[0]["content"],
+            },
+        }
+
         try:
-            async for chunk in llm_service.stream(messages):
+            async for chunk in get_llm_service().stream(messages):
                 yield chunk
         except Exception as e:
             logger.error("chat_stream LLM error: %s", e)
@@ -473,6 +488,7 @@ Respond in JSON format:
         chat_id: str | None = None,
         current_fork_id: str | None = None,
         tools: list[dict] | None = None,
+        context_card_ids: list[str] | None = None,
     ) -> AsyncGenerator[str | dict, None]:
         """Streaming RAG answer: retrieve cards via RetrievalDispatcher, stream LLM, yield sources dict at end.
 
@@ -505,6 +521,20 @@ Respond in JSON format:
         )
 
         context_cards = retrieval_result.cards
+
+        # Inject explicitly mentioned cards at the top of context
+        if context_card_ids:
+            try:
+                mentioned_uuids = [uuid.UUID(cid) for cid in context_card_ids]
+                stmt = select(Card).where(Card.id.in_(mentioned_uuids))
+                result = await db.execute(stmt)
+                explicit_cards = list(result.scalars().all())
+                # Deduplicate: put explicit cards first, remove from retrieval results
+                existing_ids = {c.id for c in explicit_cards}
+                context_cards = explicit_cards + [c for c in context_cards if c.id not in existing_ids]
+                logger.info("RAG.ask_stream: injected %d explicit context cards", len(explicit_cards))
+            except (ValueError, TypeError) as e:
+                logger.warning("RAG.ask_stream: invalid context_card_ids: %s", e)
 
         entity_ctx = retrieval_dispatcher.build_entity_context_string(retrieval_result)
         topo_ctx = retrieval_dispatcher.build_topology_context_string(retrieval_result)
@@ -549,6 +579,9 @@ Respond in JSON format:
             system_parts = [MARKDOWN_SYSTEM_PROMPT]
         else:
             system_parts = [f"你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。\n\n{_MARKDOWN_FORMAT_INSTRUCTIONS}"]
+
+        if context_card_ids:
+            system_parts.append("以下卡片由用户明确指定为上下文（排列在最前面），请优先参考这些卡片的内容。")
 
         if entity_ctx:
             system_parts.append(entity_ctx)
@@ -598,6 +631,40 @@ Respond in JSON format:
             "source_cards": source_cards,
         }
 
+        # Yield context debug metadata for advanced users / testing
+        debug_source_cards = [
+            {
+                "id": str(c.id),
+                "title": c.title,
+                "content": c.content,
+                "keywords": c.keywords,
+                "color": c.color,
+            }
+            for c in context_cards
+        ]
+        yield {
+            "type": "context_debug",
+            "context_debug": {
+                "retrieval_level": retrieval_result.level_used.value,
+                "reasoning_paths": [asdict(p) for p in retrieval_result.reasoning_paths],
+                "card_scores": retrieval_result.card_scores,
+                "entities": [asdict(e) for e in retrieval_result.entities],
+                "topology_path": retrieval_result.topology_path or [],
+                "node_card_titles": retrieval_result.node_card_titles,
+                "cross_refs": retrieval_result.cross_refs,
+                "source_cards": debug_source_cards,
+                "entity_context": entity_ctx,
+                "topology_context": topo_ctx,
+                "community_context": community_ctx,
+                "branch_context": branch_context,
+                "web_search_results": [
+                    {"title": r.title, "snippet": r.snippet, "url": r.url}
+                    for r in (web_search_results or [])
+                ],
+                "system_prompt": system_prompt,
+            },
+        }
+
         if tools:
             # Tool-enabled mode: yield prepared messages, let caller run tool loop
             # Include insight_ids so caller can consume them after stream completes
@@ -605,7 +672,7 @@ Respond in JSON format:
         else:
             # Standard mode: stream LLM response directly
             try:
-                async for chunk in llm_service.stream(messages):
+                async for chunk in get_llm_service().stream(messages):
                     yield chunk
             except Exception as e:
                 logger.error("ask_stream LLM error: %s", e)

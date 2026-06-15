@@ -1,4 +1,5 @@
 const ERROR_MAP: Record<string, string> = {
+  // Chinese → key
   "用户名或密码错误": "invalidCredentials",
   "邀请码无效": "invalidInviteCode",
   "卡片不存在": "cardNotFound",
@@ -22,7 +23,7 @@ const ERROR_MAP: Record<string, string> = {
   "你还没有加入任何空间": "noWorkspaceMembership",
   "你不是该空间的成员": "notWorkspaceMember",
   "该微信已绑定其他账号": "wechatAlreadyBound",
-  "微信网页登录未配置（需要公众号 appid）": "wechatNotConfigured",
+  "微信网页登录未配置": "wechatNotConfigured",
   "无效的 redirect_uri": "invalidRedirectUri",
   "redirect_uri 不在允许列表中": "redirectUriNotAllowed",
   "对话内容太少，无法生成摘要": "chatTooShortForSummary",
@@ -42,6 +43,20 @@ const ERROR_MAP: Record<string, string> = {
   "微信绑定成功": "wechatSuccess",
   "节点不存在": "nodeNotFound",
   "local_id 已存在": "localIdExists",
+
+  // English → key (backend sends mixed languages)
+  "Invalid username or password": "invalidCredentials",
+  "Username already taken": "usernameTaken",
+  "Workspace not found": "workspaceNotFound",
+  "Cannot remove yourself": "cannotRemoveSelf",
+  "Chat not found": "chatNotFound",
+  "Node not found": "nodeNotFound",
+  "Entity not found": "entityNotFound",
+  "Triple not found": "tripleNotFound",
+  "Memory not found": "memoryNotFound",
+  "Not found": "notFound",
+  "Invalid UUID": "invalidUuid",
+  "Too many requests": "tooManyRequests",
 };
 
 export function translateBackendError(
@@ -52,7 +67,7 @@ export function translateBackendError(
   if (key) {
     return t(key);
   }
-  // Handle partial matches (e.g. "local_id 已存在: xxx")
+  // Handle partial matches (e.g. "local_id 已存在: xxx" or "微信网页登录未配置（需要公众号 appid）")
   for (const [zh, k] of Object.entries(ERROR_MAP)) {
     if (detail.startsWith(zh)) {
       return t(k);

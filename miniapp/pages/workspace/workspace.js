@@ -1,5 +1,5 @@
 // pages/workspace/workspace.js
-var api = require('../../utils/api');
+const api = require('../../utils/api');
 
 const WS_ICONS = ['lightbulb', 'palette', 'book-open', 'flask-conical', 'music', 'rocket', 'sprout', 'brain', 'sparkles', 'flame'];
 
@@ -41,8 +41,11 @@ Page({
   },
 
   onShow() {
-    var self = this;
-    getApp()._onDataReady(function () {
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ selected: 0 });
+    }
+    const self = this;
+    getApp()._onDataReady(() => {
       self.loadWorkspaces();
     });
   },
@@ -69,44 +72,45 @@ Page({
       { id: '__add__', _type: 'add' },
       { id: '__join__', _type: 'join' },
     ];
+    // M2: card counts already computed from in-memory cards above;
+    // removed expensive full-pagination API loop from every onShow
     this.setData({ workspaces, sharedWorkspaces, gridItems });
-    this._loadAllCardCounts();
   },
 
   async _loadAllCardCounts() {
-    var app = getApp();
-    var workspaces = app.globalData.workspaces;
-    var self = this;
-    var counts = {};
+    const app = getApp();
+    const workspaces = app.globalData.workspaces;
+    const self = this;
+    const counts = {};
 
     function loadWsCards(wsId) {
-      var allCards = [];
-      var cursor = null;
+      let allCards = [];
+      let cursor = null;
       function loadPage() {
-        return api.cardsApi.list(wsId, cursor, 50).then(function (resp) {
-          var items = Array.isArray(resp) ? resp : (resp.items || []);
+        return api.cardsApi.list(wsId, cursor, 50).then((resp) => {
+          const items = Array.isArray(resp) ? resp : (resp.items || []);
           allCards = allCards.concat(items);
           cursor = (resp && resp.next_cursor) || null;
           if (cursor) return loadPage();
           counts[wsId] = allCards.length;
-        }).catch(function () { counts[wsId] = 0; });
+        }).catch(() => { counts[wsId] = 0; });
       }
       return loadPage();
     }
 
-    await Promise.all(workspaces.map(function (ws) {
+    await Promise.all(workspaces.map((ws) => {
       if (ws.id.indexOf('ws_') === 0) return Promise.resolve();
       return loadWsCards(ws.id);
     }));
 
-    var updatedWorkspaces = self.data.workspaces.map(function (ws) {
-      return Object.assign({}, ws, { _cardCount: counts[ws.id] || 0 });
-    });
-    var gridItems = updatedWorkspaces.concat([
+    const updatedWorkspaces = self.data.workspaces.map((ws) => ({
+      ...ws, _cardCount: counts[ws.id] || 0,
+    }));
+    const gridItems = updatedWorkspaces.concat([
       { id: '__add__', _type: 'add' },
       { id: '__join__', _type: 'join' },
     ]);
-    self.setData({ workspaces: updatedWorkspaces, gridItems: gridItems });
+    self.setData({ workspaces: updatedWorkspaces, gridItems });
   },
 
   onStopPropagation() {},
@@ -126,11 +130,13 @@ Page({
     this.onWorkspaceLongPress(e);
   },
 
-  onWorkspaceTap(e) {
+  async onWorkspaceTap(e) {
     const id = e.currentTarget.dataset.id;
     const app = getApp();
-    app.switchWorkspace(id);
-    wx.navigateTo({ url: '/pages/index/index' });
+    wx.showLoading({ title: '加载中...', mask: true });
+    await app.switchWorkspace(id);
+    wx.hideLoading();
+    wx.switchTab({ url: '/pages/index/index' });
   },
 
   onWorkspaceLongPress(e) {
@@ -161,10 +167,6 @@ Page({
         }
       },
     });
-  },
-
-  onProfile() {
-    wx.navigateTo({ url: '/pages/profile/profile' });
   },
 
   // ── Share & Join ──

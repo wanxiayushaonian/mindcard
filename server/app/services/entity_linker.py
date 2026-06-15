@@ -24,12 +24,12 @@ _COREFERENCE_SYSTEM = (
 
 async def _llm_is_same_entity(name_a: str, name_b: str, entity_type: str | None) -> bool:
     """Ask the extraction LLM whether two names are coreferent."""
-    from app.services.llm import llm_service
+    from app.services.llm import get_llm_service
 
     type_hint = f" (type: {entity_type})" if entity_type else ""
     user_content = f'Entity A: "{name_a}"{type_hint}\nEntity B: "{name_b}"\nSame entity?'
     try:
-        answer = await llm_service.extraction_complete_simple(
+        answer = await get_llm_service().extraction_complete_simple(
             _COREFERENCE_SYSTEM, user_content, max_tokens=4, temperature=0.0
         )
         return answer.strip().upper().startswith("YES")

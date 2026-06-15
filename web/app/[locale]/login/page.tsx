@@ -81,7 +81,7 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      const { access_token } = await authApi.devLogin("Web用户");
+      const { access_token } = await authApi.devLogin("WebUser");
       setToken(access_token);
       mutate(() => true, undefined, { revalidate: false });
       router.replace("/workspaces");

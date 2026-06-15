@@ -353,9 +353,9 @@ class TopologyService:
 
 只输出总结，不要其他内容。"""
 
-        from app.services.llm import llm_service
+        from app.services.llm import get_llm_service
 
-        response = await llm_service.complete([{"role": "user", "content": prompt}])
+        response = await get_llm_service().complete([{"role": "user", "content": prompt}])
 
         chat.summary = response.content.strip()
         await db.flush()

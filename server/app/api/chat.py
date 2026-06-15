@@ -468,11 +468,20 @@ async def fork_chat(
 ):
     """Fork a conversation by creating a child AiChat with compressed parent context."""
     from app.services.fork_compress import fork_compressor
+    from app.tools.fork_profiles import get_profile
 
     parent_chat = await db.get(AiChat, parse_uuid(chat_id))
     if not parent_chat:
         raise HTTPException(status_code=404, detail="对话不存在")
     await _require_chat_access(parent_chat, user, db)
+
+    # Resolve context_strategy: profile takes precedence over explicit field
+    context_strategy = req.context_strategy
+    fork_profile_name = req.profile
+    if fork_profile_name:
+        profile = get_profile(fork_profile_name)
+        if profile:
+            context_strategy = profile.context_strategy
 
     # Fetch messages for compression (last 50)
     result = await db.execute(
@@ -487,19 +496,10 @@ async def fork_chat(
     messages = [{"role": m.role, "content": m.content} for m in reversed(result.scalars().all())]
 
     # Use ForkCompressor
-    context_summary = await fork_compressor.compress(messages, strategy=req.context_strategy)
+    context_summary = await fork_compressor.compress(messages, strategy=context_strategy)
 
-    # Determine depth from parent by walking the chain
-    depth = 0
-    current_parent_id = parent_chat.parent_id
-    max_depth = 20
-    while current_parent_id and max_depth > 0:
-        max_depth -= 1
-        depth += 1
-        depth_result = await db.execute(
-            select(AiChat.parent_id).where(AiChat.id == current_parent_id)
-        )
-        current_parent_id = depth_result.scalar_one_or_none()
+    # Derive depth directly from parent — no N+1 chain walk needed
+    depth = (parent_chat.depth or 0) + 1
 
     # Create child AiChat
     branch_label = req.topic or "手动分支"
@@ -511,6 +511,7 @@ async def fork_chat(
         mode=req.mode,
         title=branch_label,
         node_type="branch",
+        depth=depth,
     )
     db.add(child_chat)
     await db.flush()
@@ -525,6 +526,7 @@ async def fork_chat(
             "branch_label": branch_label,
             "parent_context_summary": context_summary,
             "depth": depth,
+            "fork_profile": fork_profile_name,
         },
     )
     db.add(divider)
@@ -638,7 +640,7 @@ async def _generate_summary_card(
     try:
         from app.database import async_session
         from app.models.card import Card
-        from app.services.llm import llm_service
+        from app.services.llm import get_llm_service
 
         async with async_session() as db:
             # Generate summary using LLM
@@ -653,13 +655,13 @@ async def _generate_summary_card(
                 f"对话内容：\n{conversation_text[:8000]}"
             )
 
-            summary = await llm_service.complete_simple(
+            summary = await get_llm_service().complete_simple(
                 summary_prompt, "", max_tokens=2048
             )
 
             # Generate title if not provided
             if not title:
-                title_raw = await llm_service.extraction_complete_simple(
+                title_raw = await get_llm_service().extraction_complete_simple(
                     "请用不超过20个字概括以下内容的主题，作为标题。只输出标题文字本身。",
                     summary[:500],
                     max_tokens=32,
@@ -668,7 +670,7 @@ async def _generate_summary_card(
 
             # Extract keywords if not provided
             if not keywords:
-                kw_raw = await llm_service.extraction_complete_simple(
+                kw_raw = await get_llm_service().extraction_complete_simple(
                     "从以下内容中提取3-5个核心关键字，用逗号分隔。",
                     summary[:500],
                     max_tokens=64,

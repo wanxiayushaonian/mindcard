@@ -9,6 +9,7 @@ import {
   forceCollide,
   forceX,
   forceY,
+  type Simulation,
   type SimulationNodeDatum,
   type SimulationLinkDatum,
 } from "d3-force";
@@ -16,14 +17,17 @@ import {
   select,
   zoom as d3Zoom,
   drag as d3Drag,
+  zoomTransform,
 } from "d3";
 import { topologyApi, type TreeNode } from "@/lib/api";
 import { useTranslations } from "next-intl";
+import { Sparkles } from "lucide-react";
 
 interface Props {
   workspaceId: string;
   highlightId?: string | null;
   onNodeClick?: (nodeId: string) => void;
+  onNodeSynthesize?: (nodeId: string) => void;
 }
 
 const NODE_COLORS: Record<string, string> = {
@@ -56,14 +60,16 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 }
 
 export const TopologyTreeView = forwardRef<any, Props>(
-  function TopologyTreeView({ workspaceId, highlightId, onNodeClick }, ref) {
+  function TopologyTreeView({ workspaceId, highlightId, onNodeClick, onNodeSynthesize }, ref) {
     const t = useTranslations("topology");
     const tc = useTranslations("common");
     const svgRef = useRef<SVGSVGElement>(null);
-    const simRef = useRef<ReturnType<typeof forceSimulation> | null>(null);
+    const simRef = useRef<Simulation<SimNode, SimLink> | null>(null);
     const [treeNodes, setTreeNodes] = useState<TreeNode[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
+    const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
 
     useImperativeHandle(ref, () => ({
       getGraph: () => simRef.current,
@@ -154,6 +160,9 @@ export const TopologyTreeView = forwardRef<any, Props>(
       const width = svgRef.current.clientWidth;
       const height = svgRef.current.clientHeight || 600;
 
+      // Set SVG dimensions so D3 zoom's defaultExtent() works correctly
+      svg.attr("width", width).attr("height", height);
+
       const computedStyle = getComputedStyle(document.documentElement);
       const textSecondaryColor = computedStyle.getPropertyValue("--color-text-secondary").trim() || "#8E99A4";
       const borderColor = computedStyle.getPropertyValue("--color-border").trim() || "#E5E7EB";
@@ -177,13 +186,31 @@ export const TopologyTreeView = forwardRef<any, Props>(
 
       const g = svg.append("g");
 
-      // Zoom
+      // Zoom — filter blocks zoom gesture when mouse is down (prevents drag conflict)
       const zoomBehavior = d3Zoom<SVGSVGElement, unknown>()
+        .filter((event) => !event.ctrlKey && !event.button)
         .scaleExtent([0.2, 5])
         .on("zoom", (event) => {
           g.attr("transform", event.transform);
         });
       svg.call(zoomBehavior);
+
+      // Drag
+      const dragBehavior = d3Drag<SVGCircleElement, SimNode>()
+        .on("start", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        })
+        .on("drag", (event, d) => {
+          d.fx = event.x;
+          d.fy = event.y;
+        })
+        .on("end", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
+        });
 
       // Tree links
       const linkSel = g
@@ -205,23 +232,6 @@ export const TopologyTreeView = forwardRef<any, Props>(
         .attr("stroke-dasharray", "4 3")
         .attr("stroke-opacity", 0.5);
 
-      // Drag
-      const dragBehavior = d3Drag<SVGCircleElement, SimNode>()
-        .on("start", (event, d) => {
-          if (!event.active) simulation.alphaTarget(0.3).restart();
-          d.fx = d.x;
-          d.fy = d.y;
-        })
-        .on("drag", (event, d) => {
-          d.fx = event.x;
-          d.fy = event.y;
-        })
-        .on("end", (event, d) => {
-          if (!event.active) simulation.alphaTarget(0);
-          d.fx = null;
-          d.fy = null;
-        });
-
       // Node circles
       const nodeSel = g
         .append("g")
@@ -237,8 +247,19 @@ export const TopologyTreeView = forwardRef<any, Props>(
         .on("click", (_event, d) => {
           if (onNodeClick) onNodeClick(d.id);
         })
-        .on("mouseenter", (_event, d) => setHoveredNode(d))
-        .on("mouseleave", () => setHoveredNode(null))
+        .on("contextmenu", (event: MouseEvent, d) => {
+          event.preventDefault();
+          setContextMenu({ nodeId: d.id, x: event.clientX, y: event.clientY });
+        })
+        .on("mouseenter", (_event, d) => {
+          setHoveredNode(d);
+          const svgEl = svgRef.current;
+          if (svgEl && d.x != null && d.y != null) {
+            const transform = zoomTransform(svgEl);
+            setTooltipPos({ x: transform.applyX(d.x) + 20, y: transform.applyY(d.y) - 10 });
+          }
+        })
+        .on("mouseleave", () => { setHoveredNode(null); setTooltipPos(null); })
         .call(dragBehavior);
 
       // Highlight
@@ -275,12 +296,26 @@ export const TopologyTreeView = forwardRef<any, Props>(
         labelSel.attr("x", (d) => d.x!).attr("y", (d) => d.y!);
       });
 
+      const svgEl = svgRef.current;
+      const resizeObserver = new ResizeObserver(() => {
+        if (!svgEl) return;
+        const w = svgEl.clientWidth;
+        const h = svgEl.clientHeight || 600;
+        select(svgEl).attr("width", w).attr("height", h);
+        simulation
+          .force("center", forceCenter(w / 2, h / 2))
+          .force("x", forceX(w / 2).strength(0.03))
+          .force("y", forceY(h / 2).strength(0.03))
+          .alpha(0.3).restart();
+      });
+      resizeObserver.observe(svgEl);
+
       return () => {
+        resizeObserver.disconnect();
         simulation.stop();
         simRef.current = null;
       };
     }, [nodes, links, highlightId, onNodeClick]);
-
     if (isLoading) {
       return (
         <div className="flex h-full items-center justify-center text-text-secondary">
@@ -303,12 +338,12 @@ export const TopologyTreeView = forwardRef<any, Props>(
         <svg ref={svgRef} className="h-full w-full bg-bg" />
 
         {/* Tooltip */}
-        {hoveredNode && (
+        {hoveredNode && tooltipPos && (
           <div
             className="pointer-events-none absolute z-20 rounded-lg border border-border bg-surface/95 px-3 py-2 text-xs shadow-lg backdrop-blur-sm"
             style={{
-              left: (hoveredNode.x ?? 0) + 20,
-              top: (hoveredNode.y ?? 0) - 10,
+              left: tooltipPos.x,
+              top: tooltipPos.y,
             }}
           >
             <div className="font-medium text-text">{hoveredNode.label}</div>
@@ -349,6 +384,28 @@ export const TopologyTreeView = forwardRef<any, Props>(
         <div className="absolute right-4 top-4 z-10 rounded-lg bg-surface/70 px-2.5 py-1.5 text-[10px] text-text-secondary backdrop-blur-sm">
           {t("controlsHint")}
         </div>
+
+        {/* Context menu */}
+        {contextMenu && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setContextMenu(null)} />
+            <div
+              className="fixed z-50 min-w-[140px] rounded-lg border border-border bg-surface py-1 text-xs shadow-lg"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+            >
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-text hover:bg-gray-100"
+                onClick={() => {
+                  setContextMenu(null);
+                  onNodeSynthesize?.(contextMenu.nodeId);
+                }}
+              >
+                <Sparkles size={12} />
+                {tc("synthesize") || "Synthesize"}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     );
   }

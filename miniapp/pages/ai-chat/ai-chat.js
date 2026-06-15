@@ -1,6 +1,6 @@
 // pages/ai-chat/ai-chat.js
-var api = require('../../utils/api');
-var helpers = require('../../utils/helpers');
+const api = require('../../utils/api');
+const helpers = require('../../utils/helpers');
 
 Page({
   data: {
@@ -11,87 +11,96 @@ Page({
     isLoading: false,
     scrollTarget: '',
     showCardPicker: false,
+    showHistory: false,
+    chatHistory: [],
     chatId: '',
   },
 
-  _streamTimer: null,
-  _streamContent: '',
   _streamMsgId: '',
   _streamTime: '',
   _streamTask: null,
+  _msgCounter: 0,
+  _pendingStreamContent: null,
+  _streamFlushTimer: null,
 
-  onLoad: function (options) {
-    var cardId = options.cardId || '';
-    var chatId = options.chatId || '';
-    this.setData({ cardId: cardId });
+  onLoad(options) {
+    const cardId = options.cardId || '';
+    const chatId = options.chatId || '';
+    this.setData({ cardId });
 
     if (cardId) {
-      var app = getApp();
-      var card = app.getCardById(cardId);
+      const app = getApp();
+      const card = app.getCardById(cardId);
       if (card) this.setData({ contextCard: card });
 
-      var chat = app.getChatByCardId(cardId);
+      const chat = app.getChatByCardId(cardId);
       if (chat) {
-        var msgs = chat.messages.map(function (m) {
-          return m.uid ? m : Object.assign({}, m, { uid: m.id });
-        });
+        const msgs = chat.messages.map((m) => m.uid ? m : { ...m, uid: m.id });
         this.setData({ messages: msgs, chatId: chat.id });
       }
       this.scrollToBottom();
     } else if (chatId) {
-      this.setData({ chatId: chatId });
-      var self = this;
-      getApp().loadChatMessages(chatId).then(function (messages) {
+      this.setData({ chatId });
+      getApp().loadChatMessages(chatId).then((messages) => {
         if (messages.length > 0) {
-          self.setData({ messages: messages });
-          self.scrollToBottom();
+          this.setData({ messages });
+          this.scrollToBottom();
         }
       });
     }
   },
 
-  onUnload: function () {
+  onUnload() {
+    if (this._streamFlushTimer) {
+      clearInterval(this._streamFlushTimer);
+      this._streamFlushTimer = null;
+    }
+    const { chatId, cardId, messages } = this.data;
+    if (messages.length === 0) return;
+    // Sync: update in-memory so navigating back sees latest messages
+    const chats = getApp().globalData.aiChats;
+    const existing = chatId
+      ? chats.find((c) => c.id === chatId)
+      : (cardId ? chats.find((c) => c.cardId === cardId) : null);
+    if (existing) existing.messages = messages;
     this._persistChat();
   },
 
-  _persistChat: function () {
-    var cardId = this.data.cardId;
-    var messages = this.data.messages;
-    var chatId = this.data.chatId;
+  _persistChat() {
+    const { cardId, messages, chatId } = this.data;
     if (messages.length === 0) return;
 
-    var app = getApp();
-    var now = helpers.formatTime(new Date());
-    var wsId = app.globalData.currentWorkspaceId;
-    var self = this;
+    const app = getApp();
+    const now = helpers.formatTime(new Date());
+    const wsId = app.globalData.currentWorkspaceId;
 
     if (chatId) {
-      var chat = app.globalData.aiChats.find(function (c) { return c.id === chatId; });
+      const chat = app.globalData.aiChats.find((c) => c.id === chatId);
       if (chat) {
-        var updatedChat = Object.assign({}, chat, { messages: messages });
-        app.saveChat(updatedChat).then(function (serverId) {
+        const updatedChat = { ...chat, messages };
+        app.saveChat(updatedChat).then((serverId) => {
           if (serverId && serverId !== chatId) {
-            self.setData({ chatId: serverId });
+            this.setData({ chatId: serverId });
           }
         });
       }
     } else {
-      var existing = cardId ? app.globalData.aiChats.find(function (c) { return c.cardId === cardId; }) : null;
+      const existing = cardId ? app.globalData.aiChats.find((c) => c.cardId === cardId) : null;
       if (existing) {
-        app.saveChat(Object.assign({}, existing, { messages: messages }));
-        self.setData({ chatId: existing.id });
+        app.saveChat({ ...existing, messages });
+        this.setData({ chatId: existing.id });
       } else {
-        var newChat = {
-          id: 'chat_' + Date.now(),
+        const newChat = {
+          id: `chat_${Date.now()}`,
           cardId: cardId || '',
           workspaceId: wsId || '',
           title: (this.data.contextCard || {}).title || '灵感对话',
           createdAt: now,
-          messages: messages,
+          messages,
         };
-        app.saveChat(newChat).then(function (serverId) {
+        app.saveChat(newChat).then((serverId) => {
           if (serverId && serverId !== newChat.id) {
-            self.setData({ chatId: serverId });
+            this.setData({ chatId: serverId });
           }
         });
         this.setData({ chatId: newChat.id });
@@ -100,194 +109,259 @@ Page({
     }
   },
 
-  onInput: function (e) {
+  onInput(e) {
     this.setData({ inputText: e.detail.value });
   },
 
-  onSend: function () {
-    var inputText = this.data.inputText;
-    var messages = this.data.messages;
+  onSend() {
+    if (this.data.isLoading) return;
+    const inputText = this.data.inputText;
     if (!inputText.trim()) return;
 
-    var now = new Date();
-    var time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-    var userMsg = { id: 'msg_' + Date.now(), uid: 'msg_' + Date.now(), role: 'user', content: inputText.trim(), time: time };
+    const now = new Date();
+    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    // C5: use counter to guarantee unique IDs even within the same millisecond
+    const userMsgId = `msg_u_${Date.now()}_${++this._msgCounter}`;
+    const userMsg = {
+      id: userMsgId,
+      uid: userMsgId,
+      role: 'user',
+      content: inputText.trim(),
+      time,
+    };
 
-    this.setData({ messages: messages.concat([userMsg]), inputText: '', isLoading: true });
+    this.setData({ messages: [...this.data.messages, userMsg], inputText: '', isLoading: true });
     this.scrollToBottom();
 
-    var self = this;
-    var aiMsgId = 'msg_' + Date.now();
-    var aiTime = time;
-    self._streamMsgId = aiMsgId;
-    self._streamTime = aiTime;
-    self._streamContent = '';
-    self._streamTimer = null;
+    const aiMsgId = `msg_a_${Date.now()}_${++this._msgCounter}`;
+    this._streamMsgId = aiMsgId;
+    this._streamTime = time;
 
-    var app = getApp();
-    var workspaceId = app.globalData.currentWorkspaceId;
-
-    if (!workspaceId) {
-      wx.showToast({ title: '请先选择空间', icon: 'none' });
-      self.setData({ isLoading: false });
-      return;
-    }
-
-    self._streamTask = api.ragApi.askStream({
-      question: inputText.trim(),
-      workspace_id: workspaceId,
-      card_id: self.data.cardId || undefined,
-      top_k: 5,
-    }, function (text) {
-      self._streamContent = text;
-      if (!self._streamTimer) {
-        var len = text.length;
-        var delay = len < 3000 ? 80 : len < 10000 ? 140 : 220;
-        self._streamTimer = setTimeout(function () {
-          self._flushStream();
-          self._streamTimer = null;
-        }, delay);
+    this._streamTask = api.ragApi.streamChat(
+      inputText.trim(),
+      this.data.cardId || undefined,
+      null, null,
+      (fullContent) => {
+        const msgs = this.data.messages;
+        const isFirst = msgs.findIndex((m) => m.id === this._streamMsgId) === -1;
+        if (isFirst) {
+          // First chunk: add bubble immediately, start flush timer for subsequent chunks
+          const newMsgs = msgs.slice();
+          newMsgs.push({
+            id: this._streamMsgId,
+            uid: this._streamMsgId,
+            role: 'ai',
+            content: fullContent,
+            time: this._streamTime,
+            streaming: true,
+          });
+          this.setData({ messages: newMsgs, isLoading: false });
+          // Throttle: flush buffered content at most once per 300ms so
+          // markdown-render doesn't re-parse on every network chunk
+          this._streamFlushTimer = setInterval(() => {
+            if (this._pendingStreamContent === null) return;
+            const c = this._pendingStreamContent;
+            this._pendingStreamContent = null;
+            const m = this.data.messages.slice();
+            const i = m.findIndex((x) => x.id === this._streamMsgId);
+            if (i !== -1) {
+              m[i] = { ...m[i], content: c };
+              this.setData({ messages: m });
+            }
+          }, 300);
+        } else {
+          // Buffer content; the flush timer will pick it up
+          this._pendingStreamContent = fullContent;
+        }
+      },
+      (fullContent) => {
+        if (this._streamFlushTimer) {
+          clearInterval(this._streamFlushTimer);
+          this._streamFlushTimer = null;
+        }
+        this._pendingStreamContent = null;
+        const msgs = this.data.messages.slice();
+        const idx = msgs.findIndex((m) => m.id === this._streamMsgId);
+        const aiMsg = {
+          id: this._streamMsgId,
+          uid: this._streamMsgId,
+          role: 'ai',
+          content: fullContent,
+          time: this._streamTime,
+          streaming: false,
+        };
+        if (idx !== -1) {
+          msgs[idx] = aiMsg;
+        } else {
+          msgs.push(aiMsg);
+        }
+        this.setData({ messages: msgs, isLoading: false });
+        this.scrollToBottom();
+        this._persistChat();
+      },
+      (err) => {
+        this._streamTask = null;
+        const msgs = this.data.messages.slice();
+        const idx = msgs.findIndex((m) => m.id === this._streamMsgId);
+        const errMsg = {
+          id: aiMsgId,
+          uid: aiMsgId,
+          role: 'ai',
+          content: `抱歉，AI 暂时无法回复：${err.message}`,
+          time,
+          isError: true,
+        };
+        if (idx !== -1) {
+          msgs[idx] = errMsg;
+        } else {
+          msgs.push(errMsg);
+        }
+        this.setData({ messages: msgs, isLoading: false });
+        this.scrollToBottom();
       }
-    }, function (fullContent, extra) {
-      self._streamTask = null;
-      if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-      self._streamContent = fullContent;
-      self._flushStream();
-      var msgs = self.data.messages.slice();
-      var idx = msgs.findIndex(function (m) { return m.id === aiMsgId; });
-      if (idx !== -1) {
-        var updates = {};
-        if (extra && extra.sources && extra.sources.length > 0) {
-          updates.sources = extra.sources;
-        }
-        if (extra && extra.webSearchResults && extra.webSearchResults.length > 0) {
-          updates.webSearchResults = extra.webSearchResults;
-        }
-        if (Object.keys(updates).length > 0) {
-          msgs[idx] = Object.assign({}, msgs[idx], updates);
-          self.setData({ messages: msgs });
-        }
-      }
-      self.setData({ isLoading: false });
-      self.scrollToBottom();
-      self._persistChat();
-    }, function (err) {
-      self._streamTask = null;
-      if (self._streamTimer) { clearTimeout(self._streamTimer); self._streamTimer = null; }
-      var errMsg = { id: aiMsgId, uid: aiMsgId, role: 'ai', content: '抱歉，AI 暂时无法回复：' + err.message, time: aiTime, isError: true };
-      self.setData({ messages: self.data.messages.concat([errMsg]), isLoading: false });
-      self.scrollToBottom();
-    });
+    );
   },
 
-  _streamVersion: 0,
-
-  _flushStream: function () {
-    var msgs = this.data.messages.slice();
-    var idx = -1;
-    for (var i = 0; i < msgs.length; i++) {
-      if (msgs[i].id === this._streamMsgId) { idx = i; break; }
+  onStopStream() {
+    if (this._streamFlushTimer) {
+      clearInterval(this._streamFlushTimer);
+      this._streamFlushTimer = null;
     }
-    this._streamVersion++;
-    var aiMsg = { id: this._streamMsgId, uid: this._streamMsgId + '_v' + this._streamVersion, role: 'ai', content: this._streamContent, time: this._streamTime };
-    if (idx !== -1) {
-      msgs[idx] = aiMsg;
-    } else {
-      msgs.push(aiMsg);
-    }
-    this.setData({ messages: msgs });
-  },
-
-  onStopStream: function () {
+    this._pendingStreamContent = null;
     if (this._streamTask && typeof this._streamTask.abort === 'function') {
       this._streamTask.abort();
+      this._streamTask = null;
     }
-    if (this._streamTimer) {
-      clearTimeout(this._streamTimer);
-      this._streamTimer = null;
-    }
-    if (this._streamContent) {
-      this._flushStream();
-      this._persistChat();
-    }
-    this._streamTask = null;
     this.setData({ isLoading: false });
   },
 
-  onQuickPrompt: function (e) {
+  onQuickPrompt(e) {
     this.setData({ inputText: e.currentTarget.dataset.prompt });
   },
 
-  onApplyToCard: function (e) {
-    var msgId = e.currentTarget.dataset.msgId;
-    var msg = this.data.messages.find(function (m) { return m.id === msgId; });
-    if (!msg || !this.data.cardId) return;
+  onSaveAsNewCard(e) {
+    const msgId = e.currentTarget.dataset.msgId;
+    const msg = this.data.messages.find((m) => m.id === msgId);
+    if (!msg) return;
 
-    var app = getApp();
-    var card = app.getCardById(this.data.cardId);
-    if (card) {
-      var newContent = card.content + '\n\n--- AI建议 ---\n' + msg.content;
-      app.updateCard(this.data.cardId, { content: newContent });
-    }
-    wx.showToast({ title: '已应用到卡片', icon: 'success' });
+    const lines = msg.content.trim().split('\n');
+    const title = lines[0].replace(/^[#\s]+/, '').slice(0, 30) || 'AI 灵感';
+
+    const app = getApp();
+    app.addCard({
+      title,
+      content: msg.content,
+      isTemp: false,
+      parentCardIds: this.data.cardId ? [this.data.cardId] : [],
+    });
+    wx.showToast({ title: '已存为新卡片', icon: 'success' });
   },
 
-  onChangeContext: function () {
+  onChangeContext() {
     this.setData({ showCardPicker: true });
   },
 
-  onContextPickerSelect: function (e) {
-    var app = getApp();
-    var card = app.getCardById(e.detail.id);
+  onContextPickerSelect(e) {
+    const app = getApp();
+    const card = app.getCardById(e.detail.id);
     if (card) {
       this.setData({ contextCard: card, cardId: card.id, messages: [], chatId: '' });
-      var chat = app.getChatByCardId(card.id);
+      const chat = app.getChatByCardId(card.id);
       if (chat) {
-        var msgs = chat.messages.map(function (m) {
-          return m.uid ? m : Object.assign({}, m, { uid: m.id });
-        });
+        const msgs = chat.messages.map((m) => m.uid ? m : { ...m, uid: m.id });
         this.setData({ messages: msgs, chatId: chat.id });
       }
     }
     this.setData({ showCardPicker: false });
   },
 
-  onContextPickerClose: function () {
+  onContextPickerClose() {
     this.setData({ showCardPicker: false });
   },
 
-  onMsgLongPress: function (e) {
-    var msgId = e.currentTarget.dataset.msgId;
-    var self = this;
+  onMsgLongPress(e) {
+    const msgId = e.currentTarget.dataset.msgId;
     wx.showActionSheet({
       itemList: ['复制内容', '删除消息'],
-      success: function (res) {
+      success: (res) => {
         if (res.tapIndex === 0) {
-          var msg = self.data.messages.find(function (m) { return m.id === msgId; });
-          if (msg) {
-            wx.setClipboardData({ data: msg.content });
-          }
+          const msg = this.data.messages.find((m) => m.id === msgId);
+          if (msg) wx.setClipboardData({ data: msg.content });
         } else if (res.tapIndex === 1) {
-          var newMessages = self.data.messages.filter(function (m) { return m.id !== msgId; });
-          self.setData({ messages: newMessages });
-          self._persistChat();
+          const newMessages = this.data.messages.filter((m) => m.id !== msgId);
+          this.setData({ messages: newMessages });
+          this._persistChat();
           wx.showToast({ title: '已删除', icon: 'success' });
         }
       },
     });
   },
 
-  onSourceTap: function (e) {
-    var cardId = e.currentTarget.dataset.id;
+  onSourceTap(e) {
+    const cardId = e.currentTarget.dataset.id;
     if (cardId) {
-      wx.navigateTo({ url: '/pages/card-detail/card-detail?id=' + cardId });
+      wx.navigateTo({ url: `/pages/card-detail/card-detail?id=${cardId}` });
     }
   },
 
-  scrollToBottom: function () {
-    var self = this;
-    setTimeout(function () {
-      self.setData({ scrollTarget: 'scroll-bottom' });
+  noop() {},
+
+  onToggleHistory() {
+    if (this.data.showHistory) {
+      this.setData({ showHistory: false });
+      return;
+    }
+    const chats = (getApp().globalData.aiChats || []).slice().reverse().map((c) => ({
+      ...c,
+      _displayCount: c.messageCount || (c.messages ? c.messages.length : 0),
+    }));
+    this.setData({ chatHistory: chats, showHistory: true });
+  },
+
+  onSelectHistoryChat(e) {
+    const chatId = e.currentTarget.dataset.id;
+    const app = getApp();
+    const chat = app.globalData.aiChats.find((c) => c.id === chatId);
+    if (!chat) return;
+    const msgs = (chat.messages || []).map((m) => m.uid ? m : { ...m, uid: m.id });
+    this.setData({
+      messages: msgs,
+      chatId: chat.id,
+      cardId: chat.cardId || '',
+      showHistory: false,
+    });
+    if (chat.cardId) {
+      const card = app.getCardById(chat.cardId);
+      if (card) this.setData({ contextCard: card });
+    }
+    this.scrollToBottom();
+  },
+
+  onDeleteHistoryChat(e) {
+    const idx = e.currentTarget.dataset.idx;
+    const chat = this.data.chatHistory[idx];
+    if (!chat) return;
+    wx.showModal({
+      title: '删除对话',
+      content: '确定删除此对话？',
+      success: (res) => {
+        if (res.confirm) {
+          getApp().deleteChat(chat.id);
+          const chats = this.data.chatHistory.slice();
+          chats.splice(idx, 1);
+          this.setData({ chatHistory: chats });
+          if (this.data.chatId === chat.id) {
+            this.setData({ messages: [], chatId: '', cardId: '', contextCard: null });
+          }
+          wx.showToast({ title: '已删除', icon: 'success' });
+        }
+      },
+    });
+  },
+
+  scrollToBottom() {
+    setTimeout(() => {
+      this.setData({ scrollTarget: 'scroll-bottom' });
     }, 150);
   },
 });

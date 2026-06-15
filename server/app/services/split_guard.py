@@ -1,14 +1,17 @@
 """SplitGuard — prevents excessive forking in chat conversations.
 
 Checks three conditions before allowing a fork:
-1. At least N messages have been exchanged since the last fork divider.
-2. No sibling fork shares the same branch label.
-3. Cooldown period (in messages) has elapsed since the last fork in this chat.
+1. At least N messages have been exchanged since the last fork divider IN THIS BRANCH.
+2. No sibling fork shares the same branch label (scoped to the same parent branch).
+3. At least M messages have been exchanged since the most recent fork divider ANYWHERE
+   in the chat (global cross-branch cooldown). This prevents immediately nesting a fork
+   inside a freshly created child branch.
+
+All checks are pure DB queries — no in-memory state, so they work correctly across
+multiple uvicorn workers and survive process restarts.
 """
 
 import logging
-import time
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 async def get_last_fork_message(
     db: AsyncSession, chat_id: str, fork_id: str | None
-) -> dict[str, Any] | None:
+) -> dict | None:
     """Get the last fork-divider message in the current branch scope."""
     query = (
         select(ChatMessage)
@@ -43,7 +46,7 @@ async def get_last_fork_message(
 async def get_message_count_since(
     db: AsyncSession,
     chat_id: str,
-    since_msg: dict[str, Any] | None,
+    since_msg: dict | None,
     fork_id: str | None,
 ) -> int:
     """Count user/assistant messages since the last fork divider."""
@@ -62,32 +65,67 @@ async def get_message_count_since(
 async def get_sibling_fork_labels(
     db: AsyncSession, chat_id: str, fork_id: str | None
 ) -> list[str]:
-    """Get labels of sibling forks (same parent scope)."""
+    """Get labels of sibling forks scoped to the same parent branch.
+
+    Only looks at fork-dividers whose fork_id matches the current branch scope,
+    preventing false duplicate-label rejections across unrelated branches.
+    """
     query = select(ChatMessage).where(
         ChatMessage.chat_id == chat_id,
         ChatMessage.role == "fork-divider",
     )
+    if fork_id:
+        query = query.where(ChatMessage.fork_id == fork_id)
+    else:
+        query = query.where(ChatMessage.fork_id.is_(None))
     result = await db.execute(query)
     messages = result.scalars().all()
-    labels: list[str] = []
-    for msg in messages:
-        meta = msg.metadata_ or {}
-        label = meta.get("branch_label", "")
-        if label:
-            labels.append(label)
-    return labels
+    return [
+        meta["branch_label"]
+        for m in messages
+        if (meta := (m.metadata_ or {})) and meta.get("branch_label")
+    ]
+
+
+async def get_global_messages_since_last_fork(
+    db: AsyncSession, chat_id: str
+) -> int:
+    """Count user/assistant messages since the most recent fork-divider anywhere in chat.
+
+    Returns 0 if no fork has ever occurred (first fork is always allowed by this check).
+    Returns a large sentinel (9999) when no prior fork exists so condition 3 is skipped.
+    """
+    latest_fork = await db.execute(
+        select(ChatMessage.created_at)
+        .where(ChatMessage.chat_id == chat_id, ChatMessage.role == "fork-divider")
+        .order_by(ChatMessage.created_at.desc())
+        .limit(1)
+    )
+    last_fork_at = latest_fork.scalar_one_or_none()
+    if last_fork_at is None:
+        return 9999  # No prior fork — skip global cooldown
+
+    count_result = await db.execute(
+        select(func.count()).select_from(ChatMessage).where(
+            ChatMessage.chat_id == chat_id,
+            ChatMessage.role.in_(["user", "assistant"]),
+            ChatMessage.created_at > last_fork_at,
+        )
+    )
+    return count_result.scalar() or 0
 
 
 class SplitGuard:
     """Prevent excessive forking in chat conversations.
 
-    Tracks split history per chat for cooldown enforcement.
+    All state is derived from the DB on each call — no instance state,
+    so the singleton is safe across workers.
 
     Args:
-        min_messages_between_forks: Minimum number of user/assistant messages
-            required between consecutive fork dividers.
-        cooldown_messages: Minimum messages after a fork before another is
-            allowed in the same chat (across all branches).
+        min_messages_between_forks: Minimum user/assistant messages required
+            in the current branch since the last fork-divider (branch-local check).
+        cooldown_messages: Minimum user/assistant messages required globally
+            (any branch) since the most recent fork-divider (cross-branch check).
     """
 
     def __init__(
@@ -97,29 +135,9 @@ class SplitGuard:
     ):
         self.min_messages_between_forks = min_messages_between_forks
         self.cooldown_messages = cooldown_messages
-        # In-memory history: chat_id -> list of (timestamp, message_count) tuples
-        self._split_history: dict[str, list[tuple[float, int]]] = {}
 
     def record_split(self, chat_id: str, message_count: int) -> None:
-        """Record a fork event for cooldown tracking."""
-        self._split_history.setdefault(chat_id, []).append(
-            (time.monotonic(), message_count)
-        )
-        # Keep only last 10 entries per chat to avoid unbounded growth
-        if len(self._split_history[chat_id]) > 10:
-            self._split_history[chat_id] = self._split_history[chat_id][-10:]
-
-    def _messages_since_last_split(self, chat_id: str) -> int | None:
-        """Get approximate messages elapsed since last recorded split.
-
-        Returns None if no split history exists.
-        """
-        history = self._split_history.get(chat_id)
-        if not history:
-            return None
-        # We can't directly count messages from monotonic time, so we
-        # return a sentinel that the caller will check against DB count.
-        return len(history)
+        """No-op: state is now fully DB-driven."""
 
     async def can_fork(
         self,
@@ -130,24 +148,23 @@ class SplitGuard:
     ) -> bool:
         """Check whether a new fork is allowed.
 
-        Returns ``True`` when all conditions pass:
-        1. Enough messages since the last fork divider (DB check).
-        2. The proposed *label* is unique among sibling forks.
-        3. Cooldown period has elapsed since last fork in this chat.
+        Returns True when all conditions pass:
+        1. Enough messages in this branch since the last branch-local fork-divider.
+        2. The proposed label is unique among siblings in the same branch scope.
+        3. Enough messages globally since the most recent fork anywhere in the chat.
         """
-        # 1. Message interval check — only applies after the first fork
+        # 1. Branch-local message interval (skipped if no prior fork in this branch)
         last_fork = await get_last_fork_message(db, chat_id, current_fork_id)
         if last_fork is not None:
             msg_count = await get_message_count_since(db, chat_id, last_fork, current_fork_id)
             if msg_count < self.min_messages_between_forks:
                 logger.info(
-                    "SplitGuard: blocked fork, only %d messages since last fork (need %d)",
-                    msg_count,
-                    self.min_messages_between_forks,
+                    "SplitGuard: blocked fork, only %d messages since last branch fork (need %d)",
+                    msg_count, self.min_messages_between_forks,
                 )
                 return False
 
-        # 2. Duplicate label check
+        # 2. Duplicate label check (scoped to sibling branches only)
         siblings = await get_sibling_fork_labels(db, chat_id, current_fork_id)
         if label in siblings:
             logger.info(
@@ -156,24 +173,16 @@ class SplitGuard:
             )
             return False
 
-        # 3. Cooldown check — ensure enough messages since last fork in this chat
-        history = self._split_history.get(chat_id)
-        if history:
-            last_split_time = history[-1][0]
-            elapsed = time.monotonic() - last_split_time
-            # Convert cooldown_messages to a rough time estimate
-            # (assuming ~5s per message turn as minimum)
-            min_cooldown_secs = self.cooldown_messages * 5
-            if elapsed < min_cooldown_secs:
-                logger.info(
-                    "SplitGuard: blocked fork, cooldown active (%.1fs < %ds)",
-                    elapsed,
-                    min_cooldown_secs,
-                )
-                return False
+        # 3. Global cross-branch cooldown
+        global_count = await get_global_messages_since_last_fork(db, chat_id)
+        if global_count < self.cooldown_messages:
+            logger.info(
+                "SplitGuard: blocked fork, global cooldown (%d messages since last fork, need %d)",
+                global_count, self.cooldown_messages,
+            )
+            return False
 
         return True
 
 
-# Module-level singleton for convenient import
 split_guard = SplitGuard()

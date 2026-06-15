@@ -14,12 +14,39 @@ export type StreamEventType =
   | "auto_fork"
   | "fork_created"
   | "content_replace"
+  | "tool_executing"
   | "tool_executed"
+  | "thinking"
+  | "context_debug"
   | "done"
   | "error"
   | "cancelled"
   | "pong"
   | "ws_reconnected";
+
+export interface ContextDebugData {
+  retrieval_level: number;
+  reasoning_paths: Array<{ entities: string[]; relations: string[]; score: number }>;
+  card_scores: number[];
+  entities: Array<{ entity_id: string; name: string; entity_type?: string; relations: any[]; linked_card_titles: string[] }>;
+  topology_path: any[];
+  node_card_titles: string[];
+  cross_refs: any[];
+  source_cards: Array<{ id: string; title: string; content: string; keywords: string[]; color?: string }>;
+  entity_context: string;
+  topology_context: string;
+  community_context: string;
+  branch_context: string;
+  web_search_results: Array<{ title: string; snippet: string; url: string }>;
+  system_prompt: string;
+}
+
+export interface ToolCall {
+  name: string;
+  arguments: Record<string, any>;
+  result: string;
+  status?: "pending" | "done";
+}
 
 export interface StreamEvent {
   type: StreamEventType;
@@ -35,7 +62,9 @@ export interface StreamEvent {
   divider_msg_id?: string;    // fork_created: ID of backend-created fork-divider
   profile?: string;           // fork_created: profile name (deep_dive, explore, etc.)
   tool_name?: string;         // tool_executed: name of the executed tool
+  arguments?: Record<string, any>;  // tool_executed: tool call arguments
   result?: string;            // tool_executed: result of tool execution
+  context_debug?: ContextDebugData;  // context_debug: full retrieval metadata
   metadata?: Record<string, unknown>;
 }
 
@@ -60,6 +89,7 @@ export interface RAGMessage {
   history?: Array<{ role: string; content: string }>;
   current_fork_id?: string;
   chat_id?: string;
+  context_card_ids?: string[];  // Explicitly mentioned cards to include in context
 }
 
 export interface CancelMessage {
@@ -142,6 +172,13 @@ export class UnifiedWSClient {
 
     this.ws.onerror = (err) => {
       console.error("WS error:", err);
+      // Some environments fire onerror without a subsequent close event.
+      // Trigger reconnect here so the client doesn't silently go dead.
+      if (!this.intentionalClose) {
+        this.ws = null;
+        this.stopHeartbeat();
+        this.attemptReconnect();
+      }
     };
   }
 
@@ -174,6 +211,7 @@ export class UnifiedWSClient {
 
       if (Date.now() - this.lastReceivedAt > HEARTBEAT_TIMEOUT_MS) {
         console.warn("Heartbeat timeout, closing connection");
+        this.stopHeartbeat(); // stop before close to prevent re-entry
         this.ws.close();
         return;
       }

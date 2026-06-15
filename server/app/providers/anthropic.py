@@ -213,6 +213,7 @@ class AnthropicProvider(LLMProvider):
 
         current_tool: dict[str, str] | None = None
         has_tool_calls = False
+        current_thinking: dict[str, str] | None = None
 
         for attempt in range(4):
             try:
@@ -247,6 +248,8 @@ class AnthropicProvider(LLMProvider):
                                         "arguments_str": "",
                                     }
                                     has_tool_calls = True
+                                elif block.get("type") == "thinking":
+                                    current_thinking = {"content": ""}
 
                             elif event_type == "content_block_delta":
                                 delta = event.get("delta", {})
@@ -254,6 +257,12 @@ class AnthropicProvider(LLMProvider):
                                     text = delta.get("text", "")
                                     if text:
                                         yield text
+                                elif delta.get("type") == "thinking_delta":
+                                    text = delta.get("thinking", "")
+                                    if text:
+                                        if current_thinking is not None:
+                                            current_thinking["content"] += text
+                                        yield {"type": "thinking", "content": text}
                                 elif delta.get("type") == "input_json_delta" and current_tool:
                                     current_tool["arguments_str"] += delta.get("partial_json", "")
 
@@ -267,6 +276,8 @@ class AnthropicProvider(LLMProvider):
                                         "arguments": json.loads(args_str),
                                     }
                                     current_tool = None
+                                if current_thinking is not None:
+                                    current_thinking = None
 
                             elif event_type == "message_stop":
                                 if has_tool_calls:

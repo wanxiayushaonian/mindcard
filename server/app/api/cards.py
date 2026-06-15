@@ -305,7 +305,9 @@ async def delete_card_preview(
     card = await db.get(Card, parse_uuid(card_id))
     if not card:
         raise HTTPException(status_code=404, detail="卡片不存在")
-    await get_workspace_membership(card.workspace_id, user, db)
+    membership = await get_workspace_membership(card.workspace_id, user, db)
+    if not can_edit_card(membership, card, user):
+        raise HTTPException(status_code=403, detail="只能预览自己创建的卡片")
 
     card_uuid = parse_uuid(card_id)
     from sqlalchemy import func, select

@@ -6,6 +6,7 @@ from .chat import AiChat, ChatMessage
 from .comment import Comment
 from .graph import Community, CommunityReport, EntityCard, GraphEntity, GraphRelation
 from .notification import Notification
+from .synthesis_template import SynthesisTemplate
 from .topic import Topic, TopicCard
 from .topology import NodeCard, NodeRef
 from .user import User
@@ -33,4 +34,5 @@ __all__ = [
     "Community",
     "CommunityReport",
     "BranchInsight",
+    "SynthesisTemplate",
 ]

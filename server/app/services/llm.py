@@ -159,4 +159,12 @@ class LLMService:
             yield chunk
 
 
-llm_service = LLMService()
+def get_llm_service() -> LLMService:
+    """Lazy singleton — created on first access, not at import time."""
+    global _llm_service
+    if _llm_service is None:
+        _llm_service = LLMService()
+    return _llm_service
+
+
+_llm_service: LLMService | None = None
