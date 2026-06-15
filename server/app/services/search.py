@@ -35,8 +35,17 @@ class SearchService:
         Two-path strategy:
         - Path A: query CardChunk embeddings (best chunk distance per card)
         - Path B: fallback to Card.embedding for cards that have no chunks
-        Results are merged and returned sorted by score descending.
+
+        Note: Path A scores (best-chunk distance) and Path B scores (whole-card
+        distance) are in the same metric space (cosine distance → score via
+        1 - dist/2) but are not directly commensurable — long cards scored via
+        their best chunk may rank higher than short cards scored via their whole
+        embedding. This is accepted as a desirable property (precise chunk match
+        is semantically relevant) rather than a ranking artefact.
         """
+        if not query.strip():
+            return []
+
         try:
             query_embedding = await embedding_service.embed(query)
         except Exception as e:
@@ -47,6 +56,8 @@ class SearchService:
 
         # ------------------------------------------------------------------
         # Path A: find best-matching chunk per card
+        # (uses inline JOIN for workspace filter — _ws_filter targets Card
+        #  directly, but here we start from CardChunk, so we join manually)
         # ------------------------------------------------------------------
         chunk_stmt = (
             select(
@@ -84,16 +95,16 @@ class SearchService:
         # ------------------------------------------------------------------
         fallback_limit = limit - len(scored)
         if fallback_limit > 0:
-            fb_stmt = select(Card).where(Card.embedding.is_not(None))
+            dist_label = Card.embedding.cosine_distance(query_embedding).label("dist")
+            fb_stmt = select(Card, dist_label).where(Card.embedding.is_not(None))
             for f in _ws_filter(workspace_ids):
                 fb_stmt = fb_stmt.where(f)
             if chunked_card_ids:
                 fb_stmt = fb_stmt.where(Card.id.not_in(chunked_card_ids))
-            fb_stmt = fb_stmt.order_by(Card.embedding.cosine_distance(query_embedding)).limit(fallback_limit)
+            fb_stmt = fb_stmt.order_by("dist").limit(fallback_limit)
             fb_result = await db.execute(fb_stmt)
-            for card in fb_result.scalars().all():
-                dist = np_distance(card.embedding, query_embedding)
-                scored.append(ScoredCard(card=card, score=1.0 - dist / 2.0))
+            for card, dist in fb_result.all():
+                scored.append(ScoredCard(card=card, score=1.0 - float(dist) / 2.0))
 
         # Sort combined results by score descending, return top `limit`
         scored.sort(key=lambda x: x.score, reverse=True)

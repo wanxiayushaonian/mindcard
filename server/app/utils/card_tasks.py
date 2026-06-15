@@ -117,26 +117,31 @@ async def _process_card(
         from app.models.card_chunk import CardChunk
         from sqlalchemy import delete
 
-        chunks = embedding_service.split_text_into_chunks(
-            db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag
-        )
-        # Always delete stale chunks first (handles content edits)
-        await db.execute(delete(CardChunk).where(CardChunk.card_id == db_card.id))
-        if len(chunks) > 1:
-            chunk_embeddings = await embedding_service.embed_batch(chunks)
-            for idx, (chunk_text, chunk_emb) in enumerate(zip(chunks, chunk_embeddings)):
-                db.add(CardChunk(
-                    card_id=db_card.id,
-                    chunk_index=idx,
-                    chunk_text=chunk_text,
-                    embedding=chunk_emb,
-                ))
-        await db.commit()
-        logger.info(
-            "Chunk storage: card %s → %d chunks",
-            card_id,
-            len(chunks) if len(chunks) > 1 else 0,
-        )
+        try:
+            chunks = embedding_service.split_text_into_chunks(
+                db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag
+            )
+            # Always delete stale chunks first (handles content edits)
+            await db.execute(delete(CardChunk).where(CardChunk.card_id == db_card.id))
+            is_chunked = len(chunks) > 1
+            if is_chunked:
+                chunk_embeddings = await embedding_service.embed_batch(chunks)
+                if len(chunk_embeddings) != len(chunks):
+                    raise ValueError(
+                        f"embed_batch returned {len(chunk_embeddings)} vectors for {len(chunks)} chunks"
+                    )
+                for idx, (chunk_text, chunk_emb) in enumerate(zip(chunks, chunk_embeddings)):
+                    db.add(CardChunk(
+                        card_id=db_card.id,
+                        chunk_index=idx,
+                        chunk_text=chunk_text,
+                        embedding=chunk_emb,
+                    ))
+            await db.commit()
+            logger.info("Chunk storage: card %s → %d chunks stored", card_id, len(chunks) if is_chunked else 0)
+        except Exception as e:
+            await db.rollback()
+            logger.warning("Chunk embedding failed for card %s, continuing pipeline: %s", card_id, e)
 
         # 2. Assign to topic
         from app.services.topic import topic_service
