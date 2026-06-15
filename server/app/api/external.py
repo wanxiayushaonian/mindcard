@@ -157,7 +157,7 @@ async def create_card(
         title=title,
         content=content,
         keywords=keywords,
-        is_temp=False,
+        is_temp=True,
     )
     db.add(card)
     await db.flush()
