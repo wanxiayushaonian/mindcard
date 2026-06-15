@@ -46,8 +46,11 @@ async def test_compress_compress_strategy(compressor):
         {"role": "user", "content": "什么是RAG？"},
         {"role": "assistant", "content": "RAG是检索增强生成，结合了检索和生成两种能力。"},
     ]
-    with patch("app.services.fork_compress.llm_service") as mock_llm:
+    with patch("app.services.fork_compress.get_llm_service") as mock_get_llm:
+        from unittest.mock import MagicMock
+        mock_llm = MagicMock()
         mock_llm.complete_simple = AsyncMock(return_value="主题：RAG原理\n关键结论：RAG结合检索和生成")
+        mock_get_llm.return_value = mock_llm
         result = await compressor.compress(messages, strategy="compress")
         assert "RAG原理" in result
         mock_llm.complete_simple.assert_called_once()

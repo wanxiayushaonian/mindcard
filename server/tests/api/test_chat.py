@@ -91,6 +91,7 @@ class TestGetChat:
 
     async def test_get_chat_forbidden(self, client, mock_db, test_user):
         chat = make_mock_chat(user_id=uuid.uuid4())  # different user
+        chat.workspace_id = None  # no workspace → direct 403 without membership check
 
         mock_db.get = AsyncMock(return_value=chat)
 
@@ -159,6 +160,7 @@ class TestDeleteChat:
         chat = make_mock_chat(user_id=test_user.id)
 
         mock_db.get = AsyncMock(return_value=chat)
+        mock_db.execute = AsyncMock(return_value=mock_execute_result())
 
         resp = await client.delete(f"/api/chats/{chat.id}")
 

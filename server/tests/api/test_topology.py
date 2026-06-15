@@ -131,23 +131,22 @@ class TestGetNode:
     async def test_get_node_success(self, client, mock_db, test_user, test_workspace, test_membership):
         node = make_mock_chat(workspace_id=test_workspace.id, node_type="root", title="主线")
 
-        mock_db.get = AsyncMock(return_value=node)
         mock_db.execute = AsyncMock(side_effect=[
-            mock_execute_result(scalar_one=test_membership),  # membership
-            mock_execute_result(),                             # card_ids
-            mock_execute_result(),                             # child_ids
-            mock_execute_result(),                             # ref_ids
+            mock_execute_result(scalar_one=node),  # join query returns node
+            mock_execute_result(),                  # card_ids
+            mock_execute_result(),                  # child_ids
+            mock_execute_result(),                  # ref_ids
         ])
 
-        resp = await client.get(f"/api/topology/{node.id}")
+        resp = await client.get(f"/api/topology/nodes/{node.id}")
 
         assert resp.status_code == 200
         assert resp.json()["title"] == "主线"
 
     async def test_get_node_not_found(self, client, mock_db):
-        mock_db.get = AsyncMock(return_value=None)
+        mock_db.execute = AsyncMock(return_value=mock_execute_result(scalar_one=None))
 
-        resp = await client.get(f"/api/topology/{uuid.uuid4()}")
+        resp = await client.get(f"/api/topology/nodes/{uuid.uuid4()}")
 
         assert resp.status_code == 404
 

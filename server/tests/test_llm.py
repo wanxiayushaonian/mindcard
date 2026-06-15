@@ -78,7 +78,7 @@ class TestCompleteSimple:
 
         service = LLMService.__new__(LLMService)
         service._provider = MagicMock()
-        service._provider.chat = AsyncMock(return_value="  response  ")
+        service._provider.chat = AsyncMock(return_value=MagicMock(content="  response  "))
         service._extraction_provider = None
 
         result = await service.complete_simple(
@@ -103,7 +103,7 @@ class TestCompleteSimple:
 
         service = LLMService.__new__(LLMService)
         service._provider = MagicMock()
-        service._provider.chat = AsyncMock(return_value="\n\n  hello world  \n")
+        service._provider.chat = AsyncMock(return_value=MagicMock(content="\n\n  hello world  \n"))
         service._extraction_provider = None
 
         result = await service.complete_simple("sys", "user")

@@ -70,7 +70,7 @@ class TestFindSimilarEntity:
         db.execute = AsyncMock(return_value=mock_result)
 
         result = await linker._find_similar_entity(
-            "Python", [1.0, 0.0, 0.0], uuid.uuid4()
+            "Python", None, [1.0, 0.0, 0.0], uuid.uuid4()
         )
 
         assert result is existing
@@ -89,7 +89,7 @@ class TestFindSimilarEntity:
         db.execute = AsyncMock(return_value=mock_result)
 
         result = await linker._find_similar_entity(
-            "Python", [1.0, 0.0, 0.0], uuid.uuid4()
+            "Python", None, [1.0, 0.0, 0.0], uuid.uuid4()
         )
 
         assert result is existing
@@ -109,7 +109,7 @@ class TestFindSimilarEntity:
 
         # Dot product of [1,0,0] and [0,1,0] = 0, below threshold 0.85
         result = await linker._find_similar_entity(
-            "Python", [1.0, 0.0, 0.0], uuid.uuid4()
+            "Python", None, [1.0, 0.0, 0.0], uuid.uuid4()
         )
 
         assert result is None

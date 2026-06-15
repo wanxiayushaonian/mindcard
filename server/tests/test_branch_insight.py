@@ -126,9 +126,11 @@ async def test_create_insight_endpoint():
     mock_db.add = MagicMock()
     mock_db.commit = AsyncMock()
     mock_db.refresh = AsyncMock()
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
 
     # After refresh, the insight object should have its fields populated
-    result = await create_insight(chat_id=str(source_id), body=body, db=mock_db)
+    result = await create_insight(chat_id=str(source_id), body=body, db=mock_db, user=mock_user)
 
     mock_db.add.assert_called_once()
     mock_db.commit.assert_awaited_once()
@@ -154,10 +156,12 @@ async def test_get_insights_endpoint():
 
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
 
-    result = await get_insights(chat_id=chat_id, consumed=None, db=mock_db)
+    result = await get_insights(chat_id=chat_id, consumed=None, db=mock_db, user=mock_user)
 
-    mock_db.execute.assert_awaited_once()
+    assert mock_db.execute.await_count == 2
     assert len(result) == 1
 
 
@@ -172,8 +176,10 @@ async def test_get_insights_with_consumed_filter():
 
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
 
-    result = await get_insights(chat_id=chat_id, consumed=True, db=mock_db)
+    result = await get_insights(chat_id=chat_id, consumed=True, db=mock_db, user=mock_user)
 
-    mock_db.execute.assert_awaited_once()
+    assert mock_db.execute.await_count == 2
     assert result == []
