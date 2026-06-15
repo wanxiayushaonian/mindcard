@@ -25,6 +25,25 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _build_crystallize_card_kwargs(
+    workspace_id: str,
+    user_id: str,
+    title: str,
+    summary: str,
+    keywords: list[str],
+) -> dict:
+    """Return kwargs for constructing a crystallize Card with is_temp=True."""
+    return dict(
+        local_id=f"summary_{uuid.uuid4().hex[:16]}",
+        workspace_id=workspace_id,
+        creator_id=user_id,
+        title=title,
+        content=summary,
+        keywords=keywords or [],
+        is_temp=True,
+    )
+
+
 async def _require_chat_access(chat: AiChat, user: User, db: AsyncSession) -> None:
     """Verify user can access this chat: owner OR workspace member."""
     if chat.user_id == user.id:
@@ -678,15 +697,13 @@ async def _generate_summary_card(
                 keywords = [kw.strip() for kw in kw_raw.split(",") if kw.strip()][:5]
 
             # Create card
-            card = Card(
-                local_id=f"summary_{uuid.uuid4().hex[:16]}",
+            card = Card(**_build_crystallize_card_kwargs(
                 workspace_id=workspace_id,
-                creator_id=user_id,
+                user_id=user_id,
                 title=title,
-                content=summary,
+                summary=summary,
                 keywords=keywords or [],
-                is_temp=False,
-            )
+            ))
             db.add(card)
             await db.flush()
 
