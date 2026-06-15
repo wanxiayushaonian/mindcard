@@ -98,6 +98,11 @@ async def _process_card(
             logger.warning("Card %s not found for processing", card_id)
             return
 
+        # Gate: temporary cards are not yet promoted into the knowledge index
+        if db_card.is_temp:
+            logger.info("Card %s is temporary, skipping pipeline", card_id)
+            return
+
         # 1. Generate embedding
         text = embedding_service.card_to_text(
             db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag
