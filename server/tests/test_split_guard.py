@@ -19,8 +19,9 @@ async def test_can_fork_first_fork(guard):
     with patch("app.services.split_guard.get_last_fork_message", new_callable=AsyncMock, return_value=None):
         with patch("app.services.split_guard.get_message_count_since", new_callable=AsyncMock, return_value=100):
             with patch("app.services.split_guard.get_sibling_fork_labels", new_callable=AsyncMock, return_value=[]):
-                result = await guard.can_fork(AsyncMock(), str(uuid.uuid4()), None, "新话题")
-                assert result is True
+                with patch("app.services.split_guard.get_global_messages_since_last_fork", new_callable=AsyncMock, return_value=9999):
+                    result = await guard.can_fork(AsyncMock(), str(uuid.uuid4()), None, "新话题")
+                    assert result is True
 
 
 @pytest.mark.asyncio
@@ -50,8 +51,9 @@ async def test_can_fork_unique_label(guard):
     with patch("app.services.split_guard.get_last_fork_message", new_callable=AsyncMock, return_value=None):
         with patch("app.services.split_guard.get_message_count_since", new_callable=AsyncMock, return_value=100):
             with patch("app.services.split_guard.get_sibling_fork_labels", new_callable=AsyncMock, return_value=["其他话题"]):
-                result = await guard.can_fork(AsyncMock(), str(uuid.uuid4()), fork_id, "新话题")
-                assert result is True
+                with patch("app.services.split_guard.get_global_messages_since_last_fork", new_callable=AsyncMock, return_value=9999):
+                    result = await guard.can_fork(AsyncMock(), str(uuid.uuid4()), fork_id, "新话题")
+                    assert result is True
 
 
 @pytest.mark.asyncio
@@ -60,8 +62,9 @@ async def test_can_fork_exact_min_messages(guard):
     with patch("app.services.split_guard.get_last_fork_message", new_callable=AsyncMock, return_value={"id": "msg1"}):
         with patch("app.services.split_guard.get_message_count_since", new_callable=AsyncMock, return_value=5):
             with patch("app.services.split_guard.get_sibling_fork_labels", new_callable=AsyncMock, return_value=[]):
-                result = await guard.can_fork(AsyncMock(), str(uuid.uuid4()), None, "新话题")
-                assert result is True
+                with patch("app.services.split_guard.get_global_messages_since_last_fork", new_callable=AsyncMock, return_value=9999):
+                    result = await guard.can_fork(AsyncMock(), str(uuid.uuid4()), None, "新话题")
+                    assert result is True
 
 
 @pytest.mark.asyncio
