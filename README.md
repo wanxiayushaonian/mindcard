@@ -140,12 +140,15 @@ mindcard-workspace/
 
 ### RAG Retrieval Levels
 
-| Level | Description |
-|-------|-------------|
-| `FREE` | Pure LLM chat, no retrieval |
-| `CARD` | Card-level vector + fulltext retrieval |
-| `GRAPH` | Graph-enhanced retrieval via GNN |
-| `FULL` | Full retrieval with topology path context |
+| Level | Value | Description |
+|-------|-------|-------------|
+| `CHAT` | 0 | Pure LLM chat, no retrieval |
+| `SEARCH` | 1 | Hybrid retrieval: BGE-M3 vector + fulltext RRF fusion |
+| `EXPLORE` | 2 | Graph-enhanced: entity match → 1/2-hop traversal → card scoring |
+| `CONTEXT` | 3 | EXPLORE + topology path context injection |
+| `INSIGHT` | 4 | Map-Reduce over community reports for global-scope queries |
+
+Auto-detection (`AUTO_LEVEL=-1`): queries <10 chars → `SEARCH`; keyword heuristics route to higher levels.
 
 ### Card Creation Pipeline
 
@@ -197,8 +200,8 @@ API docs: http://localhost:8000/docs
 
 ```bash
 cd web
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Visit http://localhost:3000
@@ -258,7 +261,7 @@ server/
 │   ├── providers/     # LLM provider abstraction (Factory + Registry pattern)
 │   ├── tools/         # LLM-callable tools: memory_edit, create_fork
 │   └── utils/         # Auth, rate limiting, WeChat integration, cursor pagination
-└── alembic/           # Database migrations (20 versioned migrations)
+└── alembic/           # Database migrations (38 versioned migrations)
 
 web/
 ├── app/

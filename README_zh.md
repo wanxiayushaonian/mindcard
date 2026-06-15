@@ -140,12 +140,15 @@ mindcard-workspace/
 
 ### RAG 检索层级
 
-| 层级 | 说明 |
-|------|------|
-| `FREE` | 纯 LLM 对话，不检索 |
-| `CARD` | 卡片级向量 + 全文检索 |
-| `GRAPH` | 图增强检索（GNN） |
-| `FULL` | 完整检索，含拓扑路径上下文 |
+| 层级 | 值 | 说明 |
+|------|-----|------|
+| `CHAT` | 0 | 纯 LLM 对话，不检索 |
+| `SEARCH` | 1 | 混合检索：BGE-M3 向量 + 全文检索 RRF 融合 |
+| `EXPLORE` | 2 | 图增强检索：实体匹配 → 1/2 跳图遍历 → 卡片打分 |
+| `CONTEXT` | 3 | EXPLORE + 拓扑树路径上下文注入 |
+| `INSIGHT` | 4 | 社区报告 Map-Reduce，适合全局性查询 |
+
+自动检测（`AUTO_LEVEL=-1`）：查询长度 <10 字符 → `SEARCH`；关键词启发式规则路由至更高层级。
 
 ### 卡片创建流水线
 
@@ -197,8 +200,8 @@ API 文档：http://localhost:8000/docs
 
 ```bash
 cd web
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 访问 http://localhost:3000
@@ -258,7 +261,7 @@ server/
 │   ├── providers/     # LLM 提供商抽象（工厂 + 注册表模式）
 │   ├── tools/         # LLM 可调工具：memory_edit、create_fork
 │   └── utils/         # 认证、限流、微信集成、游标分页
-└── alembic/           # 数据库迁移（20 个版本文件）
+└── alembic/           # 数据库迁移（38 个版本文件）
 
 web/
 ├── app/
