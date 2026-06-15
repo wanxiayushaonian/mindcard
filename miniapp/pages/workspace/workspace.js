@@ -1,5 +1,5 @@
 // pages/workspace/workspace.js
-var api = require('../../utils/api');
+const api = require('../../utils/api');
 
 const WS_ICONS = ['lightbulb', 'palette', 'book-open', 'flask-conical', 'music', 'rocket', 'sprout', 'brain', 'sparkles', 'flame'];
 
@@ -38,15 +38,14 @@ Page({
     inviteWsName: '',
     showJoinModal: false,
     joinCodeInput: '',
-    showMembersModal: false,
-    membersWsName: '',
-    membersList: [],
-    membersWsId: '',
   },
 
   onShow() {
-    var self = this;
-    getApp()._onDataReady(function () {
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ selected: 0 });
+    }
+    const self = this;
+    getApp()._onDataReady(() => {
       self.loadWorkspaces();
     });
   },
@@ -64,7 +63,7 @@ Page({
     const sharedWorkspaces = (app.globalData.sharedWorkspaces || []).map(ws => ({
       ...ws,
       icon: normalizeIcon(ws.icon),
-      _cardCount: 0, // shared spaces cards loaded separately
+      _cardCount: 0,
       _memberCount: (ws.members || []).length,
       _isShared: true,
     }));
@@ -73,7 +72,45 @@ Page({
       { id: '__add__', _type: 'add' },
       { id: '__join__', _type: 'join' },
     ];
+    // M2: card counts already computed from in-memory cards above;
+    // removed expensive full-pagination API loop from every onShow
     this.setData({ workspaces, sharedWorkspaces, gridItems });
+  },
+
+  async _loadAllCardCounts() {
+    const app = getApp();
+    const workspaces = app.globalData.workspaces;
+    const self = this;
+    const counts = {};
+
+    function loadWsCards(wsId) {
+      let allCards = [];
+      let cursor = null;
+      function loadPage() {
+        return api.cardsApi.list(wsId, cursor, 50).then((resp) => {
+          const items = Array.isArray(resp) ? resp : (resp.items || []);
+          allCards = allCards.concat(items);
+          cursor = (resp && resp.next_cursor) || null;
+          if (cursor) return loadPage();
+          counts[wsId] = allCards.length;
+        }).catch(() => { counts[wsId] = 0; });
+      }
+      return loadPage();
+    }
+
+    await Promise.all(workspaces.map((ws) => {
+      if (ws.id.indexOf('ws_') === 0) return Promise.resolve();
+      return loadWsCards(ws.id);
+    }));
+
+    const updatedWorkspaces = self.data.workspaces.map((ws) => ({
+      ...ws, _cardCount: counts[ws.id] || 0,
+    }));
+    const gridItems = updatedWorkspaces.concat([
+      { id: '__add__', _type: 'add' },
+      { id: '__join__', _type: 'join' },
+    ]);
+    self.setData({ workspaces: updatedWorkspaces, gridItems });
   },
 
   onStopPropagation() {},
@@ -93,11 +130,13 @@ Page({
     this.onWorkspaceLongPress(e);
   },
 
-  onWorkspaceTap(e) {
+  async onWorkspaceTap(e) {
     const id = e.currentTarget.dataset.id;
     const app = getApp();
-    app.switchWorkspace(id);
-    wx.navigateTo({ url: '/pages/index/index' });
+    wx.showLoading({ title: '加载中...', mask: true });
+    await app.switchWorkspace(id);
+    wx.hideLoading();
+    wx.switchTab({ url: '/pages/index/index' });
   },
 
   onWorkspaceLongPress(e) {
@@ -106,18 +145,7 @@ Page({
     const ws = app.globalData.workspaces.find(w => w.id === id);
     if (!ws) return;
 
-    const isOwner = ws.owner === app.globalData.currentUser.openId;
-    const options = ['编辑空间'];
-
-    if (isOwner || !ws.owner) {
-      options.push('分享空间');
-      if ((ws.members || []).length > 1) {
-        options.push('管理成员');
-      }
-    }
-    if (app.globalData.workspaces.length > 1) {
-      options.push('删除空间');
-    }
+    const options = ['编辑空间', '删除空间'];
 
     wx.showActionSheet({
       itemList: options,
@@ -131,10 +159,6 @@ Page({
             wsIcon: normalizeIcon(ws.icon),
             wsColor: ws.color,
           });
-        } else if (action === '分享空间') {
-          this.onShareWorkspace(id);
-        } else if (action === '管理成员') {
-          this.onManageMembers(id);
         } else if (action === '删除空间') {
           this.setData({
             showDeleteConfirm: true,
@@ -143,10 +167,6 @@ Page({
         }
       },
     });
-  },
-
-  onProfile() {
-    wx.navigateTo({ url: '/pages/profile/profile' });
   },
 
   // ── Share & Join ──
@@ -225,59 +245,6 @@ Page({
       wx.hideLoading();
       wx.showToast({ title: e.message || '加入失败', icon: 'none' });
     }
-  },
-
-  // ── Members ──
-
-  async onManageMembers(wsId) {
-    const app = getApp();
-    const ws = app.globalData.workspaces.find(w => w.id === wsId);
-    if (!ws) return;
-
-    this.setData({
-      showMembersModal: true,
-      membersWsId: wsId,
-      membersWsName: ws.name,
-      membersList: [],
-    });
-
-    // Fetch members from API
-    try {
-      const members = await api.get('/api/workspaces/' + wsId + '/members');
-      this.setData({ membersList: members || [] });
-    } catch (e) {
-      wx.showToast({ title: e.message || '加载成员失败', icon: 'none' });
-    }
-  },
-
-  onCloseMembersModal() {
-    this.setData({ showMembersModal: false });
-  },
-
-  onRemoveMember(e) {
-    const { userid, name } = e.currentTarget.dataset;
-    wx.showModal({
-      title: '移除成员',
-      content: '确定移除 ' + (name || '该成员') + '？',
-      success: async (res) => {
-        if (res.confirm) {
-          try {
-            const success = await getApp().removeMember(this.data.membersWsId, userid);
-            if (success) {
-              this.setData({
-                membersList: this.data.membersList.filter(function (m) { return String(m.user_id) !== String(userid); }),
-              });
-              this.loadWorkspaces();
-              wx.showToast({ title: '已移除', icon: 'success' });
-            } else {
-              wx.showToast({ title: '移除失败', icon: 'none' });
-            }
-          } catch (e) {
-            wx.showToast({ title: e.message || '移除失败', icon: 'none' });
-          }
-        }
-      },
-    });
   },
 
   // ── Create / Edit Modal ──

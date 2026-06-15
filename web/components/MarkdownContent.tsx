@@ -20,237 +20,11 @@ import remarkBreaks from "remark-breaks";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { Scissors } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { CodeBlock } from "@/components/CodeBlock";
+import { normalizeMarkdownForDisplay } from "@/lib/markdown-normalize";
 
 import "katex/dist/katex.min.css";
-
-// --- fixMarkdown: repair common AI markdown issues ---
-
-function fixMarkdown(text: string): string {
-  let s = text.replace(/\\n/g, "\n");
-
-  // Strip leading whitespace that would cause indented-code-block rendering.
-  // In standard Markdown, 4+ leading spaces = code block. AI output often
-  // indents prose uniformly, which should be rendered as normal text.
-  const rawLines = s.split("\n");
-  const indented = rawLines.filter((l) => /^\s{4,}\S/.test(l));
-  // If most lines have 4+ space indent, it's likely AI-formatted prose, not code
-  if (indented.length >= 2 && indented.length >= rawLines.filter((l) => l.trim().length > 0).length * 0.6) {
-    const minIndent = Math.min(...indented.map((l) => l.match(/^(\s*)/)?.[1]?.length ?? 0));
-    s = rawLines
-      .map((l) => (/^\s{4,}\S/.test(l) ? l.slice(minIndent) : l))
-      .join("\n");
-  }
-
-  // Step 0: Handle || as table row separator
-  const parts = s.split("||");
-  if (parts.length > 1) {
-    const merged: string[] = [parts[0]];
-    for (let i = 1; i < parts.length; i++) {
-      const prev = merged[merged.length - 1];
-      const part = parts[i];
-      const partTrimmed = part.trimStart();
-      const partIsSep = /^\s*-{2,}/.test(partTrimmed);
-      const partHasPipes = (partTrimmed.match(/\|/g) || []).length >= 2;
-
-      if (partIsSep || partHasPipes) {
-        const prevRstrip = prev.trimEnd();
-        if (prevRstrip.endsWith("|")) {
-          merged[merged.length - 1] = prev;
-        } else {
-          merged[merged.length - 1] = prevRstrip + "|";
-        }
-        merged.push(partTrimmed.startsWith("|") ? part : "|" + part);
-      } else {
-        merged[merged.length - 1] = prev + "||" + part;
-      }
-    }
-    s = merged.join("\n");
-  }
-
-  // Step 1: Add space after ## if missing
-  s = s.replace(/(#{1,6})([^\s#])/g, "$1 $2");
-
-  // Step 2: Insert newline before ## heading glued to text
-  s = s.replace(/([^\n])(#{1,6}\s)/g, "$1\n\n$2");
-
-  // Step 3: Line-by-line processing
-  const lines = s.split("\n");
-  const result: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    // Split text glued to table
-    if (!trimmed.startsWith("|") && /\|\s*\S+\s*\|/.test(trimmed)) {
-      const idx = trimmed.indexOf("|");
-      if (idx > 0) {
-        const textPart = trimmed.slice(0, idx).trim();
-        const tablePart = trimmed.slice(idx);
-        if (textPart) result.push(textPart);
-        result.push(tablePart);
-        continue;
-      }
-    }
-
-    // Bare separator rows like ------ ------ → convert to pipe format
-    if (/^-{2,}(\s+-{2,})+$/.test(trimmed)) {
-      const cols = trimmed.split(/\s+/).filter(Boolean).length;
-      result.push("|" + Array(Math.max(cols, 1)).fill("---").join("|") + "|");
-      continue;
-    }
-
-    // Already pipe-formatted rows (table or separator)
-    if (/^\|[\s\-:|]+\|$/.test(trimmed) || /^\|.+\|$/.test(trimmed)) {
-      result.push(line);
-      continue;
-    }
-
-    // Split inline "-xxx" after punctuation/brackets into new list items
-    // e.g., "发言。-阶段一" → "发言。\n- 阶段一"
-    // e.g., "内容）-当对话" → "内容）\n- 当对话"
-    let processed = line.replace(
-      /([。！？；：）】」》)\]}>])(-)([^\s])/g,
-      "$1\n- $3"
-    );
-    // Split inline "-xxx：yyy" glued to Chinese text (no preceding punctuation)
-    // e.g., "潜在挑战-数据一致性：xxx-存储成本：yyy"
-    //   → "潜在挑战\n- 数据一致性：xxx\n- 存储成本：yyy"
-    // Loop to handle multiple occurrences on the same line
-    let prev = "";
-    while (prev !== processed) {
-      prev = processed;
-      processed = processed.replace(
-        /([一-鿿])(-[一-鿿])/,
-        "$1\n$2"
-      );
-    }
-    // Normalize: "-Chinese" (no space) → "- Chinese" to ensure consistent list rendering
-    // This handles cases where the split gives "-知识联想" instead of "- 知识联想"
-    processed = processed.replace(/^(-)([一-鿿])/, "$1 $2");
-    result.push(processed);
-  }
-  s = result.join("\n");
-
-  // Step 3.5: Normalize inline list items — ensure "- Chinese" has space, and
-  // if a short heading-like line is immediately followed by 2+ dash-prefixed items,
-  // convert it to a list item for consistency.
-  const normLines = s.split("\n");
-  const normResult: string[] = [];
-  let i35 = 0;
-  while (i35 < normLines.length) {
-    const line = normLines[i35];
-    const trimmed = line.trim();
-    const startsWithDash = /^-[一-鿿]/.test(trimmed);
-    const startsWithDashSpace = /^- [一-鿿]/.test(trimmed);
-
-    if (startsWithDash && !startsWithDashSpace) {
-      // "-Chinese" → "- Chinese"
-      normResult.push(line.replace(/^(\s*)(-)([一-鿿])/, "$1$2 $3"));
-    } else if (!startsWithDash && !startsWithDashSpace && trimmed.length > 0) {
-      // Check if this short text is followed by 2+ dash-prefixed items
-      let dashCount = 0;
-      let nextHasColon = false;
-      let j = i35 + 1;
-      while (j < normLines.length && j < i35 + 10) {
-        const nextTrimmed = normLines[j].trim();
-        if (/^-[一-鿿]/.test(nextTrimmed) || /^- [一-鿿]/.test(nextTrimmed)) {
-          dashCount++;
-          if (/：/.test(nextTrimmed)) nextHasColon = true;
-          j++;
-        } else {
-          break;
-        }
-      }
-      // Convert to list item only if:
-      // - short text (< 30 chars), no sentence-ending punctuation
-      // - followed by 2+ dash-prefixed items
-      // - current line has no colon (if it has colon, it's already a list item)
-      // - following items DO have colons (distinguishes heading from first list item)
-      const isShort = trimmed.length < 30 && !/[。！？；.!?]/.test(trimmed);
-      const currentHasColon = /：/.test(trimmed);
-      if (isShort && !currentHasColon && nextHasColon && dashCount >= 2) {
-        normResult.push("- " + trimmed);
-      } else {
-        normResult.push(line);
-      }
-    } else {
-      normResult.push(line);
-    }
-    i35++;
-  }
-  s = normResult.join("\n");
-
-  // Step 4: Convert space-separated table regions and insert separators
-  // This handles cases like:
-  //   col1    col2    col3
-  //   val1    val2    val3
-  //   ---    ---    ---
-  //   val4    val5    val6
-  const sLines = s.split("\n");
-  const final: string[] = [];
-  const isSepRow = (t: string) => /^\|[\s\-:|]+\|$/.test(t);
-  const isPipeRow = (t: string) => /^\|.+\|$/.test(t);
-  const isSpaceRow = (t: string) => /^(\S+\s{2,})+\S+$/.test(t);
-  const getColCount = (t: string) => {
-    if (isPipeRow(t)) return (t.match(/\|/g) || []).length - 1;
-    return t.split(/\s{2,}/).filter(Boolean).length;
-  };
-  const toPipe = (t: string) => {
-    if (isPipeRow(t)) return t;
-    const cells = t.split(/\s{2,}/).filter(Boolean);
-    return "| " + cells.join(" | ") + " |";
-  };
-
-  let i4 = 0;
-  while (i4 < sLines.length) {
-    const trimmed = sLines[i4].trim();
-    if (isPipeRow(trimmed) || isSpaceRow(trimmed)) {
-      // Collect all consecutive table-like rows
-      const region: { text: string; isSep: boolean }[] = [];
-      let j = i4;
-      while (j < sLines.length) {
-        const t = sLines[j].trim();
-        if (isPipeRow(t) || isSpaceRow(t)) {
-          region.push({ text: t, isSep: isSepRow(t) });
-          j++;
-        } else {
-          break;
-        }
-      }
-      // Convert all to pipe format
-      const pipeRows = region.map((r) => toPipe(r.text));
-      // Check if a separator already exists in the region
-      const hasExistingSep = region.some((r) => r.isSep);
-      // Output rows: insert separator after first non-separator row only if
-      // no separator exists elsewhere in the region
-      let headerDone = false;
-      for (let k = 0; k < pipeRows.length; k++) {
-        const row = pipeRows[k];
-        const rowIsSep = region[k].isSep;
-        if (rowIsSep) {
-          final.push(row);
-        } else {
-          final.push(row);
-          if (!headerDone && !hasExistingSep) {
-            const cols = getColCount(row);
-            if (cols >= 1) {
-              final.push("|" + Array(cols).fill("---").join("|") + "|");
-            }
-          }
-          headerDone = true;
-        }
-      }
-      i4 = j;
-    } else {
-      final.push(sLines[i4]);
-      i4++;
-    }
-  }
-  s = final.join("\n");
-
-  s = s.replace(/\n{3,}/g, "\n\n");
-  return s.trim();
-}
 
 // --- Streaming-aware markdown throttle ---
 
@@ -322,7 +96,24 @@ const remarkPlugins = [remarkBreaks, remarkGfm, remarkMath];
 const rehypePlugins = [rehypeKatex];
 
 const PROSE_CLASSES =
-  "prose prose-sm max-w-none break-words dark:prose-invert prose-headings:font-semibold prose-headings:mb-2 prose-headings:mt-4 prose-headings:tracking-tight prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-hr:my-6 prose-pre:bg-transparent prose-pre:p-0 prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-blockquote:border-l-2 prose-blockquote:pl-3 prose-blockquote:not-italic prose-table:my-3 prose-th:text-left prose-th:font-medium";
+  "prose prose-sm max-w-none break-words dark:prose-invert " +
+  "prose-headings:font-semibold prose-headings:tracking-tight " +
+  "prose-h1:text-[1.125rem] prose-h1:mt-6 prose-h1:mb-3 " +
+  "prose-h2:text-[1rem] prose-h2:mt-5 prose-h2:mb-2.5 " +
+  "prose-h3:text-[0.9375rem] prose-h3:mt-4 prose-h3:mb-2 " +
+  "prose-h4:text-[0.875rem] prose-h4:mt-4 prose-h4:mb-2 " +
+  "prose-h5:text-[0.875rem] prose-h5:mt-3 prose-h5:mb-1.5 " +
+  "prose-h6:text-[0.875rem] prose-h6:mt-3 prose-h6:mb-1.5 " +
+  "prose-p:text-[0.875rem] prose-p:leading-relaxed prose-p:my-2 " +
+  "prose-ul:my-2 prose-ol:my-2 " +
+  "prose-li:text-[0.875rem] prose-li:my-0.5 " +
+  "prose-hr:my-6 " +
+  "prose-pre:bg-transparent prose-pre:p-0 " +
+  "prose-code:font-normal prose-code:text-[0.875rem] prose-code:before:content-none prose-code:after:content-none " +
+  "prose-blockquote:border-l-2 prose-blockquote:pl-3 prose-blockquote:not-italic " +
+  "prose-table:my-3 prose-th:text-left prose-th:font-medium " +
+  "prose-strong:font-semibold prose-strong:text-[0.875rem] " +
+  "prose-a:text-primary prose-a:underline prose-a:decoration-primary/40 prose-a:underline-offset-2";
 
 interface MarkdownRendererProps {
   source: string;
@@ -330,21 +121,31 @@ interface MarkdownRendererProps {
   onPrecipitateBlock?: (text: string) => void;
 }
 
+function isSafeUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  const trimmed = url.trim().toLowerCase();
+  return !trimmed.startsWith("javascript:") && !trimmed.startsWith("data:") && !trimmed.startsWith("vbscript:");
+}
+
 const MarkdownRenderer = memo(function MarkdownRenderer({
   source,
   highlightCode,
   onPrecipitateBlock,
 }: MarkdownRendererProps) {
+  const t = useTranslations("markdown");
+  const tEditor = useTranslations("editor");
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectionState, setSelectionState] = useState<{ text: string; x: number; y: number } | null>(null);
+  const onPrecipitateBlockRef = useRef(onPrecipitateBlock);
+  onPrecipitateBlockRef.current = onPrecipitateBlock;
 
   const handlePrecipitate = useCallback(() => {
-    if (selectionState?.text && onPrecipitateBlock) {
-      onPrecipitateBlock(selectionState.text);
+    if (selectionState?.text && onPrecipitateBlockRef.current) {
+      onPrecipitateBlockRef.current(selectionState.text);
       setSelectionState(null);
       window.getSelection()?.removeAllRanges();
     }
-  }, [selectionState, onPrecipitateBlock]);
+  }, [selectionState]);
 
   useEffect(() => {
     if (!onPrecipitateBlock) return;
@@ -438,6 +239,9 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
         );
       },
       a({ href, children: markdownChildren, ...props }) {
+        if (!isSafeUrl(href)) {
+          return <span className="text-red-500 line-through">{markdownChildren}</span>;
+        }
         return (
           <a
             href={href}
@@ -451,6 +255,9 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
         );
       },
       img({ src, alt, ...props }) {
+        if (!isSafeUrl(src)) {
+          return <span className="text-xs text-red-500 italic">[{t("unsafeImage")}]</span>;
+        }
         return (
           <span className="block my-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -464,7 +271,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
                 target.style.display = "none";
                 const span = document.createElement("span");
                 span.className = "text-xs text-text-secondary italic";
-                span.textContent = `[图片加载失败: ${alt || src}]`;
+                span.textContent = `[${t("imageLoadFailed")}: ${alt || src}]`;
                 target.parentNode?.insertBefore(span, target);
               }}
               {...props}
@@ -495,10 +302,10 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
             top: `${selectionState.y}px`,
             transform: "translate(-50%, -100%)",
           }}
-          title="沉淀选取内容为卡片"
+          title={tEditor("precipitateTooltip")}
         >
           <Scissors size={12} />
-          沉淀
+          {tEditor("precipitate")}
         </button>
       )}
     </div>
@@ -519,19 +326,19 @@ export function MarkdownContent({
   onPrecipitateBlock,
 }: MarkdownContentProps) {
   const renderedSource = useStreamingMarkdownSource(content, streaming);
-  const fixed = useMemo(() => fixMarkdown(renderedSource), [renderedSource]);
+  const normalized = useMemo(() => normalizeMarkdownForDisplay(renderedSource), [renderedSource]);
   const highlightCode = !streaming && renderedSource === content;
 
   return (
     <Suspense
       fallback={
         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text">
-          {fixed}
+          {normalized}
         </div>
       }
     >
       <MarkdownRenderer
-        source={fixed}
+        source={normalized}
         highlightCode={highlightCode}
         onPrecipitateBlock={onPrecipitateBlock}
       />

@@ -53,7 +53,7 @@
           bindconfirm="onAddKeyword"
         />
         <view class="keyword-add-btn" bindtap="onAddKeyword">
-          <icon name="plus" size="16" color="#fff" />
+          <icon name="plus" size="32" color="#fff" />
         </view>
       </view>
       <view class="keyword-list" wx:if="{{keywords.length > 0}}">
@@ -64,7 +64,7 @@
           style="background: {{selectedColor}}; color: #fff;"
         >
           <text>{{item}}</text>
-          <view class="keyword-remove" bindtap="onRemoveKeyword" data-kw="{{item}}"><icon name="x" size="12" color="#fff" /></view>
+          <view class="keyword-remove" bindtap="onRemoveKeyword" data-kw="{{item}}"><icon name="x" size="24" color="#fff" /></view>
         </view>
       </view>
       <!-- Suggested keywords -->
@@ -101,6 +101,22 @@
       </view>
     </view>
 
+    <!-- Emotion Tag -->
+    <view class="form-group">
+      <text class="form-label">情绪标签</text>
+      <view class="emotion-list">
+        <view
+          wx:for="{{emotions}}"
+          wx:key="key"
+          class="emotion-option {{selectedEmotion === item.key ? 'emotion-option-active' : ''}}"
+          bindtap="onEmotionSelect"
+          data-emotion="{{item.key}}"
+        >
+          <text>{{item.label}}</text>
+        </view>
+      </view>
+    </view>
+
     <!-- Preview -->
     <view class="form-group">
       <text class="form-label">卡片预览</text>
@@ -123,15 +139,15 @@
     <!-- AI Actions -->
     <view class="ai-actions">
       <view class="ai-action-btn" bindtap="onAiGenerate">
-        <icon name="sparkles" size="20" color="#555" />
+        <icon name="sparkles" size="44" color="#555" />
         <text class="ai-action-text">AI生成</text>
       </view>
       <view class="ai-action-btn" bindtap="onAiPolish">
-        <icon name="wand-2" size="20" color="#555" />
+        <icon name="wand-2" size="44" color="#555" />
         <text class="ai-action-text">AI润色</text>
       </view>
       <view class="ai-action-btn" bindtap="onAiSupplement">
-        <icon name="plus" size="20" color="#555" />
+        <icon name="plus" size="44" color="#555" />
         <text class="ai-action-text">AI补充</text>
       </view>
     </view>

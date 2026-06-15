@@ -1,7 +1,7 @@
 // components/icon/icon.js
-// Skyline-compatible icon paths — using only <circle>, <line>, <rect>, <polygon>
+// Skyline-compatible icon paths — using only SVG primitives (<circle>, <line>, <rect>, <polygon>, <polyline>)
 // No <path> elements to avoid Skyline SVG rendering issues
-var ICON_PATHS = {
+const ICON_PATHS = {
   // Navigation
   'plus': '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   'x': '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
@@ -13,33 +13,33 @@ var ICON_PATHS = {
 
   // Actions
   'trash-2': '<line x1="3" y1="6" x2="21" y2="6"/><rect x="5" y="6" width="14" height="14" rx="1"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><line x1="8" y1="6" x2="8" y2="4"/><line x1="16" y1="6" x2="16" y2="4"/><line x1="8" y1="4" x2="16" y2="4"/>',
-  'pencil': '<line x1="18" y1="2" x2="22" y2="6"/><line x1="15" y1="5" x2="19" y2="9"/><polygon points="3 21 2 22 1.5 16.5 7.5 20.5 21 7 17 3 3.5 16.5"/>',
+  'pencil': '<line x1="4" y1="20" x2="20" y2="4"/><polygon points="2 22 4 20 2 20"/>',
   'settings': '<circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="7.05" y2="7.05"/><line x1="16.95" y1="16.95" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="7.05" y2="16.95"/><line x1="16.95" y1="7.05" x2="19.78" y2="4.22"/>',
   'link': '<line x1="10" y1="13" x2="17.07" y2="6.93"/><line x1="14" y1="11" x2="6.93" y2="18.07"/><circle cx="17" cy="7" r="3.54" transform="rotate(-45 17 7)"/><circle cx="7" cy="17" r="3.54" transform="rotate(-45 7 17)"/>',
   'share-2': '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>',
   'log-out': '<polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/><rect x="3" y="3" width="8" height="18" rx="1"/>',
-  'send': '<polygon points="22 2 15 22 11 13 2 9 22 2"/><line x1="22" y1="2" x2="11" y2="13"/>',
+  'send': '<polygon points="22 2 15 22 11 13 2 9 22 2"/>',
   'square': '<rect width="18" height="18" x="3" y="3" rx="2"/>',
   'scissors': '<circle cx="6" cy="6" r="3"/><line x1="8.12" y1="8.12" x2="12" y2="12"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><circle cx="6" cy="18" r="3"/><line x1="14.8" y1="14.8" x2="20" y2="20"/>',
 
   // Star / Favorite
   'star': '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
-  'heart': '<polygon points="12 21.35 10.55 20.03 5.4 15.36 2 12.22 2 8.5 5.5 5 9.04 5 12 7.96 14.96 5 18.5 5 22 8.5 22 12.22 18.6 15.36 13.45 20.03 12 21.35"/>',
+  'heart': '<polygon points="12 20 3 11 3 7 5.5 4.5 8.5 4.5 12 8 15.5 4.5 18.5 4.5 21 7 21 11"/>',
 
   // AI / Magic
-  'sparkles': '<polygon points="12 2 14.07 8.93 21 12 14.07 15.07 12 22 9.93 15.07 3 12 9.93 8.93 12 2"/><line x1="20" y1="2" x2="20" y2="6"/><line x1="22" y1="4" x2="18" y2="4"/><circle cx="4" cy="20" r="2"/>',
+  'sparkles': '<polygon points="12 2 14.5 9 22 12 14.5 15 12 22 9.5 15 2 12 9.5 9"/><line x1="20" y1="2" x2="20" y2="6"/><line x1="22" y1="4" x2="18" y2="4"/>',
   'wand-2': '<line x1="15" y1="4" x2="15" y2="2"/><line x1="15" y1="16" x2="15" y2="14"/><line x1="8" y1="9" x2="10" y2="9"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="17.8" y1="11.8" x2="19" y2="13"/><line x1="15" y1="9" x2="15.01" y2="9"/><line x1="17.8" y1="6.2" x2="19" y2="5"/><line x1="3" y1="21" x2="12" y2="12"/><line x1="12.2" y1="6.2" x2="11" y2="5"/>',
   'lightbulb': '<circle cx="12" cy="9" r="6"/><line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/>',
-  'brain': '<circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="18"/><line x1="9" y1="13" x2="9" y2="17"/><line x1="15" y1="13" x2="15" y2="17"/><circle cx="7" cy="11" r="2.5"/><circle cx="17" cy="11" r="2.5"/><circle cx="12" cy="18" r="3"/>',
+  'brain': '<ellipse cx="9" cy="10" rx="4.5" ry="6"/><ellipse cx="15" cy="10" rx="4.5" ry="6"/><line x1="12" y1="16" x2="12" y2="22"/><line x1="9" y1="19" x2="15" y2="19"/>',
 
   // User
-  'user': '<circle cx="12" cy="7" r="4"/><line x1="4" y1="21" x2="8" y2="17"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="16" y1="17" x2="20" y2="21"/>',
+  'user': '<circle cx="12" cy="8" r="4"/><polygon points="4 22 8 15 12 17 16 15 20 22"/>',
 
   // Communication
-  'users': '<circle cx="9" cy="7" r="4"/><line x1="2" y1="21" x2="6" y2="17"/><line x1="6" y1="17" x2="12" y2="17"/><line x1="12" y1="17" x2="16" y2="21"/><circle cx="17" cy="7" r="3"/><line x1="19" y1="21" x2="18" y2="18"/><line x1="18" y1="18" x2="16" y2="17"/>',
+  'users': '<circle cx="9" cy="7" r="4"/><polygon points="1 22 5 15 9 17 13 15 17 22"/><circle cx="17" cy="7" r="3"/>',
   'message-square': '<rect x="2" y="3" width="20" height="14" rx="2"/><polygon points="6 17 2 21 2 17"/>',
   'message-square-plus': '<rect x="2" y="3" width="20" height="14" rx="2"/><polygon points="6 17 2 21 2 17"/><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/>',
-  'history': '<circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="12"/><line x1="12" y1="12" x2="16" y2="14"/><polyline points="3 8 3 3 8 3"/>',
+  'history': '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/><polyline points="4.93 4.93 2 3 3 7"/>',
 
   // Tags / Organization
   'tag': '<polygon points="12 2 2 9.17 2 22 12.83 22 22 12.83 22 9.17 12 2"/><circle cx="7.5" cy="7.5" r="1" fill="currentColor"/>',
@@ -54,7 +54,7 @@ var ICON_PATHS = {
   'music': '<line x1="9" y1="5" x2="21" y2="3"/><line x1="9" y1="18" x2="9" y2="5"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
   'rocket': '<circle cx="12" cy="12" r="3"/><line x1="12" y1="9" x2="12" y2="2"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="2" y1="12" x2="9" y2="12"/><polygon points="14 15 18 20 16 22 12 15 16 20 18 15"/>',
   'sprout': '<line x1="7" y1="20" x2="17" y2="20"/><line x1="12" y1="20" x2="12" y2="10"/><line x1="12" y1="10" x2="8" y2="5"/><line x1="12" y1="10" x2="16" y2="5"/>',
-  'flame': '<circle cx="12" cy="12" r="7"/><line x1="12" y1="5" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="19"/><line x1="5" y1="12" x2="8" y2="12"/><line x1="16" y1="12" x2="19" y2="12"/>',
+  'flame': '<polygon points="12 2 8 10 5 14 7 19 12 22 17 19 19 14 16 10"/><polygon points="12 9 10 14 12 18 14 14"/>',
 
   // Misc
   'network': '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><line x1="5" y1="13" x2="5" y2="16"/><line x1="5" y1="13" x2="19" y2="13"/><line x1="19" y1="13" x2="19" y2="16"/><line x1="12" y1="8" x2="12" y2="13"/>',
@@ -67,25 +67,30 @@ var ICON_PATHS = {
   'target': '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   'footprints': '<rect x="3" y="2" width="5" height="8" rx="2.5" transform="rotate(10 5 6)"/><rect x="3" y="12" width="4" height="4" rx="2"/><line x1="4" y1="13" x2="8" y2="13"/><rect x="14" y="6" width="5" height="8" rx="2.5" transform="rotate(-10 16 10)"/><rect x="16" y="16" width="4" height="4" rx="2"/><line x1="16" y1="17" x2="20" y2="17"/>',
   'mic': '<rect x="9" y="2" width="6" height="13" rx="3"/><circle cx="12" cy="12" r="6"/><line x1="12" y1="19" x2="12" y2="22"/>',
+
+  // UI Layout
+  'grid': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  'layers': '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+  'bell': '<polygon points="18 8 18 13 20 17 4 17 6 13 6 8"/><circle cx="12" cy="20" r="2"/><line x1="12" y1="2" x2="12" y2="4"/>',
 };
 
 function iconToSvgDataUri(name, color, size) {
-  var paths = ICON_PATHS[name];
+  const paths = ICON_PATHS[name];
   if (!paths) return '';
-  paths = paths.replace(/currentColor/g, color);
-  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2">' + paths + '</svg>';
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  const colored = paths.replace(/currentColor/g, color);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${colored}</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function svgToBase64(svg) {
-  var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  var result = '';
-  var len = svg.length;
-  var i = 0;
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let result = '';
+  const len = svg.length;
+  let i = 0;
   while (i < len) {
-    var a = svg.charCodeAt(i++);
-    var b = i < len ? svg.charCodeAt(i++) : 0;
-    var c = i < len ? svg.charCodeAt(i++) : 0;
+    const a = svg.charCodeAt(i++);
+    const b = i < len ? svg.charCodeAt(i++) : 0;
+    const c = i < len ? svg.charCodeAt(i++) : 0;
     result += chars[a >> 2];
     result += chars[((a & 3) << 4) | (b >> 4)];
     result += i > len + 1 ? '=' : chars[((b & 15) << 2) | (c >> 6)];

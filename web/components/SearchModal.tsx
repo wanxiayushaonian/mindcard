@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { searchApi, type SearchResult } from "@/lib/api";
 import { Search, X, ArrowRight, Globe } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 type SearchMode = "semantic" | "fulltext" | "hybrid";
 type SortBy = "relevance" | "created_at";
@@ -13,10 +14,11 @@ function HighlightText({ text, query }: { text: string; query: string }) {
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(`(${escaped})`, "gi");
   const parts = text.split(regex);
+  const lowerQuery = query.toLowerCase();
   return (
     <>
       {parts.map((part, i) =>
-        regex.test(part) ? (
+        part.toLowerCase() === lowerQuery ? (
           <mark key={i} className="bg-yellow-200 text-inherit">{part}</mark>
         ) : (
           <span key={i}>{part}</span>
@@ -33,6 +35,8 @@ export function SearchModal({
   workspaceId: string;
   onClose: () => void;
 }) {
+  const t = useTranslations("search");
+  const tc = useTranslations("common");
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
@@ -73,7 +77,7 @@ export function SearchModal({
       setResults(res.results);
     } catch (e: any) {
       setResults([]);
-      setError(e.message || "搜索失败");
+      setError(e.message || t("searchFailed"));
     } finally {
       setLoading(false);
     }
@@ -113,7 +117,7 @@ export function SearchModal({
               if (e.key === "Enter") doSearch(query, mode, sortBy, global);
               if (e.key === "Escape") onCloseRef.current();
             }}
-            placeholder={global ? "搜索所有空间..." : "搜索当前空间..."}
+            placeholder={global ? t("searchAllSpaces") : t("searchCurrentSpace")}
             className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-secondary"
           />
           {query && (
@@ -140,7 +144,7 @@ export function SearchModal({
                     : "text-text-secondary hover:bg-gray-100"
                 }`}
               >
-                {{ hybrid: "混合", semantic: "语义", fulltext: "全文" }[m]}
+                {{ hybrid: t("modeHybrid"), semantic: t("modeSemantic"), fulltext: t("modeFulltext") }[m]}
               </button>
             ))}
           </div>
@@ -149,7 +153,7 @@ export function SearchModal({
 
           {/* Sort toggle */}
           <div className="flex gap-1">
-            {([["relevance", "相关度"], ["created_at", "时间"]] as [SortBy, string][]).map(([val, label]) => (
+            {([["relevance", t("sortRelevance")], ["created_at", t("sortTime")]] as [SortBy, string][]).map(([val, label]) => (
               <button
                 key={val}
                 onClick={() => setSortBy(val)}
@@ -176,10 +180,10 @@ export function SearchModal({
             }`}
           >
             <Globe size={12} />
-            {global ? "全部空间" : "当前空间"}
+            {global ? t("allSpaces") : t("currentSpace")}
           </button>
 
-          {loading && <span className="ml-auto text-xs text-text-secondary">搜索中...</span>}
+          {loading && <span className="ml-auto text-xs text-text-secondary">{t("searching")}</span>}
         </div>
 
         {/* Results */}
@@ -191,12 +195,12 @@ export function SearchModal({
           {!searched && !loading && (
             <div className="py-10 text-center text-text-secondary">
               <Search size={32} className="mx-auto mb-2 opacity-30" />
-              <p className="text-sm">输入关键词搜索灵感卡片</p>
+              <p className="text-sm">{t("enterKeywords")}</p>
             </div>
           )}
 
           {searched && results.length === 0 && !loading && !error && (
-            <div className="py-10 text-center text-sm text-text-secondary">未找到相关卡片</div>
+            <div className="py-10 text-center text-sm text-text-secondary">{t("noResults")}</div>
           )}
 
           {results.map(({ card, score }) => (

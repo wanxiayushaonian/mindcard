@@ -1,6 +1,7 @@
 {
   "usingComponents": {
     "navigation-bar": "/components/navigation-bar/navigation-bar",
-    "icon": "/components/icon/icon"
+    "icon": "/components/icon/icon",
+    "card-item": "/components/card-item/card-item"
   }
 }

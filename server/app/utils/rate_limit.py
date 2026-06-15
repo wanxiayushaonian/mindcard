@@ -2,8 +2,9 @@ import time
 from collections import defaultdict
 from typing import Annotated
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
+from app.config import settings
 from app.models.user import User
 from app.utils.auth import get_current_user
 
@@ -31,9 +32,19 @@ class SlidingWindowRateLimiter:
         return True
 
 
-# Two tiers
-ai_limiter = SlidingWindowRateLimiter(max_requests=20, window_seconds=60)
-rag_limiter = SlidingWindowRateLimiter(max_requests=10, window_seconds=60)
+# Three tiers — configured via settings
+auth_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.rate_limit_auth_max,
+    window_seconds=settings.rate_limit_auth_window,
+)
+ai_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.rate_limit_ai_max,
+    window_seconds=settings.rate_limit_ai_window,
+)
+rag_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.rate_limit_rag_max,
+    window_seconds=settings.rate_limit_rag_window,
+)
 
 
 class RateLimit:
@@ -53,10 +64,32 @@ class RateLimit:
         if not self.limiter.is_allowed(str(user.id)):
             raise HTTPException(
                 status_code=429,
-                detail=f"请求过于频繁，请稍后再试（限制：{self.limiter.max_requests}次/{self.limiter.window_seconds}秒）",
+                detail=f"Too many requests ({self.limiter.max_requests}/{self.limiter.window_seconds}s)",
+            )
+
+
+class RateLimitByIP:
+    """FastAPI dependency class that rate-limits by client IP (for unauthenticated endpoints).
+
+    Usage:
+        @router.post("/login")
+        async def login(_rl: None = Depends(RateLimitByIP(auth_limiter))):
+            ...
+    """
+
+    def __init__(self, limiter: SlidingWindowRateLimiter):
+        self.limiter = limiter
+
+    async def __call__(self, request: Request):
+        client_ip = request.client.host if request.client else "unknown"
+        if not self.limiter.is_allowed(client_ip):
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many requests ({self.limiter.max_requests}/{self.limiter.window_seconds}s)",
             )
 
 
 # Pre-built dependency instances
+auth_rate_limit = RateLimitByIP(auth_limiter)
 ai_rate_limit = RateLimit(ai_limiter)
 rag_rate_limit = RateLimit(rag_limiter)

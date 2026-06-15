@@ -1,10 +1,5 @@
 <!--pages/workspace/workspace.wxml-->
 <navigation-bar title="我的灵感空间" back="{{false}}" background="#F9FAFC">
-  <view slot="right" class="nav-right">
-    <view class="nav-icon-btn" bindtap="onProfile">
-      <icon name="user" size="20" color="#555" />
-    </view>
-  </view>
 </navigation-bar>
 
 <scroll-view class="scrollarea" scroll-y type="list">
@@ -25,7 +20,7 @@
         <!-- Workspace card -->
         <block wx:if="{{!item._type}}">
           <view class="ws-icon-wrap">
-            <icon name="{{item.icon}}" size="28" color="{{item.color || '#94B4C8'}}" />
+            <icon name="{{item.icon}}" size="52" color="{{item.color || '#94B4C8'}}" />
           </view>
           <text class="ws-name">{{item.name}}</text>
           <view class="ws-meta">
@@ -36,12 +31,12 @@
         </block>
         <!-- Add button -->
         <block wx:elif="{{item._type === 'add'}}">
-          <icon name="plus" size="28" color="#555" />
+          <icon name="plus" size="52" color="#555" />
           <text class="ws-add-text">新建空间</text>
         </block>
         <!-- Join button -->
         <block wx:elif="{{item._type === 'join'}}">
-          <icon name="link" size="28" color="#555" />
+          <icon name="link" size="52" color="#555" />
           <text class="ws-add-text">加入空间</text>
         </block>
       </view>
@@ -55,14 +50,14 @@
   <view class="ws-grid" wx:if="{{sharedWorkspaces.length > 0}}">
     <view
       wx:for="{{sharedWorkspaces}}"
-      wx:key="localId"
+      wx:key="id"
       class="ws-card"
       bindtap="onWorkspaceTap"
-      data-id="{{item.localId}}"
+      data-id="{{item.id}}"
     >
       <view class="ws-card-inner ws-shared" style="border-top: 6rpx solid {{item.color}};">
         <view class="ws-icon-wrap">
-          <icon name="{{item.icon}}" size="28" color="{{item.color || '#94B4C8'}}" />
+          <icon name="{{item.icon}}" size="52" color="{{item.color || '#94B4C8'}}" />
         </view>
         <text class="ws-name">{{item.name}}</text>
         <view class="ws-meta">
@@ -72,6 +67,9 @@
       </view>
     </view>
   </view>
+
+  <!-- Bottom spacer for tab bar -->
+  <view style="height: 160rpx;"></view>
 </scroll-view>
 
 <!-- Create/Rename dialog -->
@@ -97,7 +95,7 @@
         bindtap="onIconSelect"
         data-icon="{{item}}"
       >
-        <icon name="{{item}}" size="22" color="{{wsIcon === item ? '#7A9BB0' : '#555'}}" />
+        <icon name="{{item}}" size="44" color="{{wsIcon === item ? '#7A9BB0' : '#555'}}" />
       </view>
     </view>
 
@@ -177,35 +175,6 @@
       </view>
       <view class="confirm-btn modal-confirm" bindtap="onConfirmJoin">
         <text>加入</text>
-      </view>
-    </view>
-  </view>
-</view>
-
-<!-- Members management modal -->
-<view class="modal-mask" wx:if="{{showMembersModal}}" bindtap="onCloseMembersModal">
-  <view class="confirm-dialog" catchtap="onStopPropagation">
-    <text class="confirm-title">「{{membersWsName}}」成员</text>
-    <view class="members-list">
-      <view wx:for="{{membersList}}" wx:key="user_id" class="member-item">
-        <view class="member-info">
-          <text class="member-name">{{item.nickname}}</text>
-          <text class="member-role">{{item.role === 'owner' ? '管理员' : '成员'}}</text>
-        </view>
-        <view
-          wx:if="{{item.role !== 'owner'}}"
-          class="member-remove"
-          catchtap="onRemoveMember"
-          data-userid="{{item.user_id}}"
-          data-name="{{item.nickname}}"
-        >
-          <text>移除</text>
-        </view>
-      </view>
-    </view>
-    <view class="confirm-actions">
-      <view class="confirm-btn modal-confirm" bindtap="onCloseMembersModal">
-        <text>关闭</text>
       </view>
     </view>
   </view>

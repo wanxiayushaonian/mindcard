@@ -1,5 +1,5 @@
 // pages/index/index.js
-var api = require('../../utils/api');
+const api = require('../../utils/api');
 
 Page({
   data: {
@@ -20,19 +20,45 @@ Page({
     walkCard: null,
     refreshing: false,
     workspaceName: '',
+    unreadCount: 0,
   },
 
+  _aiLoading: false,
+
   onLoad() {
+    // C7: guard against null workspace on fresh install
     const ws = getApp().getCurrentWorkspace();
-    this.setData({ workspaceName: ws.name });
+    this.setData({ workspaceName: ws ? ws.name : '' });
     this.loadCards();
     this._setupShake();
   },
 
   onShow() {
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ selected: 1 });
+    }
     const ws = getApp().getCurrentWorkspace();
-    this.setData({ workspaceName: ws.name });
+    this.setData({ workspaceName: ws ? ws.name : '' });
     this.loadCards();
+    this._loadUnreadCount();
+  },
+
+  _loadUnreadCount() {
+    const app = getApp();
+    app.loadUnreadCount().then((count) => {
+      this.setData({ unreadCount: count });
+    }).catch(() => {});
+  },
+
+  // M6: await notification call and handle failure
+  async onBellTap() {
+    try {
+      await getApp().markAllNotificationsRead();
+      this.setData({ unreadCount: 0 });
+      wx.showToast({ title: '已全部已读', icon: 'success' });
+    } catch (_e) {
+      wx.showToast({ title: '标记已读失败', icon: 'none' });
+    }
   },
 
   onUnload() {
@@ -84,22 +110,48 @@ Page({
     else if (tag === '收藏') filtered = cards.filter(c => c.isFavorite);
     else filtered = cards.filter(c => (c.keywords || []).indexOf(tag) !== -1);
 
+    const { leftCards, rightCards } = this._distributeWaterfall(filtered);
+    this.setData({ selectedTag: tag, filteredCards: filtered, leftCards, rightCards });
+  },
+
+  _distributeWaterfall(cards) {
     const leftCards = [];
     const rightCards = [];
-    filtered.forEach((card, i) => {
-      (i % 2 === 0 ? leftCards : rightCards).push(card);
+    let leftHeight = 0;
+    let rightHeight = 0;
+
+    cards.forEach((card) => {
+      const est = this._estimateCardHeight(card);
+      if (leftHeight <= rightHeight) {
+        leftCards.push(card);
+        leftHeight += est;
+      } else {
+        rightCards.push(card);
+        rightHeight += est;
+      }
     });
-    this.setData({ selectedTag: tag, filteredCards: filtered, leftCards, rightCards });
+    return { leftCards, rightCards };
+  },
+
+  _estimateCardHeight(card) {
+    const keywordH = (card.keywords && card.keywords.length > 0) ? 50 : 0;
+    const titleH = card.title ? 42 : 0;
+    const previewLen = (card.preview || '').length;
+    const contentH = Math.ceil(previewLen / 20) * 38;
+    const footerH = 50;
+    const padding = 48;
+    return keywordH + titleH + contentH + footerH + padding;
   },
 
   onTagSelect(e) { this.filterCards(e.currentTarget.dataset.tag); },
 
   onCardTap(e) {
-    wx.navigateTo({ url: `/pages/card-detail/card-detail?id=${e.currentTarget.dataset.id}` });
+    const id = e.detail ? e.detail.id : e.currentTarget.dataset.id;
+    wx.navigateTo({ url: `/pages/card-detail/card-detail?id=${id}` });
   },
 
   onCardLongPress(e) {
-    const id = e.currentTarget.dataset.id;
+    const id = e.detail ? e.detail.id : e.currentTarget.dataset.id;
     const app = getApp();
     const card = app.getCardById(id);
     if (!card) return;
@@ -123,10 +175,6 @@ Page({
     wx.navigateTo({ url: '/pages/search/search' });
   },
 
-  onInsights() {
-    wx.navigateTo({ url: '/pages/insights/insights' });
-  },
-
   onWalk() {
     const { cards } = this.data;
     if (cards.length === 0) {
@@ -147,30 +195,6 @@ Page({
       this.setData({ showWalkModal: false, walkCard: null });
       wx.navigateTo({ url: `/pages/card-detail/card-detail?id=${walkCard.id}` });
     }
-  },
-
-  onProfile() {
-    wx.navigateTo({ url: '/pages/profile/profile' });
-  },
-
-  onNetwork() {
-    wx.navigateTo({ url: '/pages/network/network' });
-  },
-
-  onMore() {
-    var self = this;
-    wx.showActionSheet({
-      itemList: ['关联网络', '洞察', '设置'],
-      success: function (res) {
-        if (res.tapIndex === 0) self.onNetwork();
-        else if (res.tapIndex === 1) self.onInsights();
-        else if (res.tapIndex === 2) self.onProfile();
-      },
-    });
-  },
-
-  onCategory() {
-    wx.navigateTo({ url: '/pages/category/category' });
   },
 
   onRefresh() {
@@ -228,54 +252,67 @@ Page({
     this.setData({ flashKeywords: [...this.data.flashKeywords, kw] });
   },
 
+  // M1: guard against concurrent AI calls
   onAiPolish() {
+    if (this._aiLoading) return;
     if (!this.data.flashContent.trim()) {
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
+    this._aiLoading = true;
     wx.showToast({ title: 'AI润色中...', icon: 'loading', duration: 2000 });
-    api.post('/api/ai/polish', { content: this.data.flashContent })
-      .then(function (res) {
+    api.aiApi.polish(this.data.flashContent)
+      .then((res) => {
         this.setData({ flashContent: res.text });
         wx.showToast({ title: '润色完成', icon: 'success' });
-      }.bind(this))
-      .catch(function (err) {
+      })
+      .catch((err) => {
         wx.showToast({ title: err.message || '润色失败', icon: 'none' });
-      });
+      })
+      .finally(() => { this._aiLoading = false; });
   },
 
+  // M1: guard against concurrent AI calls
   onAiSupplement() {
+    if (this._aiLoading) return;
     if (!this.data.flashContent.trim()) {
       wx.showToast({ title: '请先输入内容', icon: 'none' }); return;
     }
+    this._aiLoading = true;
     wx.showToast({ title: 'AI补充中...', icon: 'loading', duration: 2000 });
-    api.post('/api/ai/supplement', { content: this.data.flashContent })
-      .then(function (res) {
-        this.setData({ flashContent: this.data.flashContent + '\n\n' + res.text });
+    api.aiApi.supplement(this.data.flashContent)
+      .then((res) => {
+        this.setData({ flashContent: `${this.data.flashContent}\n\n${res.text}` });
         wx.showToast({ title: '补充完成', icon: 'success' });
-      }.bind(this))
-      .catch(function (err) {
+      })
+      .catch((err) => {
         wx.showToast({ title: err.message || '补充失败', icon: 'none' });
-      });
+      })
+      .finally(() => { this._aiLoading = false; });
   },
 
-  onFlashSave() {
+  // C4: await addCard and surface errors
+  async onFlashSave() {
     const { flashContent, flashKeywords, flashColor } = this.data;
     if (!flashContent.trim()) {
       wx.showToast({ title: '请输入灵感内容', icon: 'none' }); return;
     }
-    getApp().addCard({
-      content: flashContent.trim(),
-      title: '',
-      keywords: flashKeywords,
-      color: flashColor,
-    });
-    this.setData({
-      showFlashModal: false,
-      flashContent: '',
-      flashKeywords: [],
-      flashKeywordInput: '',
-    });
-    wx.showToast({ title: '保存成功', icon: 'success' });
-    this.loadCards();
+    try {
+      await getApp().addCard({
+        content: flashContent.trim(),
+        title: '',
+        keywords: flashKeywords,
+        color: flashColor,
+      });
+      this.setData({
+        showFlashModal: false,
+        flashContent: '',
+        flashKeywords: [],
+        flashKeywordInput: '',
+      });
+      wx.showToast({ title: '保存成功', icon: 'success' });
+      this.loadCards();
+    } catch (e) {
+      wx.showToast({ title: e.message || '保存失败', icon: 'none' });
+    }
   },
 });

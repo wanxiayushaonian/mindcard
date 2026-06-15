@@ -94,3 +94,38 @@
     transform: rotate(360deg);
   }
 }
+
+/* Notification Bell */
+.nav-bell {
+  position: relative;
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-bell-dot {
+  position: absolute;
+  top: 6rpx;
+  right: 6rpx;
+  min-width: 28rpx;
+  height: 28rpx;
+  border-radius: 14rpx;
+  background: #E25D5D;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6rpx;
+}
+
+.nav-bell-dot text {
+  font-size: 18rpx;
+  color: #fff;
+  line-height: 1;
+}
+
+.nav-bell-icon {
+  width: 40rpx;
+  height: 40rpx;
+}

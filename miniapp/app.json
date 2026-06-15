@@ -1,18 +1,13 @@
 {
   "pages": [
     "pages/workspace/workspace",
-    "pages/login/login",
     "pages/index/index",
+    "pages/profile/profile",
+    "pages/login/login",
     "pages/card-detail/card-detail",
     "pages/card-edit/card-edit",
-    "pages/category/category",
     "pages/ai-chat/ai-chat",
-    "pages/mind-link/mind-link",
-    "pages/profile/profile",
-    "pages/search/search",
-    "pages/ai-records/ai-records",
-    "pages/network/network",
-    "pages/insights/insights"
+    "pages/search/search"
   ],
   "window": {
     "navigationBarTextStyle": "black",
@@ -31,5 +26,16 @@
   },
   "componentFramework": "glass-easel",
   "sitemapLocation": "sitemap.json",
-  "lazyCodeLoading": "requiredComponents"
+  "lazyCodeLoading": "requiredComponents",
+  "tabBar": {
+    "custom": true,
+    "color": "#8E9AAF",
+    "selectedColor": "#7A9BB0",
+    "backgroundColor": "#ffffff",
+    "list": [
+      { "pagePath": "pages/workspace/workspace", "text": "空间" },
+      { "pagePath": "pages/index/index", "text": "卡片" },
+      { "pagePath": "pages/profile/profile", "text": "我的" }
+    ]
+  }
 }

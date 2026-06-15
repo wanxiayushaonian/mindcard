@@ -1,158 +1,118 @@
 <!--pages/profile/profile.wxml-->
-<navigation-bar title="个人中心" back="{{true}}" background="#F9FAFC">
+<navigation-bar title="我的" back="{{false}}" background="#F9FAFC">
 </navigation-bar>
 
 <scroll-view class="scrollarea" scroll-y type="list">
-  <!-- Stats Overview -->
-  <!-- #23: Added tempCards stat -->
-  <view class="stats-grid">
-    <view class="stat-item">
-      <text class="stat-number">{{stats.totalCards}}</text>
-      <text class="stat-label">灵感卡片</text>
+
+  <!-- User Info -->
+  <view class="user-card">
+    <view class="user-avatar">
+      <icon name="user" size="56" color="#fff" />
     </view>
-    <view class="stat-item">
-      <text class="stat-number">{{stats.weeklyNew}}</text>
-      <text class="stat-label">本周新增</text>
-    </view>
-    <view class="stat-item">
-      <text class="stat-number">{{stats.favorites}}</text>
-      <text class="stat-label">收藏数</text>
-    </view>
-    <view class="stat-item">
-      <text class="stat-number">{{stats.tempCards}}</text>
-      <text class="stat-label">临时灵感</text>
-    </view>
-    <view class="stat-item">
-      <text class="stat-number">{{stats.aiChats}}</text>
-      <text class="stat-label">AI对话</text>
+    <view class="user-info">
+      <text class="user-name">{{user.nickName || '未登录'}}</text>
+      <text class="user-sub">{{stats.totalWorkspaces}} 个灵感空间</text>
     </view>
   </view>
 
-  <!-- Data Management -->
-  <view class="settings-section">
-    <text class="settings-section-title">数据管理</text>
-    <view class="settings-list">
-      <view class="settings-item" bindtap="onBackup">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="cloud" size="18" color="#555" /></view>
-          <text class="settings-text">数据备份</text>
-        </view>
-        <view class="settings-arrow"></view>
+  <!-- Global Stats -->
+  <view class="section">
+    <text class="section-title">全局统计</text>
+    <view class="stats-grid">
+      <view class="stat-item">
+        <text class="stat-number">{{loadingStats ? '—' : stats.totalWorkspaces}}</text>
+        <text class="stat-label">灵感空间</text>
       </view>
-      <view class="settings-item" bindtap="onClearData">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="x" size="18" color="#e74c3c" /></view>
-          <text class="settings-text danger-text">清空数据</text>
-        </view>
-        <view class="settings-arrow"></view>
+      <view class="stat-item">
+        <text class="stat-number">{{loadingStats ? '—' : stats.totalCards}}</text>
+        <text class="stat-label">卡片总数</text>
       </view>
-      <view class="settings-item" bindtap="onAiChatRecords">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="message-square" size="18" color="#555" /></view>
-          <text class="settings-text">AI对话记录</text>
-        </view>
-        <view class="settings-right-info">
-          <text class="settings-count">{{stats.aiChats}} 条</text>
-          <view class="settings-arrow"></view>
-        </view>
+      <view class="stat-item">
+        <text class="stat-number">{{loadingStats ? '—' : stats.currentWeeklyNew}}</text>
+        <text class="stat-label">本周新增</text>
       </view>
+      <view class="stat-item">
+        <text class="stat-number">{{loadingStats ? '—' : stats.currentFavorites}}</text>
+        <text class="stat-label">收藏卡片</text>
+      </view>
+    </view>
+    <view class="stats-note" wx:if="{{stats.currentWorkspaceName}}">
+      <text>本周新增与收藏基于当前空间「{{stats.currentWorkspaceName}}」</text>
     </view>
   </view>
 
-  <!-- Function Settings -->
-  <view class="settings-section">
-    <text class="settings-section-title">功能设置</text>
+  <!-- Global Settings -->
+  <view class="section">
+    <text class="section-title">全局设置</text>
     <view class="settings-list">
-      <view class="settings-item" bindtap="onAgentSettings">
+      <!-- Walk sensitivity -->
+      <view class="settings-item" bindtap="onSensitivityTap">
         <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="zap" size="18" color="#555" /></view>
-          <text class="settings-text">Agent推荐灵敏度</text>
+          <view class="settings-icon-wrap"><icon name="sparkles" size="36" color="#555" /></view>
+          <text class="settings-text">摇一摇灵敏度</text>
         </view>
-        <view class="settings-right-info">
-          <text class="settings-value">{{agentSensitivity}}</text>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-      <view class="settings-item" bindtap="onDefaultColor">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="palette" size="18" color="#555" /></view>
-          <text class="settings-text">卡片默认配色</text>
-        </view>
-        <view class="settings-right-info">
-          <view class="color-preview" style="background: #D4B5D0;"></view>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-      <view class="settings-item" bindtap="onWalkSettings">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="footprints" size="18" color="#555" /></view>
-          <text class="settings-text">灵感漫游灵敏度</text>
-        </view>
-        <view class="settings-right-info">
+        <view class="settings-right">
           <text class="settings-value">{{walkSensitivity}}</text>
           <view class="settings-arrow"></view>
         </view>
       </view>
-    </view>
-  </view>
-
-  <!-- AI Settings -->
-  <view class="settings-section">
-    <text class="settings-section-title">AI设置</text>
-    <view class="settings-list">
-      <view class="settings-item" bindtap="onAiTone">
+      <!-- Default color -->
+      <view class="settings-item">
         <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="mic" size="18" color="#555" /></view>
-          <text class="settings-text">AI对话语气</text>
+          <view class="settings-icon-wrap"><icon name="palette" size="36" color="#555" /></view>
+          <text class="settings-text">默认卡片配色</text>
         </view>
-        <view class="settings-right-info">
-          <text class="settings-value">{{aiTone}}</text>
-          <view class="settings-arrow"></view>
+        <view class="color-list">
+          <view
+            wx:for="{{colors}}"
+            wx:key="*this"
+            class="color-dot {{defaultColor === item ? 'color-dot-active' : ''}}"
+            style="background: {{item}};"
+            bindtap="onColorSelect"
+            data-color="{{item}}"
+          ></view>
         </view>
       </view>
-      <view class="settings-item" bindtap="onAiDirection">
+      <!-- Auto extract keywords -->
+      <view class="settings-item">
         <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="compass" size="18" color="#555" /></view>
-          <text class="settings-text">思路引导方向</text>
+          <view class="settings-icon-wrap"><icon name="tag" size="36" color="#555" /></view>
+          <text class="settings-text">闪记自动提取关键字</text>
         </view>
-        <view class="settings-right-info">
-          <text class="settings-value">{{aiDirection}}</text>
-          <view class="settings-arrow"></view>
-        </view>
-      </view>
-      <view class="settings-item" bindtap="onAiAutoRecommend">
-        <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="bot" size="18" color="#555" /></view>
-          <text class="settings-text">AI自动推荐编辑</text>
-        </view>
-        <view class="settings-right-info">
-          <view class="toggle {{aiAutoRecommend ? 'toggle-on' : ''}}">
-            <view class="toggle-dot"></view>
-          </view>
+        <view class="switch-track {{autoExtract ? 'switch-on' : ''}}" bindtap="onAutoExtractToggle">
+          <view class="switch-thumb"></view>
         </view>
       </view>
     </view>
   </view>
 
-  <!-- Help -->
-  <view class="settings-section">
+  <!-- Data Management -->
+  <view class="section">
+    <text class="section-title">数据管理</text>
     <view class="settings-list">
-      <view class="settings-item" bindtap="onHelp">
+      <view class="settings-item" bindtap="onExportCurrent">
         <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="help-circle" size="18" color="#555" /></view>
-          <text class="settings-text">操作说明</text>
+          <view class="settings-icon-wrap"><icon name="cloud" size="36" color="#555" /></view>
+          <text class="settings-text">导出当前空间</text>
+        </view>
+        <view class="settings-arrow"></view>
+      </view>
+      <view class="settings-item" bindtap="onExportAll">
+        <view class="settings-left">
+          <view class="settings-icon-wrap"><icon name="cloud" size="36" color="#555" /></view>
+          <text class="settings-text">导出全部空间</text>
         </view>
         <view class="settings-arrow"></view>
       </view>
     </view>
   </view>
 
-  <!-- Logout -->
-  <view class="settings-section">
+  <!-- Account -->
+  <view class="section">
     <view class="settings-list">
       <view class="settings-item" bindtap="onLogout">
         <view class="settings-left">
-          <view class="settings-icon-wrap"><icon name="log-out" size="18" color="#e74c3c" /></view>
+          <view class="settings-icon-wrap"><icon name="log-out" size="36" color="#e74c3c" /></view>
           <text class="settings-text danger-text">退出登录</text>
         </view>
       </view>
@@ -164,21 +124,7 @@
     <text class="footer-text">思维灵感卡片 v1.0.0</text>
     <text class="footer-subtext">基于微信小程序原生开发</text>
   </view>
+
+  <!-- Bottom spacer for tab bar -->
+  <view style="height: 160rpx;"></view>
 </scroll-view>
-
-<!-- Clear confirm -->
-<view class="modal-mask" wx:if="{{showClearConfirm}}" bindtap="onHideClear">
-  <view class="confirm-dialog" catchtap="onStopPropagation">
-    <text class="confirm-title">确认清空数据</text>
-    <text class="confirm-msg">清空后所有灵感卡片和AI对话记录将被删除，且无法恢复。</text>
-    <view class="confirm-actions">
-      <view class="confirm-btn confirm-cancel" bindtap="onHideClear">
-        <text>取消</text>
-      </view>
-      <view class="confirm-btn confirm-danger" bindtap="onConfirmClear">
-        <text>清空</text>
-      </view>
-    </view>
-  </view>
-</view>
-

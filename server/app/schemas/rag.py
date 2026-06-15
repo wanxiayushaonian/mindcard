@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.card import CardResponse
 
@@ -9,7 +9,10 @@ class RAGRequest(BaseModel):
     card_id: str | None = None  # Optional: use a specific card as context center
     top_k: int = 5
     web_search: bool = False  # Enable web search for supplementary context
+    use_graph: bool = True  # Enable Graph RAG (falls back to hybrid search if unavailable)
+    retrieval_level: int | None = Field(None, ge=0, le=3, description="0=FREE, 1=CARD, 2=GRAPH, 3=FULL")  # None=auto
     history: list[dict[str, str]] = []  # [{"role": "user"/"assistant", "content": "..."}]
+    chat_id: str | None = None  # Optional: bind RAG to a chat session for topology context
 
 
 class CardSummary(BaseModel):

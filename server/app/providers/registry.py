@@ -23,7 +23,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         env_key="DEEPSEEK_API_KEY",
         default_base_url="https://api.deepseek.com",
         default_model="deepseek-chat",
-        models=["deepseek-chat", "deepseek-reasoner"],
+        models=["deepseek-chat", "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-reasoner"],
         backend="openai_compat",
     ),
     "openai": ProviderSpec(

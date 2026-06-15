@@ -180,38 +180,38 @@ page {
   color: #E8A0A0;
 }
 
-/* Floating Action Button */
-.fab {
+/* Floating Action Buttons */
+.fab-container {
   position: fixed;
-  right: 36rpx;
-  bottom: 80rpx;
+  right: 32rpx;
+  bottom: calc(140rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  width: 112rpx;
-  height: 112rpx;
-  background: var(--color-primary);
+  gap: 16rpx;
+  z-index: 100;
+}
+
+.fab-primary {
+  width: 96rpx;
+  height: 96rpx;
   border-radius: 50%;
-  box-shadow: 0 8rpx 32rpx rgba(148, 180, 200, 0.5);
+  background: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8rpx 24rpx rgba(148, 180, 200, 0.4);
 }
 
-.fab-hover {
-  transform: scale(1.05);
-  box-shadow: 0 12rpx 40rpx rgba(148, 180, 200, 0.6);
-}
-
-.fab-plus {
-  font-size: 44rpx;
-  color: #fff;
-  line-height: 1;
-  font-weight: 300;
-}
-
-.fab-label {
-  font-size: 18rpx;
-  color: #fff;
-  margin-top: 2rpx;
+.fab-secondary {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: var(--color-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
 }
 
 /* Modal mask */
@@ -225,7 +225,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 1000;
 }
 
 /* Flash Note Modal */
@@ -504,7 +504,3 @@ page {
   color: #fff;
 }
 
-/* Bottom spacer */
-.bottom-spacer {
-  height: 200rpx;
-}

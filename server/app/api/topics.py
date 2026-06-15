@@ -1,4 +1,3 @@
-import uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,45 +8,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.card import Card
+from app.models.synthesis_template import SynthesisTemplate
 from app.models.topic import Topic, TopicCard
 from app.models.user import User
 from app.schemas.topic import TopicListResponse, TopicResponse
-from app.services.llm import llm_service
+from app.services.llm import get_llm_service
+from app.services.synthesis import SYNTHESIS_PROMPTS, build_card_content_block
 from app.services.topic import topic_service
 from app.utils.auth import get_current_user, get_workspace_membership, require_role
 from app.utils.helpers import parse_uuid
 
 router = APIRouter()
 
-# Synthesis mode prompts
-_SYNTHESIS_PROMPTS = {
-    "timeline": (
-        "你是一个知识整理专家。请将以下零散的卡片笔记按时间线或逻辑发展顺序整理成一篇结构清晰的文章。"
-        "保留原始信息的完整性，添加适当的过渡语句，使文章流畅连贯。"
-        "使用 Markdown 格式，包含标题、小节和列表。"
-    ),
-    "argument": (
-        "你是一个知识整理专家。请将以下零散的卡片笔记整理成一篇有论点-论据结构的文章。"
-        "提炼核心观点，将相关卡片归类为支撑论据，形成有说服力的论述结构。"
-        "使用 Markdown 格式，包含标题、小节和列表。"
-    ),
-    "comparison": (
-        "你是一个知识整理专家。请将以下零散的卡片笔记按对比或分类方式整理成一篇结构化文章。"
-        "识别卡片之间的异同点，按维度进行分类对比，形成清晰的对照结构。"
-        "使用 Markdown 格式，包含标题、小节和列表。"
-    ),
-    "free": (
-        "你是一个知识整理专家。请将以下零散的卡片笔记整理成一篇结构清晰、逻辑连贯的文章。"
-        "自动识别最佳组织方式，提炼关键信息，消除重复，补充过渡。"
-        "使用 Markdown 格式，包含标题、小节和列表。"
-    ),
-}
-
 
 class SynthesizeRequest(BaseModel):
     topic_id: str
     mode: str = Field("free", pattern=r"^(timeline|argument|comparison|free)$")
     card_ids: list[str] = Field(default=[])  # optional subset
+    template_id: str | None = None  # optional custom template
 
 
 @router.get("/", response_model=TopicListResponse)
@@ -116,13 +94,21 @@ async def synthesize_topic(
     """Stream AI-synthesized content for a topic's cards (SSE)."""
     topic = await db.get(Topic, parse_uuid(req.topic_id))
     if not topic:
-        raise HTTPException(404, "话题不存在")
+        raise HTTPException(404, "Topic not found")
 
     await get_workspace_membership(topic.workspace_id, user, db)
 
     # Fetch card IDs for this topic
     if req.card_ids:
-        card_ids = [parse_uuid(cid) for cid in req.card_ids]
+        # Validate that requested cards actually belong to this topic
+        requested_ids = [parse_uuid(cid) for cid in req.card_ids]
+        tc_result = await db.execute(
+            select(TopicCard.card_id).where(
+                TopicCard.topic_id == topic.id,
+                TopicCard.card_id.in_(requested_ids),
+            )
+        )
+        card_ids = [row[0] for row in tc_result.all()]
     else:
         tc_result = await db.execute(
             select(TopicCard.card_id).where(TopicCard.topic_id == topic.id)
@@ -131,7 +117,7 @@ async def synthesize_topic(
 
     if not card_ids:
         async def empty():
-            yield "data: 没有找到关联的卡片。\n\n"
+            yield "data: No related cards found.\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(empty(), media_type="text/event-stream")
 
@@ -139,24 +125,28 @@ async def synthesize_topic(
     result = await db.execute(select(Card).where(Card.id.in_(card_ids)))
     cards = list(result.scalars().all())
 
-    # Build card content block
-    card_texts = []
-    for c in cards:
-        title = c.title or "无标题"
-        card_texts.append(f"### {title}\n\n{c.content}")
-    cards_content = "\n\n---\n\n".join(card_texts)
+    cards_content = build_card_content_block(cards)
 
-    system_prompt = _SYNTHESIS_PROMPTS.get(req.mode, _SYNTHESIS_PROMPTS["free"])
-    system_prompt += f"\n\n话题名称：{topic.name}"
+    system_prompt = SYNTHESIS_PROMPTS.get(req.mode, SYNTHESIS_PROMPTS["free"])
+
+    # Use custom template if provided
+    if req.template_id:
+        template = await db.get(SynthesisTemplate, parse_uuid(req.template_id))
+        if template and template.workspace_id == topic.workspace_id:
+            system_prompt = template.prompt
+
+    system_prompt += f"\n\nTopic: {topic.name}"
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"以下是需要整理的卡片内容：\n\n{cards_content}"},
+        {"role": "user", "content": f"Cards to synthesize:\n\n{cards_content}"},
     ]
 
     async def event_generator():
-        async for chunk in llm_service.stream(messages, max_tokens=8192, temperature=0.5):
-            yield f"data: {chunk}\n\n"
+        async for chunk in get_llm_service().stream(messages, max_tokens=8192, temperature=0.5):
+            for line in chunk.split("\n"):
+                yield f"data: {line}\n"
+            yield "\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

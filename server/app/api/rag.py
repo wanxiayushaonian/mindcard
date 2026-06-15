@@ -55,7 +55,7 @@ async def rag_ask(
     ws_ids = await _resolve_workspace_ids(req.workspace_id, user, db)
     result = await rag_service.ask(
         db, req.question, ws_ids, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
-        history=req.history or None,
+        history=req.history or None, use_graph=req.use_graph,
     )
     source_cards = [
         CardSummary.model_validate(s) if isinstance(s, dict) else s
@@ -86,7 +86,9 @@ async def chat_stream(req: ChatRequest, user: User = Depends(get_current_user), 
             if isinstance(chunk, dict):
                 yield f"data: {_json.dumps(chunk)}\n\n"
             else:
-                yield f"data: {chunk}\n\n"
+                for line in str(chunk).split("\n"):
+                    yield f"data: {line}\n"
+                yield "\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -108,7 +110,7 @@ async def ask_stream(
         sources = []
         async for chunk in rag_service.ask_stream(
             db, req.question, ws_ids, card_id=req.card_id, top_k=req.top_k, web_search=req.web_search,
-            history=req.history or None,
+            history=req.history or None, retrieval_level=req.retrieval_level, chat_id=req.chat_id,
         ):
             if isinstance(chunk, dict):
                 chunk_type = chunk.get("type", "")
@@ -118,7 +120,9 @@ async def ask_stream(
                 elif chunk_type == "sources":
                     sources = chunk.get("source_cards", [])
             else:
-                yield f"data: {chunk}\n\n"
+                for line in str(chunk).split("\n"):
+                    yield f"data: {line}\n"
+                yield "\n"
         if sources:
             source_data = [
                 {"id": s.id, "title": s.title, "content": s.content, "keywords": s.keywords, "color": s.color}

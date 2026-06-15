@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+import logging
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -7,15 +10,29 @@ from app.models.chat import AiChat, ChatMessage
 from app.models.user import User
 from app.schemas.chat import (
     ChatCreate,
+    ChatForkRequest,
+    ChatForkResponse,
     ChatListResponse,
     ChatMessageCreate,
     ChatMessageResponse,
     ChatResponse,
+    ChatSummarizeRequest,
 )
-from app.utils.auth import get_current_user, get_workspace_membership
+from app.utils.auth import get_current_user, get_workspace_membership, require_role
 from app.utils.helpers import parse_uuid
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+async def _require_chat_access(chat: AiChat, user: User, db: AsyncSession) -> None:
+    """Verify user can access this chat: owner OR workspace member."""
+    if chat.user_id == user.id:
+        return
+    if chat.workspace_id:
+        await get_workspace_membership(chat.workspace_id, user, db)
+        return
+    raise HTTPException(status_code=403, detail="无权访问此对话")
 
 
 @router.get("/", response_model=list[ChatListResponse])
@@ -29,9 +46,18 @@ async def list_chats(
     if workspace_id:
         await get_workspace_membership(parse_uuid(workspace_id), user, db)
     stmt = select(AiChat).order_by(AiChat.created_at.desc())
-    stmt = stmt.where(AiChat.user_id == user.id)
     if workspace_id:
+        # Include: user's own chats + shared workspace root nodes (no owner)
+        from sqlalchemy import and_
+        stmt = stmt.where(
+            or_(
+                AiChat.user_id == user.id,
+                and_(AiChat.node_type == "root", AiChat.user_id.is_(None)),
+            )
+        )
         stmt = stmt.where(AiChat.workspace_id == parse_uuid(workspace_id))
+    else:
+        stmt = stmt.where(AiChat.user_id == user.id)
     if mode:
         stmt = stmt.where(AiChat.mode == mode)
     result = await db.execute(stmt)
@@ -78,7 +104,10 @@ async def list_chats(
             mode=c.mode,
             workspace_id=c.workspace_id,
             card_id=c.card_id,
+            parent_id=c.parent_id,
+            node_type=c.node_type,
             title=c.title,
+            chat_status=c.chat_status,
             created_at=c.created_at,
             message_count=count_map.get(c.id, 0),
             last_message=last_msg_map.get(c.id, ""),
@@ -98,18 +127,16 @@ async def create_chat(
 
     workspace_uuid = None
     if req.workspace_id:
-        try:
-            workspace_uuid = parse_uuid(req.workspace_id)
-            await get_workspace_membership(workspace_uuid, user, db)
-        except Exception:
-            workspace_uuid = None
+        workspace_uuid = parse_uuid(req.workspace_id)
+        await get_workspace_membership(workspace_uuid, user, db)
 
     card_uuid = None
     if req.card_id:
-        try:
-            card_uuid = parse_uuid(req.card_id)
-        except Exception:
-            card_uuid = None
+        card_uuid = parse_uuid(req.card_id)
+
+    parent_uuid = None
+    if req.parent_id:
+        parent_uuid = parse_uuid(req.parent_id)
 
     local_id = req.local_id or f"chat_{int(time.time() * 1000)}"
 
@@ -124,7 +151,12 @@ async def create_chat(
             mode=chat.mode,
             workspace_id=chat.workspace_id,
             card_id=chat.card_id,
+            parent_id=chat.parent_id,
+            node_type=chat.node_type,
             title=chat.title,
+            description=chat.description,
+            summary=chat.summary,
+            chat_status=chat.chat_status,
             created_at=chat.created_at,
             messages=[],
         )
@@ -136,9 +168,29 @@ async def create_chat(
         title=req.title,
         workspace_id=workspace_uuid,
         card_id=card_uuid,
+        parent_id=parent_uuid,
+        node_type="branch" if parent_uuid else "root",
     )
     db.add(chat)
     await db.flush()
+
+    # New conversations are root-level trees (forest model).
+    # Auto-bind to topology only when explicitly provided a parent.
+    if workspace_uuid and chat.parent_id:
+        try:
+            from app.services.topology import topology_service
+
+            await topology_service.auto_bind_chat_to_node(
+                db, chat, req.title or ""
+            )
+            await db.flush()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Auto-bind chat to node failed: %s", e
+            )
+
     await db.commit()
     await db.refresh(chat)
     return ChatResponse(
@@ -146,7 +198,12 @@ async def create_chat(
         mode=chat.mode,
         workspace_id=chat.workspace_id,
         card_id=chat.card_id,
+        parent_id=chat.parent_id,
+        node_type=chat.node_type,
         title=chat.title,
+        description=chat.description,
+        summary=chat.summary,
+        chat_status=chat.chat_status,
         created_at=chat.created_at,
         messages=[],
     )
@@ -162,22 +219,50 @@ async def get_chat(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
     result = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.chat_id == chat.id)
         .order_by(ChatMessage.created_at.asc())
     )
     messages = result.scalars().all()
+
+    # Build child message count map for fork-divider messages (single batch query)
+    child_chat_ids = [
+        uuid.UUID(m.metadata_["child_chat_id"])
+        for m in messages
+        if m.role == "fork-divider" and m.metadata_ and m.metadata_.get("child_chat_id")
+    ]
+    child_count_map: dict[str, int] = {}
+    if child_chat_ids:
+        count_result = await db.execute(
+            select(ChatMessage.chat_id, func.count(ChatMessage.id).label("cnt"))
+            .where(ChatMessage.chat_id.in_(child_chat_ids))
+            .where(ChatMessage.role != "fork-divider")
+            .group_by(ChatMessage.chat_id)
+        )
+        child_count_map = {str(row.chat_id): row.cnt for row in count_result}
+
+    def _enrich_message(m: ChatMessage) -> ChatMessageResponse:
+        resp = ChatMessageResponse.model_validate(m)
+        if m.role == "fork-divider" and m.metadata_ and m.metadata_.get("child_chat_id"):
+            child_id = m.metadata_["child_chat_id"]
+            resp.metadata_ = {**m.metadata_, "child_message_count": child_count_map.get(child_id, 0)}
+        return resp
+
     return ChatResponse(
         id=chat.id,
         mode=chat.mode,
         workspace_id=chat.workspace_id,
         card_id=chat.card_id,
+        parent_id=chat.parent_id,
+        node_type=chat.node_type,
         title=chat.title,
+        description=chat.description,
+        summary=chat.summary,
+        chat_status=chat.chat_status,
         created_at=chat.created_at,
-        messages=[ChatMessageResponse.model_validate(m) for m in messages],
+        messages=[_enrich_message(m) for m in messages],
     )
 
 
@@ -192,13 +277,15 @@ async def add_message(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
     msg = ChatMessage(
         chat_id=chat.id,
         role=req.role,
         content=req.content,
         web_search_results=[r.model_dump() for r in req.web_search_results] if req.web_search_results else None,
+        source_cards=req.source_cards,
+        fork_id=req.fork_id,
+        metadata_=req.metadata_,
     )
     db.add(msg)
     await db.flush()
@@ -221,8 +308,7 @@ async def add_messages_batch(
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    await _require_chat_access(chat, user, db)
 
     # Delete existing messages first (full replace)
     from sqlalchemy import delete as sql_delete
@@ -253,18 +339,375 @@ async def add_messages_batch(
     return {"ok": True, "count": len(msgs)}
 
 
+@router.patch("/{chat_id}/messages/{msg_id}", response_model=ChatMessageResponse)
+async def update_message(
+    chat_id: str,
+    msg_id: str,
+    req: ChatMessageCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Update an existing message's content."""
+    chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    await _require_chat_access(chat, user, db)
+    msg = await db.get(ChatMessage, parse_uuid(msg_id))
+    if not msg or msg.chat_id != chat.id:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    msg.role = req.role
+    msg.content = req.content
+    if req.fork_id is not None:
+        msg.fork_id = req.fork_id
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
+@router.delete("/{chat_id}/messages/{msg_id}")
+async def delete_message(
+    chat_id: str,
+    msg_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Delete a single message from a chat."""
+    chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    await _require_chat_access(chat, user, db)
+    msg = await db.get(ChatMessage, parse_uuid(msg_id))
+    if not msg or msg.chat_id != chat.id:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    await db.delete(msg)
+    await db.commit()
+    return {"ok": True}
+
+
 @router.delete("/{chat_id}")
 async def delete_chat(
     chat_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Delete a chat session and all its messages."""
+    """Delete a chat session and all its messages.
+
+    Child chats (topology children) are cascade-deleted via parent_id FK.
+    Also removes fork-divider messages in parent chats that reference this chat.
+    """
     chat = await db.get(AiChat, parse_uuid(chat_id))
     if not chat:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if chat.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问此对话")
+    # Only owner or workspace admin can delete
+    if chat.user_id == user.id:
+        pass  # owner can always delete
+    elif chat.workspace_id:
+        membership = await get_workspace_membership(chat.workspace_id, user, db)
+        require_role(membership, "owner", "admin")
+    else:
+        raise HTTPException(status_code=403, detail="无权删除此对话")
+
+    # Remove fork-divider messages in other chats that reference this chat as a child
+    fork_dividers = await db.execute(
+        select(ChatMessage).where(
+            ChatMessage.role == "fork-divider",
+            ChatMessage.metadata_["child_chat_id"].as_string() == str(chat.id),
+        )
+    )
+    for msg in fork_dividers.scalars().all():
+        await db.delete(msg)
+
     await db.delete(chat)
     await db.commit()
+    logger.info("Deleted chat %s", chat_id)
     return {"ok": True}
+
+
+@router.get("/{chat_id}/delete-preview")
+async def delete_chat_preview(
+    chat_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Preview what will be affected by deleting a chat."""
+    chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    await _require_chat_access(chat, user, db)
+
+    from sqlalchemy import func
+
+    # Count messages
+    msg_count = await db.execute(
+        select(func.count()).where(ChatMessage.chat_id == chat.id)
+    )
+    # Count child chats (topology children)
+    child_count = await db.execute(
+        select(func.count()).where(AiChat.parent_id == chat.id)
+    )
+
+    return {
+        "chat_title": chat.title or "未命名对话",
+        "messages": msg_count.scalar() or 0,
+        "child_chats": child_count.scalar() or 0,
+        "node_title": chat.title,
+        "node_will_archive": False,
+    }
+
+
+# ── Fork & Summarize ──
+
+
+@router.post("/{chat_id}/fork", response_model=ChatForkResponse)
+async def fork_chat(
+    chat_id: str,
+    req: ChatForkRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Fork a conversation by creating a child AiChat with compressed parent context."""
+    from app.services.fork_compress import fork_compressor
+    from app.tools.fork_profiles import get_profile
+
+    parent_chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not parent_chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    await _require_chat_access(parent_chat, user, db)
+
+    # Resolve context_strategy: profile takes precedence over explicit field
+    context_strategy = req.context_strategy
+    fork_profile_name = req.profile
+    if fork_profile_name:
+        profile = get_profile(fork_profile_name)
+        if profile:
+            context_strategy = profile.context_strategy
+
+    # Fetch messages for compression (last 50)
+    result = await db.execute(
+        select(ChatMessage)
+        .where(
+            ChatMessage.chat_id == parent_chat.id,
+            ChatMessage.role.in_(["user", "assistant"]),
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .limit(50)
+    )
+    messages = [{"role": m.role, "content": m.content} for m in reversed(result.scalars().all())]
+
+    # Use ForkCompressor
+    context_summary = await fork_compressor.compress(messages, strategy=context_strategy)
+
+    # Derive depth directly from parent — no N+1 chain walk needed
+    depth = (parent_chat.depth or 0) + 1
+
+    # Create child AiChat
+    branch_label = req.topic or "手动分支"
+    child_chat = AiChat(
+        local_id=f"fork-{uuid.uuid4().hex[:12]}",
+        workspace_id=parent_chat.workspace_id,
+        parent_id=parent_chat.id,
+        user_id=user.id,
+        mode=req.mode,
+        title=branch_label,
+        node_type="branch",
+        depth=depth,
+    )
+    db.add(child_chat)
+    await db.flush()
+
+    # Insert fork-divider message in parent chat (frontend will update content)
+    divider = ChatMessage(
+        chat_id=parent_chat.id,
+        role="fork-divider",
+        content="",
+        metadata_={
+            "child_chat_id": str(child_chat.id),
+            "branch_label": branch_label,
+            "parent_context_summary": context_summary,
+            "depth": depth,
+            "fork_profile": fork_profile_name,
+        },
+    )
+    db.add(divider)
+    await db.commit()
+
+    return ChatForkResponse(
+        chat_id=str(child_chat.id),
+        context_summary=context_summary or "",
+        depth=depth,
+        node_id=str(child_chat.id),
+        divider_msg_id=str(divider.id),
+    )
+
+
+@router.get("/{chat_id}/path")
+async def get_chat_path(
+    chat_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the topology path from root to this chat (walks ai_chats.parent_id chain)"""
+    chat = await db.get(AiChat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    await _require_chat_access(chat, current_user, db)
+
+    # Build path by walking parent_id chain
+    path = []
+    current_id: uuid.UUID | None = chat.id
+    max_depth = 20  # safety limit
+
+    while current_id and max_depth > 0:
+        max_depth -= 1
+        node_result = await db.execute(
+            select(AiChat).where(AiChat.id == current_id)
+        )
+        node = node_result.scalar_one_or_none()
+        if not node:
+            break
+
+        path.insert(0, {
+            "node_id": str(node.id),
+            "title": node.title,
+            "chat_id": str(node.id),
+            "node_type": node.node_type,
+        })
+
+        current_id = node.parent_id
+
+    return {"path": path}
+
+
+@router.post("/{chat_id}/summarize")
+async def summarize_chat(
+    chat_id: str,
+    req: ChatSummarizeRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Summarize a conversation into a card. Runs LLM in background."""
+    chat = await db.get(AiChat, parse_uuid(chat_id))
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    await _require_chat_access(chat, user, db)
+
+    # Fetch all messages
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.chat_id == chat.id)
+        .order_by(ChatMessage.created_at.asc())
+    )
+    messages = result.scalars().all()
+
+    if len(messages) < 2:
+        raise HTTPException(status_code=400, detail="对话内容太少，无法生成摘要")
+
+    # Build conversation text
+    conversation_text = "\n".join(
+        f"{'用户' if m.role == 'user' else 'AI'}: {m.content}"
+        for m in messages
+    )
+
+    # Generate summary in background
+    background_tasks.add_task(
+        _generate_summary_card,
+        chat_id=chat.id,
+        workspace_id=chat.workspace_id,
+        user_id=user.id,
+        conversation_text=conversation_text,
+        title=req.title,
+        keywords=req.keywords,
+    )
+
+    return {"ok": True, "message": "摘要生成中，稍后将作为卡片保存"}
+
+
+async def _generate_summary_card(
+    chat_id: uuid.UUID,
+    workspace_id: uuid.UUID | None,
+    user_id: uuid.UUID,
+    conversation_text: str,
+    title: str = "",
+    keywords: list[str] | None = None,
+):
+    """Generate a summary card from a conversation (runs in background)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        from app.database import async_session
+        from app.models.card import Card
+        from app.services.llm import get_llm_service
+
+        async with async_session() as db:
+            # Generate summary using LLM
+            summary_prompt = (
+                "请将以下对话内容整理成一篇结构化的知识笔记。\n"
+                "要求：\n"
+                "- 使用 Markdown 格式\n"
+                "- 用 ## 标题分段\n"
+                "- 提取关键观点和结论\n"
+                "- 保留重要的技术细节\n"
+                "- 语言简洁精炼\n\n"
+                f"对话内容：\n{conversation_text[:8000]}"
+            )
+
+            summary = await get_llm_service().complete_simple(
+                summary_prompt, "", max_tokens=2048
+            )
+
+            # Generate title if not provided
+            if not title:
+                title_raw = await get_llm_service().extraction_complete_simple(
+                    "请用不超过20个字概括以下内容的主题，作为标题。只输出标题文字本身。",
+                    summary[:500],
+                    max_tokens=32,
+                )
+                title = title_raw.strip()[:50]
+
+            # Extract keywords if not provided
+            if not keywords:
+                kw_raw = await get_llm_service().extraction_complete_simple(
+                    "从以下内容中提取3-5个核心关键字，用逗号分隔。",
+                    summary[:500],
+                    max_tokens=64,
+                )
+                keywords = [kw.strip() for kw in kw_raw.split(",") if kw.strip()][:5]
+
+            # Create card
+            card = Card(
+                local_id=f"summary_{uuid.uuid4().hex[:16]}",
+                workspace_id=workspace_id,
+                creator_id=user_id,
+                title=title,
+                content=summary,
+                keywords=keywords or [],
+                is_temp=False,
+            )
+            db.add(card)
+            await db.flush()
+
+            # Generate embedding and classify
+            from app.services.embedding import embedding_service
+            text = embedding_service.card_to_text(card.title, card.content, card.keywords, card.emotion_tag)
+            embedding = await embedding_service.embed(text)
+            card.embedding = embedding
+            await db.commit()
+
+            # Assign to topic
+            from app.services.topic import topic_service
+            await topic_service.assign_card_to_topic(db, card)
+            await db.commit()
+
+            # Auto-classify into topology tree
+            from app.services.topology import topology_service
+            await topology_service.assign_card_to_node(db, card)
+            await db.commit()
+
+            logger.info("Summary card created: %s (from chat %s)", card.id, chat_id)
+
+    except Exception as e:
+        logger.error("Summary generation failed for chat %s: %s", chat_id, e, exc_info=True)

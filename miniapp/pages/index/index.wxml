@@ -1,16 +1,5 @@
 <!--pages/index/index.wxml-->
-<navigation-bar title="{{workspaceName}}" back="{{true}}" background="#F9FAFC">
-  <view slot="right" class="nav-right">
-    <view class="nav-icon-btn" bindtap="onSearch">
-      <icon name="search" size="20" color="#555" />
-    </view>
-    <view class="nav-icon-btn" bindtap="onWalk">
-      <icon name="sparkles" size="20" color="#555" />
-    </view>
-    <view class="nav-icon-btn" bindtap="onMore">
-      <icon name="menu" size="20" color="#555" />
-    </view>
-  </view>
+<navigation-bar title="{{workspaceName}}" back="{{false}}" background="#F9FAFC" showBell="{{true}}" unreadCount="{{unreadCount}}" bind:bell="onBellTap">
 </navigation-bar>
 
 <scroll-view
@@ -55,11 +44,8 @@
     <text class="stats-text">{{filteredCards.length}} 张灵感卡片</text>
     <view class="stats-right">
       <view class="stats-fav" bindtap="onTagSelect" data-tag="收藏">
-        <icon name="star" size="14" color="#f0a500" />
+        <icon name="star" size="28" color="#f0a500" />
         <text class="stats-fav-text">{{favCount}}</text>
-      </view>
-      <view class="stats-category" bindtap="onCategory">
-        <text class="stats-category-text">分类管理</text>
       </view>
     </view>
   </view>
@@ -74,79 +60,40 @@
   <!-- Waterfall card layout -->
   <view class="waterfall" wx:if="{{filteredCards.length > 0}}">
     <view class="waterfall-col">
-      <view
+      <card-item
         wx:for="{{leftCards}}"
         wx:key="id"
-        class="card"
-        style="border-left: 6rpx solid {{item.color}};"
-        bindtap="onCardTap"
-        bindlongpress="onCardLongPress"
-        data-id="{{item.id}}"
-      >
-        <view class="card-keywords" wx:if="{{item.keywords.length > 0}}">
-          <view
-            wx:for="{{item.keywords}}"
-            wx:for-item="kw"
-            wx:key="*this"
-            class="card-kw"
-            style="background: {{item.color}};"
-          >
-            <text>{{kw}}</text>
-          </view>
-        </view>
-        <text class="card-title" wx:if="{{item.title}}">{{item.title}}</text>
-        <text class="card-content-text" overflow="ellipsis" max-lines="4">{{item.content}}</text>
-        <view class="card-footer">
-          <text class="card-time">{{item.createdAt}}</text>
-          <view class="card-badges">
-            <text wx:if="{{item.hasAiChat}}" class="card-ai-badge">AI</text>
-            <icon wx:if="{{item.isFavorite}}" name="star" size="12" color="#f0a500" />
-          </view>
-        </view>
-      </view>
+        card="{{item}}"
+        bind:tap="onCardTap"
+        bind:longpress="onCardLongPress"
+      />
     </view>
     <view class="waterfall-col">
-      <view
+      <card-item
         wx:for="{{rightCards}}"
         wx:key="id"
-        class="card"
-        style="border-left: 6rpx solid {{item.color}};"
-        bindtap="onCardTap"
-        bindlongpress="onCardLongPress"
-        data-id="{{item.id}}"
-      >
-        <view class="card-keywords" wx:if="{{item.keywords.length > 0}}">
-          <view
-            wx:for="{{item.keywords}}"
-            wx:for-item="kw"
-            wx:key="*this"
-            class="card-kw"
-            style="background: {{item.color}};"
-          >
-            <text>{{kw}}</text>
-          </view>
-        </view>
-        <text class="card-title" wx:if="{{item.title}}">{{item.title}}</text>
-        <text class="card-content-text" overflow="ellipsis" max-lines="4">{{item.content}}</text>
-        <view class="card-footer">
-          <text class="card-time">{{item.createdAt}}</text>
-          <view class="card-badges">
-            <text wx:if="{{item.hasAiChat}}" class="card-ai-badge">AI</text>
-            <icon wx:if="{{item.isFavorite}}" name="star" size="12" color="#f0a500" />
-          </view>
-        </view>
-      </view>
+        card="{{item}}"
+        bind:tap="onCardTap"
+        bind:longpress="onCardLongPress"
+      />
     </view>
   </view>
 
-  <!-- Bottom spacer for FAB -->
-  <view class="bottom-spacer"></view>
+  <!-- Bottom spacer for tab bar -->
+  <view style="height: 200rpx;"></view>
 </scroll-view>
 
-<!-- Floating Action Button -->
-<view class="fab" bindtap="onFabTap" hover-class="fab-hover">
-  <icon name="plus" size="22" color="#fff" />
-  <text class="fab-label">闪记</text>
+<!-- Floating Action Buttons -->
+<view class="fab-container">
+  <view class="fab-secondary" bindtap="onWalk">
+    <icon name="sparkles" size="44" color="#7A9BB0" />
+  </view>
+  <view class="fab-secondary" bindtap="onSearch">
+    <icon name="search" size="44" color="#7A9BB0" />
+  </view>
+  <view class="fab-primary" bindtap="onFabTap">
+    <icon name="plus" size="52" color="#fff" />
+  </view>
 </view>
 
 <!-- Flash Note Modal -->
@@ -155,7 +102,7 @@
     <view class="flash-modal-header">
       <text class="flash-modal-title">极速闪记</text>
       <view class="flash-close" bindtap="onModalClose">
-        <icon name="x" size="18" color="#999" />
+        <icon name="x" size="36" color="#999" />
       </view>
     </view>
     <view class="flash-modal-body">
@@ -231,7 +178,7 @@
     <view class="walk-modal-header">
       <text class="walk-modal-title">灵感漫游</text>
       <view class="walk-close" bindtap="onWalkClose">
-        <icon name="x" size="18" color="#999" />
+        <icon name="x" size="36" color="#999" />
       </view>
     </view>
     <view class="walk-modal-body">
@@ -248,7 +195,7 @@
           </view>
         </view>
         <text class="walk-card-title" wx:if="{{walkCard.title}}">{{walkCard.title}}</text>
-        <text class="walk-card-content" overflow="ellipsis" max-lines="6">{{walkCard.content}}</text>
+        <text class="walk-card-content">{{walkCard.preview}}</text>
         <view class="walk-card-footer">
           <text class="walk-card-time">{{walkCard.createdAt}}</text>
           <text wx:if="{{walkCard.hasAiChat}}" class="walk-card-ai">AI对话</text>

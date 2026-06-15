@@ -56,8 +56,14 @@
       </block>
     </view>
     
-    <!-- 右侧留空 -->
+    <!-- 右侧 -->
     <view class='weui-navigation-bar__right'>
+      <view wx:if="{{showBell}}" class="nav-bell" bindtap="onBellTap">
+        <view class="nav-bell-dot" wx:if="{{unreadCount > 0}}">
+          <text>{{unreadCount > 99 ? '99+' : unreadCount}}</text>
+        </view>
+        <icon name="bell" size="44" color="#5A6A7A" />
+      </view>
       <slot name="right"></slot>
     </view>
   </view>

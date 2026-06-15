@@ -50,6 +50,14 @@ Component({
       type: Number,
       value: 1
     },
+    showBell: {
+      type: Boolean,
+      value: false
+    },
+    unreadCount: {
+      type: Number,
+      value: 0
+    },
   },
   /**
    * 组件的初始数据
@@ -97,6 +105,9 @@ Component({
         })
       }
       this.triggerEvent('back', { delta: data.delta }, {})
+    },
+    onBellTap() {
+      this.triggerEvent('bell', {}, {});
     }
   },
 })

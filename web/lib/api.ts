@@ -23,16 +23,16 @@ async function request<T>(path: string, options?: RequestInit & { timeout?: numb
       if (res.status === 401 && typeof window !== "undefined") {
         localStorage.removeItem("token");
         window.location.href = "/login";
-        throw new Error("登录已过期，请重新登录");
+        throw new Error("sessionExpired");
       }
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(err.detail || `HTTP ${res.status}`);
     }
 
     return res.json();
-  } catch (err: any) {
-    if (err.name === "AbortError") {
-      throw new Error("请求超时，请检查网络连接");
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("networkTimeout");
     }
     throw err;
   } finally {
@@ -47,9 +47,13 @@ export function streamRequest(
   onChunk: (text: string) => void,
   onDone: () => void,
   onError?: (err: Error) => void,
+  options?: { timeoutMs?: number; onCancel?: () => void },
 ): () => void {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const controller = new AbortController();
+  const timeoutMs = options?.timeoutMs ?? 120_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let doneCalled = false;
 
   fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -65,14 +69,29 @@ export function streamRequest(
         if (res.status === 401 && typeof window !== "undefined") {
           localStorage.removeItem("token");
           window.location.href = "/login";
-          throw new Error("登录已过期，请重新登录");
+          throw new Error("sessionExpired");
         }
         const err = await res.json().catch(() => ({ detail: res.statusText }));
         throw new Error(err.detail || `HTTP ${res.status}`);
       }
-      const reader = res.body!.getReader();
+      if (!res.body) {
+        throw new Error("Response body is null");
+      }
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let dataLines: string[] = [];
+
+      const flushDataLines = () => {
+        if (dataLines.length === 0) return;
+        const data = dataLines.join("\n");
+        dataLines = [];
+        if (data.trim() === "[DONE]") {
+          if (!doneCalled) { doneCalled = true; onDone(); }
+          return;
+        }
+        onChunk(data);
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -83,24 +102,33 @@ export function streamRequest(
         buffer = lines.pop() || "";
         for (const line of lines) {
           if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") {
-              onDone();
-              return;
-            }
-            onChunk(data);
+            dataLines.push(line.slice(6));
+          } else if (line === "") {
+            // Blank line = end of SSE event → flush accumulated data lines
+            flushDataLines();
+            if (doneCalled) return;
           }
         }
       }
-      onDone();
+      flushDataLines();
+      if (!doneCalled) { doneCalled = true; onDone(); }
     })
     .catch((err) => {
-      if (err.name !== "AbortError") {
+      if (err instanceof Error && err.name === "AbortError") {
+        // User cancelled — call onCancel if provided, otherwise fall back to onDone for UI reset
+        if (options?.onCancel) {
+          options.onCancel();
+        } else if (!doneCalled) {
+          doneCalled = true;
+          onDone();
+        }
+      } else {
         onError?.(err);
       }
-    });
+    })
+    .finally(() => clearTimeout(timer));
 
-  return () => controller.abort();
+  return () => { clearTimeout(timer); controller.abort(); };
 }
 
 // --- Auth ---
@@ -276,6 +304,15 @@ export const cardApi = {
     }),
   delete: (id: string) =>
     request<{ ok: boolean }>(`/api/cards/${id}`, { method: "DELETE" }),
+  deletePreview: (id: string) =>
+    request<{
+      card_title: string;
+      relations: number;
+      topology_nodes: number;
+      entities: number;
+      graph_relations: number;
+      comments: number;
+    }>(`/api/cards/${id}/delete-preview`),
   getRelated: (id: string) => request<Card[]>(`/api/cards/${id}/relations`),
   addRelation: (cardId: string, relatedCardId: string, relationType = "manual") =>
     request<{ ok: boolean }>(`/api/cards/${cardId}/relations`, {
@@ -409,8 +446,15 @@ export interface ChatSession {
   mode: string;
   workspace_id: string | null;
   card_id: string | null;
+  parent_id: string | null;        // topology tree parent (self-referencing)
+  node_type: string;               // "root" | "branch" | "leaf"
   title: string;
+  description: string;
+  summary: string;
+  chat_status: string;             // "active" | "completed" | "archived"
   created_at: string;
+  message_count?: number;
+  last_message?: string;
 }
 
 export interface ChatMessage {
@@ -419,11 +463,21 @@ export interface ChatMessage {
   role: string;
   content: string;
   web_search_results?: WebSearchResult[];
+  source_cards?: Array<{ id: string; title: string; content: string; keywords: string[]; color: string }>;
+  fork_id?: string;
+  metadata_?: Record<string, any>;  // fork-dividers store child_chat_id here
   created_at: string;
 }
 
 export interface ChatDetail extends ChatSession {
   messages: ChatMessage[];
+}
+
+export interface ChatPathNode {
+  node_id: string;
+  title: string;
+  chat_id: string | null;
+  node_type: string;
 }
 
 export const chatApi = {
@@ -434,18 +488,40 @@ export const chatApi = {
     return request<ChatSession[]>(`/api/chats/?${params.toString()}`);
   },
   get: (chatId: string) => request<ChatDetail>(`/api/chats/${chatId}`),
-  create: (data: { mode: string; workspace_id?: string; card_id?: string; title?: string }) =>
+  create: (data: { mode: string; workspace_id?: string; card_id?: string; parent_id?: string; title?: string }) =>
     request<ChatDetail>("/api/chats/", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  addMessage: (chatId: string, role: string, content: string, webSearchResults?: WebSearchResult[]) =>
+  addMessage: (chatId: string, role: string, content: string, webSearchResults?: WebSearchResult[], forkId?: string, metadata?: Record<string, any>, sourceCards?: Array<{ id: string; title: string; content: string; keywords: string[]; color: string }>) =>
     request<ChatMessage>(`/api/chats/${chatId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, content, web_search_results: webSearchResults }),
+      body: JSON.stringify({ role, content, web_search_results: webSearchResults, source_cards: sourceCards, fork_id: forkId, metadata_: metadata }),
+    }),
+  updateMessage: (chatId: string, msgId: string, role: string, content: string) =>
+    request<ChatMessage>(`/api/chats/${chatId}/messages/${msgId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role, content }),
     }),
   delete: (chatId: string) =>
     request<{ ok: boolean }>(`/api/chats/${chatId}`, { method: "DELETE" }),
+  deleteMessage: (chatId: string, msgId: string) =>
+    request<{ ok: boolean }>(`/api/chats/${chatId}/messages/${msgId}`, { method: "DELETE" }),
+  deletePreview: (chatId: string) =>
+    request<{
+      chat_title: string;
+      messages: number;
+      child_chats: number;
+      node_title: string | null;
+      node_will_archive: boolean;
+    }>(`/api/chats/${chatId}/delete-preview`),
+  getChatPath: (chatId: string) =>
+    request<{ path: ChatPathNode[] }>(`/api/chats/${chatId}/path`),
+  fork: (chatId: string, data: { topic?: string; context_strategy?: string; profile?: string }) =>
+    request<{ chat_id: string; context_summary: string; depth: number; node_id: string; divider_msg_id: string }>(`/api/chats/${chatId}/fork`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 // --- AI Text Tools ---
@@ -558,10 +634,11 @@ export const topicApi = {
     onDone: () => void,
     onError?: (err: Error) => void,
     cardIds?: string[],
+    templateId?: string,
   ) =>
     streamRequest(
       "/api/topics/synthesize",
-      { topic_id: topicId, mode, card_ids: cardIds ?? [] },
+      { topic_id: topicId, mode, card_ids: cardIds ?? [], template_id: templateId ?? null },
       onChunk,
       onDone,
       onError,
@@ -598,4 +675,317 @@ export const settingsApi = {
       method: "PUT",
       body: JSON.stringify({ provider, model }),
     }),
+  getExtractionLanguage: () => request<{ language: "zh" | "en" }>("/api/settings/extraction-language"),
+  updateExtractionLanguage: (language: "zh" | "en") =>
+    request<{ ok: boolean; language: string }>("/api/settings/extraction-language", {
+      method: "PUT",
+      body: JSON.stringify({ language }),
+    }),
+  getExtractionProvider: () =>
+    request<{ provider: string; model: string; available_providers: string[] }>("/api/settings/extraction-provider"),
+  updateExtractionProvider: (provider: string, model?: string) =>
+    request<{ ok: boolean; provider: string; model: string }>("/api/settings/extraction-provider", {
+      method: "PUT",
+      body: JSON.stringify({ provider, model }),
+    }),
+  getWebSearchSettings: () =>
+    request<{
+      provider: string;
+      api_key_set: boolean;
+      base_url: string;
+      max_results: number;
+      timeout: number;
+      proxy: string;
+      providers: { name: string; label: string; credential: string }[];
+    }>("/api/settings/web-search"),
+  updateWebSearchSettings: (data: {
+    provider?: string;
+    api_key?: string;
+    base_url?: string;
+    max_results?: number;
+    timeout?: number;
+    proxy?: string;
+  }) =>
+    request<{ ok: boolean; provider: string; max_results: number; timeout: number }>(
+      "/api/settings/web-search",
+      { method: "PUT", body: JSON.stringify(data) }
+    ),
+};
+
+// --- Topology Tree ---
+export interface TopologyNode {
+  id: string;
+  workspace_id: string;
+  parent_id: string | null;
+  chat_id: string | null;
+  node_type: "root" | "branch" | "leaf";
+  title: string;
+  description: string;
+  summary: string;
+  status: "active" | "completed" | "archived";
+  sort_order: number;
+  card_ids: string[];
+  card_count: number;
+  child_ids: string[];
+  ref_ids: string[];
+  created_at: string;
+  updated_at: string | null;
+  completed_at: string | null;
+}
+
+/** @deprecated Use TopologyNode instead */
+export type TreeNode = TopologyNode;
+
+export const topologyApi = {
+  list: (workspaceId: string) =>
+    request<{ nodes: TopologyNode[] }>(`/api/topology/?workspace_id=${workspaceId}`).then((r) => r.nodes),
+  get: (nodeId: string) => request<TopologyNode>(`/api/topology/nodes/${nodeId}`),
+  create: (data: {
+    workspace_id: string;
+    parent_id?: string;
+    node_type?: string;
+    title?: string;
+    description?: string;
+  }) =>
+    request<TopologyNode>("/api/topology/", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (nodeId: string, data: Partial<TopologyNode>) =>
+    request<TopologyNode>(`/api/topology/${nodeId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  delete: (nodeId: string) =>
+    request<{ ok: boolean }>(`/api/topology/${nodeId}`, { method: "DELETE" }),
+  addCard: (nodeId: string, cardId: string) =>
+    request<TopologyNode>(`/api/topology/${nodeId}/cards`, {
+      method: "POST",
+      body: JSON.stringify({ card_id: cardId }),
+    }),
+  removeCard: (nodeId: string, cardId: string) =>
+    request<{ ok: boolean }>(`/api/topology/${nodeId}/cards/${cardId}`, { method: "DELETE" }),
+  createRef: (nodeId: string, targetId: string, refType = "related", reason = "") =>
+    request<TopologyNode>(`/api/topology/${nodeId}/refs`, {
+      method: "POST",
+      body: JSON.stringify({ target_chat_id: targetId, ref_type: refType, reason }),
+    }),
+  removeRef: (nodeId: string, targetId: string) =>
+    request<{ ok: boolean }>(`/api/topology/${nodeId}/refs/${targetId}`, { method: "DELETE" }),
+  subtreeCards: (nodeId: string) =>
+    request<{ cards: Card[]; node_ids: string[] }>(`/api/topology/${nodeId}/subtree-cards`),
+  synthesize: (
+    nodeId: string,
+    mode: string,
+    onChunk: (text: string) => void,
+    onDone: () => void,
+    onError?: (err: Error) => void,
+    cardIds?: string[],
+    templateId?: string,
+  ) =>
+    streamRequest(
+      `/api/topology/${nodeId}/synthesize`,
+      { mode, card_ids: cardIds ?? [], template_id: templateId ?? null },
+      onChunk,
+      onDone,
+      onError,
+    ),
+};
+
+// --- Graph Memory API ---
+export interface GraphEntity {
+  id: string;
+  workspace_id: string;
+  name: string;
+  entity_type: string | null;
+  description: string | null;
+  access_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GraphEntityDetail extends GraphEntity {
+  related_cards: { card_id: string; title: string | null }[];
+  neighbor_entities: { entity_id: string; name: string; relation: string; direction: string }[];
+}
+
+export interface GraphRelation {
+  id: string;
+  workspace_id: string;
+  head_id: string;
+  head_name: string;
+  relation: string;
+  tail_id: string;
+  tail_name: string;
+  weight: number;
+  source_card_id: string | null;
+  created_at: string;
+}
+
+export interface ReasoningPath {
+  entities: string[];
+  relations: string[];
+  score: number;
+}
+
+export interface GraphSearchResult {
+  query: string;
+  retrieval_mode: string;
+  reasoning_paths: ReasoningPath[];
+  cards: {
+    id: string;
+    title: string | null;
+    content_snippet: string | null;
+    matched_path: string | null;
+    score: number;
+  }[];
+}
+
+export interface GraphStats {
+  entity_count: number;
+  relation_count: number;
+  relation_type_counts: Record<string, number>;
+}
+
+export interface Community {
+  id: string;
+  title: string;
+  size: number;
+  level: number;
+  summary: string;
+  findings: string[];
+  rating: number;
+}
+
+export const graphApi = {
+  getEntities: (workspaceId: string, entityType?: string) => {
+    const params = new URLSearchParams({ workspace_id: workspaceId });
+    if (entityType) params.set("entity_type", entityType);
+    return request<GraphEntity[]>(`/api/graph/entities?${params}`);
+  },
+
+  getEntity: (entityId: string, workspaceId: string) =>
+    request<GraphEntityDetail>(`/api/graph/entities/${entityId}?workspace_id=${workspaceId}`),
+
+  getRelations: (workspaceId: string) =>
+    request<GraphRelation[]>(`/api/graph/relations?workspace_id=${workspaceId}`),
+
+  search: (workspaceId: string, query: string, k = 10) =>
+    request<GraphSearchResult>(`/api/graph/search?workspace_id=${workspaceId}`, {
+      method: "POST",
+      body: JSON.stringify({ query, k }),
+    }),
+
+
+  getStats: (workspaceId: string) =>
+    request<GraphStats>(`/api/graph/stats?workspace_id=${workspaceId}`),
+
+  getCommunities: (workspaceId: string) =>
+    request<{ communities: Community[] }>(`/api/graph/communities?workspace_id=${workspaceId}`),
+
+  detectCommunities: (workspaceId: string, resolution = 1.0) =>
+    request<{ communities_detected: number }>(`/api/graph/communities/detect?workspace_id=${workspaceId}&resolution=${resolution}`, {
+      method: "POST",
+    }),
+
+  cleanupGraph: (workspaceId: string) =>
+    request<{ orphan_entities_removed: number; stale_relations_removed: number }>(`/api/graph/cleanup?workspace_id=${workspaceId}`, {
+      method: "POST",
+    }),
+
+  createHnswIndex: () =>
+    request<{ ok: boolean }>(`/api/graph/hnsw-index`, { method: "POST" }),
+};
+
+// --- Branch Insights ---
+export interface Insight {
+  id: string;
+  chat_id: string;
+  target_chat_id: string;
+  content: string;
+  consumed: boolean;
+  created_at: string;
+}
+
+export const insightApi = {
+  create: (chatId: string, targetChatId: string, content: string) =>
+    request<Insight>(`/api/chats/${chatId}/insights`, {
+      method: "POST",
+      body: JSON.stringify({ target_chat_id: targetChatId, content }),
+    }),
+  list: (chatId: string, consumed?: boolean) =>
+    request<Insight[]>(`/api/chats/${chatId}/insights${consumed !== undefined ? `?consumed=${consumed}` : ""}`),
+};
+
+// --- Workspace Memories ---
+export interface Memory {
+  slug: string;
+  title: string;
+  body: string;
+  updated_at?: string;
+  source_chat_id?: string;
+}
+
+export const memoryApi = {
+  list: (workspaceId: string) =>
+    request<Memory[]>(`/api/workspaces/${workspaceId}/memories`),
+  upsert: (workspaceId: string, data: { slug: string; title: string; body: string }) =>
+    request<Memory>(`/api/workspaces/${workspaceId}/memories`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  delete: (workspaceId: string, slug: string) =>
+    request<{ ok: boolean }>(`/api/workspaces/${workspaceId}/memories/${slug}`, { method: "DELETE" }),
+};
+
+// --- Fork Settings ---
+export interface ForkProfileInfo {
+  name: string;
+  label: string;
+  description: string;
+}
+
+export interface ForkSettings {
+  auto_fork_enabled: boolean;
+  fork_context_strategy: string;
+  profiles: ForkProfileInfo[];
+}
+
+export const forkSettingsApi = {
+  get: () => request<ForkSettings>("/api/settings/fork"),
+  update: (data: { auto_fork_enabled?: boolean; fork_context_strategy?: string }) =>
+    request<{ ok: boolean }>("/api/settings/fork", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+};
+
+// --- Synthesis Templates ---
+export interface SynthesisTemplate {
+  id: string;
+  workspace_id: string;
+  name: string;
+  prompt: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export const synthesisTemplateApi = {
+  list: (wsId: string) =>
+    request<{ templates: SynthesisTemplate[] }>(`/api/workspaces/${wsId}/synthesis-templates`),
+  get: (wsId: string, id: string) =>
+    request<SynthesisTemplate>(`/api/workspaces/${wsId}/synthesis-templates/${id}`),
+  create: (wsId: string, data: { name: string; prompt: string; description?: string }) =>
+    request<SynthesisTemplate>(`/api/workspaces/${wsId}/synthesis-templates`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (wsId: string, id: string, data: { name?: string; prompt?: string; description?: string }) =>
+    request<SynthesisTemplate>(`/api/workspaces/${wsId}/synthesis-templates/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  delete: (wsId: string, id: string) =>
+    request<{ ok: boolean }>(`/api/workspaces/${wsId}/synthesis-templates/${id}`, { method: "DELETE" }),
 };

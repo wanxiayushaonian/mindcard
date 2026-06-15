@@ -1,9 +1,9 @@
 // pages/login/login.js
-var api = require('../../utils/api');
+const api = require('../../utils/api');
 
 Page({
   data: {
-    mode: 'login', // 'login' or 'register'
+    mode: 'login',
     username: '',
     password: '',
     nickname: '',
@@ -28,11 +28,10 @@ Page({
     this.setData({ nickname: e.detail.value });
   },
 
-  onSubmit() {
-    var username = this.data.username.trim();
-    var password = this.data.password;
+  async onSubmit() {
+    const username = this.data.username.trim();
+    const password = this.data.password;
 
-    // Validate
     if (!username || username.length < 3) {
       this.setData({ error: '用户名至少3个字符' });
       return;
@@ -44,79 +43,63 @@ Page({
 
     this.setData({ loading: true, error: '' });
 
-    var self = this;
-    var promise;
-    if (this.data.mode === 'register') {
-      var nickname = this.data.nickname.trim() || username;
-      promise = api.post('/api/auth/register', {
-        username: username,
-        password: password,
-        nickname: nickname,
-      });
-    } else {
-      promise = api.post('/api/auth/login', {
-        username: username,
-        password: password,
-      });
-    }
+    try {
+      const nickname = this.data.nickname.trim() || username;
+      const res = this.data.mode === 'register'
+        ? await api.authApi.register(username, password, nickname)
+        : await api.authApi.login(username, password);
 
-    promise
-      .then(function (res) {
-        api.setToken(res.access_token);
-        var app = getApp();
-        app._loadUserFromToken();
-        return app._loadAllData();
-      })
-      .then(function () {
-        var pages = getCurrentPages();
-        if (pages.length > 1) {
-          wx.navigateBack({ delta: 1 });
-        } else {
-          wx.reLaunch({ url: '/pages/index/index' });
-        }
-      })
-      .catch(function (err) {
-        self.setData({ error: err.message || '操作失败' });
-      })
-      .finally(function () {
-        self.setData({ loading: false });
-      });
+      api.setToken(res.access_token);
+      const app = getApp();
+      app._loadUserFromToken();
+      await app._loadAllData();
+
+      const pages = getCurrentPages();
+      if (pages.length > 1) {
+        wx.navigateBack({ delta: 1 });
+      } else {
+        wx.switchTab({ url: '/pages/index/index' });
+      }
+    } catch (err) {
+      this.setData({ error: err.message || '操作失败' });
+    } finally {
+      this.setData({ loading: false });
+    }
   },
 
   onWeChatLogin() {
     this.setData({ wxLoading: true, error: '' });
-    var self = this;
 
     wx.login({
-      success: function (res) {
+      success: (res) => {
         if (!res.code) {
-          self.setData({ error: '微信登录失败', wxLoading: false });
+          this.setData({ error: '微信登录失败', wxLoading: false });
           return;
         }
-        api.post('/api/auth/wechat-login', { code: res.code })
-          .then(function (data) {
+        api.authApi.wechatLogin(res.code)
+          .then((data) => {
             api.setToken(data.access_token);
-            var app = getApp();
+            const app = getApp();
             app._loadUserFromToken();
             return app._loadAllData();
           })
-          .then(function () {
-            var pages = getCurrentPages();
+          .then(() => {
+            const pages = getCurrentPages();
             if (pages.length > 1) {
               wx.navigateBack({ delta: 1 });
             } else {
-              wx.reLaunch({ url: '/pages/index/index' });
+              wx.switchTab({ url: '/pages/index/index' });
             }
           })
-          .catch(function (err) {
-            self.setData({ error: err.message || '微信登录失败' });
+          .catch((err) => {
+            this.setData({ error: err.message || '微信登录失败' });
           })
-          .finally(function () {
-            self.setData({ wxLoading: false });
+          .finally(() => {
+            this.setData({ wxLoading: false });
           });
       },
-      fail: function () {
-        self.setData({ error: '微信登录失败', wxLoading: false });
+      fail: () => {
+        this.setData({ error: '微信登录失败', wxLoading: false });
       },
     });
   },

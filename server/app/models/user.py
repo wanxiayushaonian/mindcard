@@ -35,5 +35,6 @@ class UserSetting(Base):
     ai_direction: Mapped[str] = mapped_column(String(16), default="发散")
     agent_sensitivity: Mapped[str] = mapped_column(String(8), default="中")
     walk_sensitivity: Mapped[str] = mapped_column(String(8), default="高")
+    extraction_language: Mapped[str] = mapped_column(String(8), default="zh")  # 'zh' | 'en'
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

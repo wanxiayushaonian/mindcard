@@ -56,6 +56,7 @@ const config: Config = {
             "code::before": { content: '""' },
             "code::after": { content: '""' },
             blockquote: { color: "var(--color-text-secondary)", borderLeftColor: "var(--color-primary)" },
+            pre: { color: "var(--color-text)", backgroundColor: "var(--color-bg)" },
             hr: { borderColor: "var(--color-border)" },
             thead: { color: "var(--color-text)", borderBottomColor: "var(--color-border)" },
             "tbody tr": { borderBottomColor: "var(--color-gray-100)" },

@@ -1,5 +1,7 @@
 import re
 
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
@@ -15,6 +17,7 @@ from app.utils.auth import (
     hash_password,
     verify_password,
 )
+from app.utils.rate_limit import RateLimitByIP, auth_limiter
 from app.utils.wechat import (
     code_to_openid,
     exchange_web_code,
@@ -95,7 +98,11 @@ class UserMeResponse(BaseModel):
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(
+    req: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(RateLimitByIP(auth_limiter)),
+):
     """Register a new user with username and password."""
     existing = await db.execute(select(User).where(User.username == req.username))
     if existing.scalar_one_or_none():
@@ -115,7 +122,11 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    req: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(RateLimitByIP(auth_limiter)),
+):
     """Login with username and password."""
     result = await db.execute(select(User).where(User.username == req.username))
     user = result.scalar_one_or_none()
@@ -129,7 +140,11 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/wechat-login", response_model=TokenResponse)
-async def wechat_login(req: WeChatLoginRequest, db: AsyncSession = Depends(get_db)):
+async def wechat_login(
+    req: WeChatLoginRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(RateLimitByIP(auth_limiter)),
+):
     """WeChat mini-program login: exchange code for JWT."""
     try:
         wx_data = await code_to_openid(req.code)
@@ -163,7 +178,7 @@ async def wechat_login(req: WeChatLoginRequest, db: AsyncSession = Depends(get_d
 
 
 @router.post("/web-login", response_model=TokenResponse)
-async def web_login(req: WebOAuthRequest, db: AsyncSession = Depends(get_db)):
+async def web_login(req: WebOAuthRequest, db: AsyncSession = Depends(get_db), _rl: None = Depends(RateLimitByIP(auth_limiter))):
     """Web端 WeChat OAuth 扫码登录."""
     try:
         token_data = await exchange_web_code(req.code)
@@ -218,6 +233,16 @@ async def wechat_qr_url(redirect_uri: str):
     """Get WeChat OAuth authorize URL for QR code rendering."""
     if not settings.wechat_web_appid or not settings.wechat_web_secret:
         raise HTTPException(status_code=501, detail="微信网页登录未配置（需要公众号 appid）")
+
+    # Validate redirect_uri against allowed origins
+    parsed = urlparse(redirect_uri)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="无效的 redirect_uri")
+    redirect_origin = f"{parsed.scheme}://{parsed.netloc}"
+    allowed = {o.strip().rstrip("/") for o in settings.cors_origins.split(",") if o.strip() != "*"}
+    if allowed and redirect_origin not in allowed:
+        raise HTTPException(status_code=403, detail="redirect_uri 不在允许列表中")
+
     url = get_web_authorize_url(redirect_uri)
     return WeChatQRResponse(authorize_url=url)
 
@@ -272,6 +297,8 @@ async def get_me(user: User = Depends(get_current_user)):
 @router.post("/dev-login", response_model=TokenResponse)
 async def dev_login(req: DevLoginRequest, db: AsyncSession = Depends(get_db)):
     """Development login: create or reuse a dev user, no WeChat required."""
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not found")
     import hashlib
 
     dev_openid = "dev_" + hashlib.md5(req.nickname.encode()).hexdigest()[:12]

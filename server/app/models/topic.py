@@ -6,6 +6,7 @@ from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.config import settings
 from app.database import Base
 
 
@@ -17,7 +18,7 @@ class Topic(Base):
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(128), default="")
-    centroid: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
+    centroid: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
     card_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

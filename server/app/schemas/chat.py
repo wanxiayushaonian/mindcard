@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatCreate(BaseModel):
@@ -9,7 +10,24 @@ class ChatCreate(BaseModel):
     mode: str = "rag"  # 'rag' | 'chat'
     workspace_id: str | None = None
     card_id: str | None = None
+    parent_id: str | None = None
     title: str = ""
+
+
+class ChatForkRequest(BaseModel):
+    """Request to fork a conversation."""
+    topic: str = ""  # Optional focus topic for the fork
+    mode: str = "rag"
+    title: str = ""
+    context_strategy: str = "compress"  # none | inherit | compress
+    profile: str | None = None  # Fork profile key (overrides context_strategy if set)
+    fork_id: str | None = None  # parent fork_id for nested forks
+
+
+class ChatSummarizeRequest(BaseModel):
+    """Request to summarize a conversation into a card."""
+    title: str = ""  # Optional title for the summary card
+    keywords: list[str] = []  # Optional keywords
 
 
 class WebSearchResult(BaseModel):
@@ -19,9 +37,12 @@ class WebSearchResult(BaseModel):
 
 
 class ChatMessageCreate(BaseModel):
-    role: str  # 'user' | 'assistant'
+    role: str  # 'user' | 'assistant' | 'fork-divider'
     content: str
     web_search_results: list[WebSearchResult] | None = None
+    source_cards: list[dict[str, Any]] | None = None
+    fork_id: str | None = None
+    metadata_: dict | None = Field(None, alias="metadata_")
 
 
 class ChatMessageResponse(BaseModel):
@@ -30,6 +51,9 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     web_search_results: list[WebSearchResult] | None = None
+    source_cards: list[dict[str, Any]] | None = None
+    fork_id: str | None = None
+    metadata_: dict | None = Field(None, alias="metadata_")
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -40,7 +64,10 @@ class ChatListResponse(BaseModel):
     mode: str
     workspace_id: uuid.UUID | None
     card_id: uuid.UUID | None
+    parent_id: uuid.UUID | None = None
+    node_type: str = "branch"
     title: str
+    chat_status: str = "active"
     created_at: datetime
     message_count: int = 0
     last_message: str = ""
@@ -53,8 +80,22 @@ class ChatResponse(BaseModel):
     mode: str
     workspace_id: uuid.UUID | None
     card_id: uuid.UUID | None
+    parent_id: uuid.UUID | None = None
+    node_type: str = "branch"
     title: str
+    description: str = ""
+    summary: str = ""
+    chat_status: str = "active"
     created_at: datetime
     messages: list[ChatMessageResponse] = []
 
     model_config = {"from_attributes": True}
+
+
+class ChatForkResponse(BaseModel):
+    """Response after forking a conversation."""
+    chat_id: str
+    context_summary: str
+    depth: int = 0
+    node_id: str = ""
+    divider_msg_id: str = ""
