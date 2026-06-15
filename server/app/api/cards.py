@@ -192,6 +192,8 @@ async def create_cards_batch(
     for item in req.cards:
         try:
             card_data = item.model_dump()
+            if req.mark_as_temp:
+                card_data["is_temp"] = True
             card = Card(**card_data, workspace_id=ws_id, creator_id=user.id)
             db.add(card)
             await db.flush()

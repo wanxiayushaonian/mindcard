@@ -79,6 +79,7 @@ class CardBatchRequest(BaseModel):
     workspace_id: str
     chat_id: str | None = None
     cards: list[CardBatchItem] = Field(..., min_length=1, max_length=500)
+    mark_as_temp: bool = False
 
 
 class CardBatchResponse(BaseModel):
