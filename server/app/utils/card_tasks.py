@@ -113,6 +113,31 @@ async def _process_card(
         await db.commit()
         logger.info("Embedding saved for card %s (dim=%d)", card_id, len(embedding))
 
+        # 1b. Store per-chunk embeddings for long cards
+        from app.models.card_chunk import CardChunk
+        from sqlalchemy import delete
+
+        chunks = embedding_service.split_text_into_chunks(
+            db_card.title, db_card.content, db_card.keywords, db_card.emotion_tag
+        )
+        # Always delete stale chunks first (handles content edits)
+        await db.execute(delete(CardChunk).where(CardChunk.card_id == db_card.id))
+        if len(chunks) > 1:
+            chunk_embeddings = await embedding_service.embed_batch(chunks)
+            for idx, (chunk_text, chunk_emb) in enumerate(zip(chunks, chunk_embeddings)):
+                db.add(CardChunk(
+                    card_id=db_card.id,
+                    chunk_index=idx,
+                    chunk_text=chunk_text,
+                    embedding=chunk_emb,
+                ))
+        await db.commit()
+        logger.info(
+            "Chunk storage: card %s → %d chunks",
+            card_id,
+            len(chunks) if len(chunks) > 1 else 0,
+        )
+
         # 2. Assign to topic
         from app.services.topic import topic_service
 
