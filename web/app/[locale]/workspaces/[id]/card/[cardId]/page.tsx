@@ -61,6 +61,8 @@ export default function CardDetailPage() {
   const [editColor, setEditColor] = useState("#B8D4E3");
   const [editEmotionTag, setEditEmotionTag] = useState("");
   const [saving, setSaving] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [showPromoteModal, setShowPromoteModal] = useState(false);
   const [addedRelations, setAddedRelations] = useState<Set<string>>(new Set());
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; action: () => void } | null>(null);
 
@@ -193,15 +195,36 @@ export default function CardDetailPage() {
     }
   };
 
-  const handleToggleTemp = async () => {
-    if (!card) return;
+  const handlePromote = async () => {
+    if (!card || promoting) return;
+    setPromoting(true);
     try {
-      await cardApi.update(cardId, { is_temp: !card.is_temp });
+      await cardApi.update(cardId, { is_temp: false });
       mutate(`card-${cardId}`);
-      toast(card.is_temp ? t("permanentlySaved") : t("movedToTemp"), "success");
+      setShowPromoteModal(false);
+      toast(t("promoteSuccess"), "success");
     } catch (e: any) {
       toast(translateBackendError(e.message, tBackend) || t("operationFailed"), "error");
+    } finally {
+      setPromoting(false);
     }
+  };
+
+  const handleDemoteConfirm = () => {
+    if (!card) return;
+    setConfirmAction({
+      title: t("demoteConfirmTitle"),
+      message: t("demoteConfirmMessage", { title: card.title || t("unnamedCard") }),
+      action: async () => {
+        try {
+          await cardApi.update(cardId, { is_temp: true });
+          mutate(`card-${cardId}`);
+          toast(t("demoteSuccess"), "success");
+        } catch (e: any) {
+          toast(translateBackendError(e.message, tBackend) || t("operationFailed"), "error");
+        }
+      },
+    });
   };
 
   const handleAddComment = async () => {
@@ -306,7 +329,7 @@ export default function CardDetailPage() {
       <div className="mb-6 flex justify-around rounded-card border border-border bg-surface p-4 shadow-sm">
         <ActionButton icon={<Star size={20} fill={card.is_favorite ? "currentColor" : "none"} />} label={card.is_favorite ? t("favorited") : tCommon("favorite")} onClick={handleToggleFavorite} disabled={!canCreate} />
         <ActionButton icon={<Pencil size={20} />} label={t("edit")} onClick={startEdit} disabled={!canEditContent} />
-        <ActionButton icon={card.is_temp ? <PinOff size={20} /> : <Pin size={20} />} label={card.is_temp ? t("permanentSave") : t("moveToTemp")} onClick={handleToggleTemp} disabled={!canCreate} />
+	        <ActionButton icon={card.is_temp ? <PinOff size={20} /> : <Pin size={20} />} label={card.is_temp ? t("permanentSave") : t("moveToTemp")} onClick={card.is_temp ? () => setShowPromoteModal(true) : handleDemoteConfirm} disabled={!canCreate} />
         <ActionButton icon={<Download size={20} />} label={tCommon("export")} onClick={handleExport} />
         <ActionButton icon={<Trash2 size={20} />} label={tCommon("delete")} onClick={handleDelete} disabled={!canEditContent} />
       </div>
@@ -463,6 +486,28 @@ export default function CardDetailPage() {
         )}
       </section>
 
+      {/* Promote to permanent modal */}
+      {showPromoteModal && card && (
+        <Modal
+          title={t("promoteConfirmTitle")}
+          onClose={() => setShowPromoteModal(false)}
+          onConfirm={handlePromote}
+          confirmText={t("promoteConfirmButton")}
+          loading={promoting}
+          size="md"
+        >
+          <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3">
+            {card.title && (
+              <p className="mb-1 text-sm font-semibold text-text">{card.title}</p>
+            )}
+            <div className="max-h-40 overflow-y-auto text-xs leading-relaxed text-text-secondary [&_*]:!text-xs">
+              <MarkdownContent content={card.content} />
+            </div>
+          </div>
+          <p className="text-sm text-text-secondary">{t("promoteConfirmMessage")}</p>
+        </Modal>
+      )}
+
       {/* Edit card modal */}
       {editing && (
         <Modal
@@ -490,6 +535,7 @@ export default function CardDetailPage() {
               className="rounded-xl border border-border"
               showToolbar={true}
               minHeight="120px"
+              atomicityThreshold={300}
             />
           </FormField>
 

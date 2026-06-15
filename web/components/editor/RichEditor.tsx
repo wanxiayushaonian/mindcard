@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useCallback, useEffect, useRef } from "react";
+import { forwardRef, useImperativeHandle, useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -44,6 +44,7 @@ interface RichEditorProps {
   showToolbar?: boolean;
   minHeight?: string;
   readOnly?: boolean;
+  atomicityThreshold?: number;
 }
 
 export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
@@ -57,11 +58,14 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
       showToolbar = true,
       minHeight = "200px",
       readOnly = false,
+      atomicityThreshold = 0,
     },
     ref
   ) => {
     const onChangeRef = useRef(onChange);
     onChangeRef.current = onChange;
+
+    const [charCount, setCharCount] = useState(0);
 
     // Debounce timer for content sync
     const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -107,6 +111,9 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
           const md = getMarkdown(ed);
           onChangeRef.current(md);
         }, 200);
+        if (atomicityThreshold > 0) {
+          setCharCount(ed.state.doc.textContent.length);
+        }
       },
     });
 
@@ -160,6 +167,12 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         <div className="flex-1 overflow-y-auto">
           <EditorContent editor={editor} />
         </div>
+        {atomicityThreshold > 0 && charCount > atomicityThreshold && (
+          <div className="flex items-center gap-1.5 border-t border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-700">
+            <span>⚠</span>
+            <span>内容较长（{charCount} 字），考虑拆分为多张卡片以保持原子性。</span>
+          </div>
+        )}
       </div>
     );
   }
