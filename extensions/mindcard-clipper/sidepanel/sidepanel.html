@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MindCard</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- Sticky header -->
+  <header class="topbar">
+    <span class="topbar-logo">🧠</span>
+    <span class="topbar-title">MindCard</span>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="toggle-preview" title="预览 Markdown">
+        <svg id="icon-eye" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+        </svg>
+        <svg id="icon-pencil" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="open-options" title="设置">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- No API Key (full area) -->
+  <div id="no-key-state" style="display:none">
+    <div class="state-icon-wrap">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+      </svg>
+    </div>
+    <p class="state-title">配置 API Key</p>
+    <p class="state-body">在设置页面输入 API Key 和服务器地址后即可开始使用</p>
+    <button id="setup-btn" class="btn btn-primary">前往设置</button>
+  </div>
+
+  <!-- Editor (always shown when configured) -->
+  <div id="editor-container">
+
+    <!-- Clipped source badge -->
+    <div id="clip-badge" class="clip-badge" style="display:none"></div>
+
+    <!-- Title input -->
+    <div class="title-row">
+      <input type="text" id="title" placeholder="标题（留空 AI 自动生成）" autocomplete="off" spellcheck="false" />
+    </div>
+
+    <!-- Main content area: textarea ↔ preview -->
+    <div class="content-area">
+      <textarea id="content" placeholder="开始编写...&#10;&#10;支持 Markdown：**粗体** _斜体_ `代码` # 标题"></textarea>
+      <div id="preview" class="md-preview" style="display:none"></div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <div class="meta-fields">
+        <select id="workspace">
+          <option value="">加载中...</option>
+        </select>
+        <input type="text" id="keywords" placeholder="关键词（AI 自动，可手动覆盖）" autocomplete="off" />
+      </div>
+
+      <div id="error-msg" class="error-msg" style="display:none">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span id="error-text"></span>
+      </div>
+
+      <div class="save-row">
+        <button id="clear-btn" class="btn btn-ghost">清除</button>
+        <button id="save-btn" class="btn btn-primary">保存到 MindCard</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Success toast -->
+  <div id="success-toast" class="success-toast" style="display:none">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    <span class="toast-text"></span>
+  </div>
+
+</div>
+<script src="sidepanel.js"></script>
+</body>
+</html>

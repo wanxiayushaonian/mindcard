@@ -1,17 +1,21 @@
 #!/bin/bash
-# Build Firefox extension package
+# MindCard Clipper — Firefox installation helper
+# manifest.json is already the Firefox version (no swap needed).
+#
 # Usage: ./install-firefox.sh
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-cp "$SCRIPT_DIR/manifest.json" "$SCRIPT_DIR/manifest.chrome.json"
-cp "$SCRIPT_DIR/manifest.firefox.json" "$SCRIPT_DIR/manifest.json"
-
-echo "Manifest switched to Firefox version."
+echo "MindCard Clipper — Firefox"
 echo ""
-echo "To install in Firefox:"
+echo "To install (temporary, for development):"
 echo "  1. Open about:debugging#/runtime/this-firefox"
 echo "  2. Click 'Load Temporary Add-on'"
-echo "  3. Select manifest.json from: $SCRIPT_DIR"
+echo "  3. Select any file inside: $SCRIPT_DIR"
 echo ""
-echo "To switch back to Chrome manifest: mv manifest.chrome.json manifest.json"
+echo "To package for distribution:"
+echo "  zip -r mindcard-clipper-firefox.zip . --exclude '*.sh' --exclude 'manifest.chrome.json'"
+echo ""
+echo "For Chrome, use manifest.chrome.json:"
+echo "  cp manifest.chrome.json manifest.json"
+echo "  (then load unpacked from chrome://extensions/)"

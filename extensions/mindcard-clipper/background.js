@@ -2,24 +2,57 @@
 
 const DEFAULT_API_BASE = "http://localhost:8000";
 
-// Create context menu on install
+// Firefox exposes its extended API as `browser`; Chrome uses `chrome` only.
+const isFirefox = typeof browser !== "undefined" && !!browser.sidebarAction;
+
+// Create context menu on install + configure sidebar behavior
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "save-to-mindcard",
     title: "保存到 MindCard",
     contexts: ["selection"],
   });
+
+  // Chrome 116+: clicking toolbar icon opens side panel
+  if (!isFirefox && chrome.sidePanel) {
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+  }
 });
+
+// Firefox: clicking the toolbar icon toggles the sidebar
+// (only fires because we removed default_popup from action)
+if (isFirefox) {
+  chrome.action.onClicked.addListener(() => {
+    browser.sidebarAction.toggle();
+  });
+}
+
+// Open sidebar (Firefox), side panel (Chrome), or popup fallback
+async function openUI(tab) {
+  if (isFirefox) {
+    try {
+      await browser.sidebarAction.open();
+      return;
+    } catch (e) {}
+  }
+
+  if (chrome.sidePanel && tab?.windowId) {
+    try {
+      await chrome.sidePanel.open({ windowId: tab.windowId });
+      return;
+    } catch (e) {}
+  }
+
+  try { chrome.action.openPopup(); } catch (e) {}
+}
 
 // Handle context menu click
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== "save-to-mindcard") return;
 
-  // Get selection from content script
   try {
     const response = await chrome.tabs.sendMessage(tab.id, { action: "getSelection" });
     if (response && response.text) {
-      // Store selection data and open popup
       await chrome.storage.local.set({
         pendingClip: {
           text: response.text,
@@ -29,8 +62,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           timestamp: Date.now(),
         },
       });
-      // Open popup programmatically
-      chrome.action.openPopup();
+      await openUI(tab);
     }
   } catch (e) {
     // Content script not loaded, fallback to info.selectionText
@@ -38,13 +70,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       await chrome.storage.local.set({
         pendingClip: {
           text: info.selectionText,
-          title: tab.title || "",
+          title: tab?.title || "",
           url: info.pageUrl || "",
           platform: "",
           timestamp: Date.now(),
         },
       });
-      chrome.action.openPopup();
+      await openUI(tab);
     }
   }
 });
@@ -68,10 +100,10 @@ chrome.commands.onCommand.addListener(async (command) => {
           timestamp: Date.now(),
         },
       });
-      chrome.action.openPopup();
+      await openUI(tab);
     }
   } catch (e) {
-    // Fallback
+    // No content script or no selection
   }
 });
 
@@ -86,7 +118,7 @@ async function getApiKey() {
   return result.apiKey || "";
 }
 
-// Expose API functions for popup to use via messaging
+// Expose API functions for sidebar/popup to use via messaging
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "fetchWorkspaces") {
     (async () => {
