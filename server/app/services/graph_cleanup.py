@@ -6,7 +6,7 @@ Removes orphan entities, stale relations, and optionally merges duplicates.
 import logging
 import uuid
 
-from sqlalchemy import func, select, delete
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.graph import EntityCard, GraphEntity, GraphRelation
@@ -78,27 +78,39 @@ class GraphCleaner:
     async def _remove_stale_relations(
         self, workspace_id: uuid.UUID, db: AsyncSession
     ) -> int:
-        """Remove relations where head or tail entity no longer exists."""
-        # This is handled by FK CASCADE, but we can also do explicit cleanup
-        # for SET NULL cases (source_card_id)
-        result = await db.execute(
-            select(func.count())
-            .select_from(GraphRelation)
-            .where(
+        """Remove relations whose head or tail entity no longer exists.
+
+        NOTE: source_card_id IS NULL is intentional — relations extracted from
+        chat sessions (not tied to a specific card) are stored with NULL.
+        Deleting on source_card_id IS NULL would wipe all chat-derived relations,
+        so we only remove rows where head_id / tail_id points to a deleted entity.
+        FK CASCADE handles most of this automatically; this covers SET NULL gaps.
+        """
+        # Collect entity IDs that still exist in this workspace
+        existing_result = await db.execute(
+            select(GraphEntity.id).where(GraphEntity.workspace_id == workspace_id)
+        )
+        existing_ids = {row[0] for row in existing_result.all()}
+
+        if not existing_ids:
+            return 0
+
+        # Relations whose head or tail is no longer present
+        stale_result = await db.execute(
+            select(GraphRelation.id).where(
                 GraphRelation.workspace_id == workspace_id,
-                GraphRelation.source_card_id.is_(None),
+                GraphRelation.head_id.not_in(existing_ids)
+                | GraphRelation.tail_id.not_in(existing_ids),
             )
         )
-        stale_count = result.scalar() or 0
+        stale_ids = [row[0] for row in stale_result.all()]
+        stale_count = len(stale_ids)
 
         if stale_count > 0:
             await db.execute(
-                delete(GraphRelation).where(
-                    GraphRelation.workspace_id == workspace_id,
-                    GraphRelation.source_card_id.is_(None),
-                )
+                delete(GraphRelation).where(GraphRelation.id.in_(stale_ids))
             )
-            logger.info("Removed %d relations with null source_card_id", stale_count)
+            logger.info("Removed %d stale relations (dangling head/tail)", stale_count)
 
         return stale_count
 

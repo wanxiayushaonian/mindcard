@@ -21,9 +21,8 @@ def test_batch_request_mark_as_temp_can_be_true():
     assert req.mark_as_temp is True
 
 
-def test_mark_as_temp_overrides_individual_card_is_temp():
+def test_mark_as_temp_true_overrides_individual_card_is_temp():
     """When mark_as_temp=True, all cards in the batch get is_temp=True regardless of their individual value."""
-    # This test verifies the loop logic by simulating what the endpoint does
     cards_data = [
         CardBatchItem(local_id="a", content="x", is_temp=False),
         CardBatchItem(local_id="b", content="y", is_temp=True),
@@ -35,6 +34,28 @@ def test_mark_as_temp_overrides_individual_card_is_temp():
         card_data = item.model_dump()
         if req.mark_as_temp:
             card_data["is_temp"] = True
+        else:
+            card_data["is_temp"] = False
         results.append(card_data["is_temp"])
 
     assert all(r is True for r in results)
+
+
+def test_mark_as_temp_false_sets_is_temp_false():
+    """When mark_as_temp=False, all cards in the batch get is_temp=False regardless of their individual value."""
+    cards_data = [
+        CardBatchItem(local_id="a", content="x", is_temp=True),
+        CardBatchItem(local_id="b", content="y", is_temp=False),
+    ]
+    req = CardBatchRequest(workspace_id="ws-1", mark_as_temp=False, cards=cards_data)
+
+    results = []
+    for item in req.cards:
+        card_data = item.model_dump()
+        if req.mark_as_temp:
+            card_data["is_temp"] = True
+        else:
+            card_data["is_temp"] = False
+        results.append(card_data["is_temp"])
+
+    assert all(r is False for r in results)

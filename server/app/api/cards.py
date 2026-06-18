@@ -194,6 +194,8 @@ async def create_cards_batch(
             card_data = item.model_dump()
             if req.mark_as_temp:
                 card_data["is_temp"] = True
+            else:
+                card_data["is_temp"] = False
             card = Card(**card_data, workspace_id=ws_id, creator_id=user.id)
             db.add(card)
             await db.flush()
@@ -202,7 +204,8 @@ async def create_cards_batch(
             if root_node:
                 db.add(NodeCard(chat_id=root_node.id, card_id=card.id))
 
-            background_tasks.add_task(_generate_embedding, card.id, default_chat_id)
+            if not card_data.get("is_temp"):
+                background_tasks.add_task(_generate_embedding, card.id, default_chat_id)
         except Exception as e:
             errors.append({"local_id": item.local_id, "error": str(e)})
 

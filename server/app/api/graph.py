@@ -42,7 +42,7 @@ def _parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
 async def list_entities(
     workspace_id: str = Query(...),
     entity_type: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(2000, ge=1, le=5000),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -135,7 +135,7 @@ async def get_entity(
 @router.get("/relations", response_model=list[GraphRelationResponse])
 async def list_relations(
     workspace_id: str = Query(...),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(2000, ge=1, le=5000),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
