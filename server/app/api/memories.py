@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User
 from app.models.workspace_memory import WorkspaceMemory
-from app.schemas.workspace_memory import WorkspaceMemoryCreate, WorkspaceMemoryResponse
+from app.schemas.workspace_memory import (
+    WorkspaceMemoryCreate,
+    WorkspaceMemoryResponse,
+    WorkspaceMemoryUpdate,
+)
 from app.utils.auth import get_current_user, get_workspace_membership, require_role
 
 router = APIRouter()
@@ -53,6 +57,10 @@ async def upsert_memory(
         existing.body = body.body
         if body.source_chat_id:
             existing.source_chat_id = body.source_chat_id
+        existing.memory_type = body.memory_type
+        existing.confidence = body.confidence
+        existing.importance = body.importance
+        existing.source_card_ids = [uuid.UUID(cid) for cid in body.source_card_ids]
         await db.commit()
         await db.refresh(existing)
         return existing
@@ -63,8 +71,45 @@ async def upsert_memory(
         title=body.title,
         body=body.body,
         source_chat_id=body.source_chat_id,
+        memory_type=body.memory_type,
+        confidence=body.confidence,
+        importance=body.importance,
+        source_card_ids=[uuid.UUID(cid) for cid in body.source_card_ids],
     )
     db.add(memory)
+    await db.commit()
+    await db.refresh(memory)
+    return memory
+
+
+@router.patch("/{workspace_id}/memories/{slug}", response_model=WorkspaceMemoryResponse)
+async def update_memory(
+    workspace_id: str,
+    slug: str,
+    body: WorkspaceMemoryUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ws_id = uuid.UUID(workspace_id)
+    membership = await get_workspace_membership(ws_id, user, db)
+    require_role(membership, "owner", "admin", "editor")
+
+    result = await db.execute(
+        select(WorkspaceMemory).where(
+            WorkspaceMemory.workspace_id == ws_id,
+            WorkspaceMemory.slug == slug,
+        )
+    )
+    memory = result.scalar_one_or_none()
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    if "source_card_ids" in update_data and update_data["source_card_ids"] is not None:
+        update_data["source_card_ids"] = [uuid.UUID(cid) for cid in update_data["source_card_ids"]]
+    for field, value in update_data.items():
+        setattr(memory, field, value)
+
     await db.commit()
     await db.refresh(memory)
     return memory

@@ -938,14 +938,32 @@ export interface Memory {
   body: string;
   updated_at?: string;
   source_chat_id?: string;
+  memory_type: string;
+  confidence: number;
+  importance: number;
+  source_card_ids: string[];
+  last_accessed_at?: string;
 }
 
 export const memoryApi = {
   list: (workspaceId: string) =>
     request<Memory[]>(`/api/workspaces/${workspaceId}/memories`),
-  upsert: (workspaceId: string, data: { slug: string; title: string; body: string }) =>
+  upsert: (workspaceId: string, data: {
+    slug: string;
+    title: string;
+    body: string;
+    memory_type?: string;
+    confidence?: number;
+    importance?: number;
+    source_card_ids?: string[];
+  }) =>
     request<Memory>(`/api/workspaces/${workspaceId}/memories`, {
       method: "POST",
+      body: JSON.stringify(data),
+    }),
+  patch: (workspaceId: string, slug: string, data: Partial<Pick<Memory, "title" | "body" | "memory_type" | "confidence" | "importance" | "source_card_ids">>) =>
+    request<Memory>(`/api/workspaces/${workspaceId}/memories/${slug}`, {
+      method: "PATCH",
       body: JSON.stringify(data),
     }),
   delete: (workspaceId: string, slug: string) =>

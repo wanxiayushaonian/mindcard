@@ -1,11 +1,20 @@
 "use client";
 
-import { Brain, ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2, X, Check } from "lucide-react";
+import { Brain, ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2, X, Check, Filter } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { memoryApi, type Memory } from "@/lib/api";
 import { useTranslations } from "next-intl";
 import { useLocale } from "next-intl";
+
+const MEMORY_TYPES = ["fact", "preference", "insight", "summary"] as const;
+
+const TYPE_COLORS: Record<string, string> = {
+  fact: "bg-blue-100 text-blue-700",
+  preference: "bg-purple-100 text-purple-700",
+  insight: "bg-amber-100 text-amber-700",
+  summary: "bg-green-100 text-green-700",
+};
 
 function relativeTime(dateStr: string | undefined, locale: string): string {
   if (!dateStr) return "";
@@ -28,6 +37,7 @@ interface MemoryItemProps {
 function MemoryItem({ memory, onDelete, onEdit }: MemoryItemProps) {
   const [expanded, setExpanded] = useState(false);
   const locale = useLocale();
+  const t = useTranslations("memory");
 
   return (
     <div className="rounded-lg border border-border bg-surface p-3 transition-colors hover:border-primary/30">
@@ -40,7 +50,12 @@ function MemoryItem({ memory, onDelete, onEdit }: MemoryItemProps) {
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </button>
         <div className="min-w-0 flex-1">
-          <span className="truncate text-sm font-medium text-text">{memory.title}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-text">{memory.title}</span>
+            <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-medium ${TYPE_COLORS[memory.memory_type] || "bg-gray-100 text-gray-600"}`}>
+              {t(`type_${memory.memory_type}`)}
+            </span>
+          </div>
           <div className="mt-0.5 flex items-center gap-2">
             <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
               {memory.slug}
@@ -48,6 +63,11 @@ function MemoryItem({ memory, onDelete, onEdit }: MemoryItemProps) {
             {memory.updated_at && (
               <span className="text-[10px] text-text-secondary">
                 {relativeTime(memory.updated_at, locale)}
+              </span>
+            )}
+            {memory.importance < 0.5 && (
+              <span className="text-[10px] text-text-secondary/50">
+                {t("lowImportance")}
               </span>
             )}
           </div>
@@ -103,13 +123,21 @@ function EditForm({ initial, workspaceId, onDone, mutate }: EditFormProps) {
   const [slug, setSlug] = useState(initial?.slug ?? "");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [body, setBody] = useState(initial?.body ?? "");
+  const [memoryType, setMemoryType] = useState(initial?.memory_type ?? "fact");
+  const [importance, setImportance] = useState(initial?.importance ?? 0.5);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     if (!slug.trim() || !title.trim() || !body.trim()) return;
     setSaving(true);
     try {
-      await memoryApi.upsert(workspaceId, { slug: slug.trim(), title: title.trim(), body: body.trim() });
+      await memoryApi.upsert(workspaceId, {
+        slug: slug.trim(),
+        title: title.trim(),
+        body: body.trim(),
+        memory_type: memoryType,
+        importance,
+      });
       mutate();
       onDone();
     } finally {
@@ -139,6 +167,38 @@ function EditForm({ initial, workspaceId, onDone, mutate }: EditFormProps) {
         rows={4}
         className="w-full resize-none rounded border border-border bg-bg px-2 py-1.5 text-xs text-text placeholder:text-text-secondary"
       />
+      <div className="flex items-center gap-2">
+        <label className="text-[10px] text-text-secondary">{t("memoryType")}</label>
+        <div className="flex gap-1">
+          {MEMORY_TYPES.map((mt) => (
+            <button
+              key={mt}
+              type="button"
+              onClick={() => setMemoryType(mt)}
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition ${
+                memoryType === mt
+                  ? TYPE_COLORS[mt]
+                  : "bg-gray-50 text-text-secondary hover:bg-gray-100"
+              }`}
+            >
+              {t(`type_${mt}`)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <label className="text-[10px] text-text-secondary">{t("importance")}</label>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.1"
+          value={importance}
+          onChange={(e) => setImportance(parseFloat(e.target.value))}
+          className="flex-1 accent-primary"
+        />
+        <span className="w-8 text-right text-[10px] text-text-secondary">{importance.toFixed(1)}</span>
+      </div>
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -174,11 +234,16 @@ export function MemoryPanel({ workspaceId, onClose }: MemoryPanelProps) {
   );
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<Memory | null>(null);
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
   const handleDelete = async (slug: string) => {
     await memoryApi.delete(workspaceId, slug);
     mutate();
   };
+
+  const filtered = typeFilter
+    ? memories?.filter((m) => m.memory_type === typeFilter)
+    : memories;
 
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-bg">
@@ -206,6 +271,34 @@ export function MemoryPanel({ workspaceId, onClose }: MemoryPanelProps) {
         </button>
       </div>
 
+      {/* Type filter */}
+      <div className="flex items-center gap-1 border-b border-border px-3 py-1.5">
+        <Filter className="h-3 w-3 text-text-secondary" />
+        <button
+          type="button"
+          onClick={() => setTypeFilter(null)}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition ${
+            typeFilter === null ? "bg-primary text-white" : "text-text-secondary hover:bg-gray-100"
+          }`}
+        >
+          {t("filterAll")}
+        </button>
+        {MEMORY_TYPES.map((mt) => (
+          <button
+            key={mt}
+            type="button"
+            onClick={() => setTypeFilter(typeFilter === mt ? null : mt)}
+            className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition ${
+              typeFilter === mt
+                ? TYPE_COLORS[mt]
+                : "text-text-secondary hover:bg-gray-100"
+            }`}
+          >
+            {t(`type_${mt}`)}
+          </button>
+        ))}
+      </div>
+
       {/* Body */}
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {showAdd && !editTarget && (
@@ -224,7 +317,7 @@ export function MemoryPanel({ workspaceId, onClose }: MemoryPanelProps) {
           </div>
         )}
 
-        {!isLoading && memories?.length === 0 && !showAdd && (
+        {!isLoading && filtered?.length === 0 && !showAdd && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <Brain className="mb-2 h-8 w-8 text-text-secondary/30" />
             <p className="text-xs text-text-secondary">{t("emptyState")}</p>
@@ -240,7 +333,7 @@ export function MemoryPanel({ workspaceId, onClose }: MemoryPanelProps) {
           />
         )}
 
-        {memories?.map((m) =>
+        {filtered?.map((m) =>
           editTarget?.slug === m.slug ? null : (
             <MemoryItem
               key={m.slug}

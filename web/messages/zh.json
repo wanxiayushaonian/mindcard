@@ -309,6 +309,8 @@
     "forkFromHere": "从此处分叉对话",
     "copyToEditor": "复制到编辑器",
     "sourceLabel": "引用来源：",
+    "reasoningPaths": "推理路径",
+    "relevance": "相关度",
     "searchResultCount": "{count} 条搜索结果",
     "connectionInterrupted": "连接中断，请重试。",
     "modelNoResponse": "模型未返回内容，请重试。",
@@ -926,7 +928,15 @@
     "editMemory": "编辑",
     "sourceChat": "来源对话",
     "updatedAt": "更新于",
-    "showMemory": "工作区记忆"
+    "showMemory": "工作区记忆",
+    "memoryType": "类型",
+    "importance": "重要性",
+    "lowImportance": "低优先级",
+    "filterAll": "全部",
+    "type_fact": "事实",
+    "type_preference": "偏好",
+    "type_insight": "洞察",
+    "type_summary": "摘要"
   },
   "theme": {
     "toggleToLight": "切换到浅色模式",

@@ -309,6 +309,8 @@
     "forkFromHere": "Fork from here",
     "copyToEditor": "Copy to editor",
     "sourceLabel": "Sources:",
+    "reasoningPaths": "Reasoning Paths",
+    "relevance": "Relevance",
     "searchResultCount": "{count} search results",
     "connectionInterrupted": "Connection interrupted, please retry.",
     "modelNoResponse": "Model returned no content, please retry.",
@@ -926,7 +928,15 @@
     "editMemory": "Edit",
     "sourceChat": "Source chat",
     "updatedAt": "Updated",
-    "showMemory": "Workspace Memory"
+    "showMemory": "Workspace Memory",
+    "memoryType": "Type",
+    "importance": "Importance",
+    "lowImportance": "low priority",
+    "filterAll": "All",
+    "type_fact": "Fact",
+    "type_preference": "Preference",
+    "type_insight": "Insight",
+    "type_summary": "Summary"
   },
   "theme": {
     "toggleToLight": "Switch to light mode",
