@@ -7,7 +7,6 @@ import { useTranslations, useLocale } from "next-intl";
 import { cardApi, commentApi, ragApi, authApi, workspaceApi, type Card, type Comment } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/Modal";
-import { FormField } from "@/components/FormField";
 import { ColorPicker } from "@/components/ColorPicker";
 import { AiActionButtons } from "@/components/AiActionButtons";
 import { ActionButton } from "@/components/ActionButton";
@@ -138,7 +137,15 @@ export default function CardDetailPage() {
         emotion_tag: editEmotionTag.trim(),
       });
       setEditing(false);
-      mutate(`card-${cardId}`);
+      // Optimistic update so the inline RichEditor shows saved content immediately
+      mutate(`card-${cardId}`, {
+        ...card,
+        title: editTitle.trim(),
+        content: editContent.trim(),
+        keywords: kw,
+        color: editColor,
+        emotion_tag: editEmotionTag.trim() || null,
+      });
     } catch (e: any) {
       toast(t("saveFailed", { error: translateBackendError(e.message, tBackend) }), "error");
     } finally {
@@ -291,31 +298,113 @@ export default function CardDetailPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
-      {/* Card content */}
+      {/* Card content — inline view/edit */}
       <div
         className="mb-6 rounded-card border border-border bg-surface p-6 shadow-sm"
-        style={{ borderLeft: `6px solid ${card.color}` }}
+        style={{ borderLeft: `6px solid ${editing ? editColor : card.color}` }}
       >
-        <div className="mb-3 flex flex-wrap items-center gap-1">
-          {card.keywords.map((kw) => (
-            <TagChip key={kw} label={kw} color={card.color} />
-          ))}
-          {card.emotion_tag && (
-            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-text-secondary">
-              {reverseEmotionMap[card.emotion_tag]
-                ? tEmotion(reverseEmotionMap[card.emotion_tag] as "happy" | "anxious" | "calm" | "excited" | "confused" | "touched" | "down" | "expectant")
-                : card.emotion_tag}
-            </span>
-          )}
-        </div>
-        {card.title && <h1 className="mb-2 text-xl font-bold text-text">{card.title}</h1>}
-        <MarkdownContent content={card.content} />
-        <div className="mt-4 flex gap-4 text-xs text-text-secondary">
-          <span>{t("createdOn", { date: formatDateTime(card.created_at, locale) })}</span>
-          {card.updated_at && (
-            <span>{t("updatedOn", { date: formatDateTime(card.updated_at, locale) })}</span>
-          )}
-        </div>
+        {/* Metadata row */}
+        {editing ? (
+          <div className="mb-4 space-y-3">
+            <input
+              value={editKeywords}
+              onChange={(e) => setEditKeywords(e.target.value)}
+              placeholder={t("keywords")}
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-primary"
+            />
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(emotionMap).map(([key, zhValue]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setEditEmotionTag(editEmotionTag === zhValue ? "" : zhValue)}
+                  className={`rounded-full px-3 py-1 text-xs transition ${
+                    editEmotionTag === zhValue
+                      ? "bg-primary text-white"
+                      : "bg-muted text-text-secondary hover:bg-muted/80"
+                  }`}
+                >
+                  {tEmotion(key as "happy" | "anxious" | "calm" | "excited" | "confused" | "touched" | "down" | "expectant")}
+                </button>
+              ))}
+            </div>
+            <ColorPicker value={editColor} onChange={setEditColor} />
+          </div>
+        ) : (
+          <div className="mb-3 flex flex-wrap items-center gap-1">
+            {card.keywords.map((kw) => (
+              <TagChip key={kw} label={kw} color={card.color} />
+            ))}
+            {card.emotion_tag && (
+              <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-text-secondary">
+                {reverseEmotionMap[card.emotion_tag]
+                  ? tEmotion(reverseEmotionMap[card.emotion_tag] as "happy" | "anxious" | "calm" | "excited" | "confused" | "touched" | "down" | "expectant")
+                  : card.emotion_tag}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Title */}
+        {editing ? (
+          <input
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            className="mb-3 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xl font-bold text-text outline-none focus:border-primary"
+          />
+        ) : (
+          card.title && <h1 className="mb-2 text-xl font-bold text-text">{card.title}</h1>
+        )}
+
+        {/* Content — single RichEditor instance, read-only or editable */}
+        <RichEditor
+          content={editing ? editContent : card.content}
+          onChange={setEditContent}
+          workspaceId={workspaceId}
+          readOnly={!editing}
+          showToolbar={editing}
+          minHeight={editing ? "200px" : "auto"}
+          atomicityThreshold={editing ? 300 : 0}
+          className={editing ? "rounded-xl border border-border" : ""}
+        />
+
+        {/* Edit actions */}
+        {editing && (
+          <>
+            <AiActionButtons
+              content={editContent}
+              onPolish={(text) => setEditContent(text)}
+              onSupplement={(text) => setEditContent(editContent + "\n\n" + text)}
+              onTitle={(title) => setEditTitle(title)}
+              onKeywords={(kws) => setEditKeywords(kws.join(", "))}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setEditing(false)}
+                className="rounded-xl border border-border bg-surface px-4 py-2 text-sm text-text-secondary transition hover:bg-muted"
+              >
+                {tCommon("cancel")}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!editContent.trim() || saving}
+                className="rounded-xl bg-primary px-4 py-2 text-sm text-white transition disabled:opacity-50 hover:bg-primary/90"
+              >
+                {saving ? "…" : tCommon("save")}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Timestamps (view mode only) */}
+        {!editing && (
+          <div className="mt-4 flex gap-4 text-xs text-text-secondary">
+            <span>{t("createdOn", { date: formatDateTime(card.created_at, locale) })}</span>
+            {card.updated_at && (
+              <span>{t("updatedOn", { date: formatDateTime(card.updated_at, locale) })}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Pending banner */}
@@ -505,78 +594,6 @@ export default function CardDetailPage() {
             </div>
           </div>
           <p className="text-sm text-text-secondary">{t("promoteConfirmMessage")}</p>
-        </Modal>
-      )}
-
-      {/* Edit card modal */}
-      {editing && (
-        <Modal
-          title={t("editCard")}
-          onClose={() => setEditing(false)}
-          onConfirm={handleSave}
-          confirmText={tCommon("save")}
-          confirmDisabled={!editContent.trim()}
-          loading={saving}
-          size="lg"
-        >
-          <FormField label={t("title")}>
-            <input
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-text outline-none focus:border-primary"
-            />
-          </FormField>
-
-          <FormField label={t("content")}>
-            <RichEditor
-              content={editContent}
-              onChange={setEditContent}
-              workspaceId={workspaceId}
-              className="rounded-xl border border-border"
-              showToolbar={true}
-              minHeight="120px"
-              atomicityThreshold={300}
-            />
-          </FormField>
-
-          <AiActionButtons
-            content={editContent}
-            onPolish={(text) => setEditContent(text)}
-            onSupplement={(text) => setEditContent(editContent + "\n\n" + text)}
-            onTitle={(t) => setEditTitle(t)}
-            onKeywords={(kws) => setEditKeywords(kws.join(", "))}
-          />
-
-          <FormField label={t("keywords")}>
-            <input
-              value={editKeywords}
-              onChange={(e) => setEditKeywords(e.target.value)}
-              className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-text outline-none focus:border-primary"
-            />
-          </FormField>
-
-          <FormField label={t("emotionTag")}>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(emotionMap).map(([key, zhValue]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setEditEmotionTag(editEmotionTag === zhValue ? "" : zhValue)}
-                  className={`rounded-full px-3 py-1 text-xs transition ${
-                    editEmotionTag === zhValue
-                      ? "bg-primary text-white"
-                      : "bg-muted text-text-secondary hover:bg-muted/80"
-                  }`}
-                >
-                  {tEmotion(key as "happy" | "anxious" | "calm" | "excited" | "confused" | "touched" | "down" | "expectant")}
-                </button>
-              ))}
-            </div>
-          </FormField>
-
-          <FormField label={t("color")}>
-            <ColorPicker value={editColor} onChange={setEditColor} />
-          </FormField>
         </Modal>
       )}
 

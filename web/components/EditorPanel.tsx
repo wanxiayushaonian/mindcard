@@ -2,11 +2,10 @@
 
 import { useState, useRef, useCallback } from "react";
 import { cardApi, aiApi } from "@/lib/api";
-import { MarkdownContent } from "@/components/MarkdownContent";
 import { RichEditor, type RichEditorHandle } from "@/components/editor";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { toast } from "@/lib/toast";
-import { FileText, Eye, PenLine, Sparkles } from "lucide-react";
+import { FileText, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 interface EditorPanelProps {
@@ -17,7 +16,6 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
   const t = useTranslations("editor");
   const tc = useTranslations("card");
   const { editorContent, setEditorContent } = usePanelStore();
-  const [mode, setMode] = useState<"edit" | "preview" | "split">("split");
   const [precipitating, setPrecipitating] = useState(false);
   const editorRef = useRef<RichEditorHandle>(null);
 
@@ -64,20 +62,6 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setMode(mode === "edit" ? "split" : "edit")}
-            className={`rounded p-1 transition ${mode === "edit" ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-gray-100"}`}
-            title={t("editMode")}
-          >
-            <PenLine size={13} />
-          </button>
-          <button
-            onClick={() => setMode(mode === "preview" ? "split" : "preview")}
-            className={`rounded p-1 transition ${mode === "preview" ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-gray-100"}`}
-            title={t("previewMode")}
-          >
-            <Eye size={13} />
-          </button>
-          <button
             onClick={handlePrecipitateSelection}
             disabled={precipitating}
             className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-secondary transition hover:bg-gray-100 disabled:opacity-50"
@@ -91,33 +75,16 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
-        {(mode === "edit" || mode === "split") && (
-          <div className={`${mode === "split" ? "w-1/2 border-r border-border" : "w-full"} flex flex-col overflow-hidden`}>
-            <RichEditor
-              ref={editorRef}
-              content={editorContent}
-              onChange={setEditorContent}
-              workspaceId={workspaceId}
-              placeholder={t("placeholder")}
-              className="flex-1 border-0"
-              showToolbar={mode === "edit"}
-              minHeight="100%"
-            />
-          </div>
-        )}
-        {(mode === "preview" || mode === "split") && (
-          <div className={`${mode === "split" ? "w-1/2" : "w-full"} overflow-y-auto p-3`}>
-            {editorContent ? (
-              <div className="text-[13px] leading-relaxed">
-                <MarkdownContent content={editorContent} />
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center text-xs text-text-secondary/50">
-                {t("previewArea")}
-              </div>
-            )}
-          </div>
-        )}
+        <RichEditor
+          ref={editorRef}
+          content={editorContent}
+          onChange={setEditorContent}
+          workspaceId={workspaceId}
+          placeholder={t("placeholder")}
+          className="flex-1 border-0"
+          showToolbar
+          minHeight="100%"
+        />
       </div>
 
       {/* Footer */}

@@ -297,8 +297,22 @@ export const cardApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  update: (id: string, data: Partial<Card>) =>
-    request<Card>(`/api/cards/${id}`, {
+	  createBatch: (data: {
+	    workspace_id: string;
+	    mark_as_temp?: boolean;
+	    cards: Array<{
+	      local_id: string;
+	      title?: string;
+	      content: string;
+	      keywords?: string[];
+	    }>;
+	  }) =>
+	    request<{ created: number; failed: number; card_ids: string[]; errors: any[] }>("/api/cards/bulk", {
+	      method: "POST",
+	      body: JSON.stringify(data),
+	    }),
+	  update: (id: string, data: Partial<Card>) =>
+	    request<Card>(`/api/cards/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
     }),

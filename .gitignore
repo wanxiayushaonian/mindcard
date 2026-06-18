@@ -41,3 +41,6 @@ web/test-results/
 
 # Model checkpoints
 server/checkpoints/
+
+# Landing page (not part of core project)
+landing/

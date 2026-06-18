@@ -15,11 +15,12 @@ import { AiActionButtons } from "@/components/AiActionButtons";
 import { CardItem } from "@/components/CardItem";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { TreeBreadcrumb } from "@/components/TreeBreadcrumb";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { translateBackendError } from "@/lib/backend-errors";
-import { Plus, Upload, Package, Search, Sparkles, GitBranch, LayoutGrid, Star, Clock, Bookmark } from "lucide-react";
+import { Plus, Upload, Package, Search, Sparkles, GitBranch, LayoutGrid, Star, Clock, Bookmark, Trash2, Copy, Pin, PinOff } from "lucide-react";
 
 // Stable topic colors derived from topic ID
 const TOPIC_COLORS = [
@@ -76,6 +77,7 @@ export default function WorkspacePage() {
 
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; card: Card } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; action: () => void } | null>(null);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, card: Card) => {
     e.preventDefault();
@@ -242,6 +244,7 @@ export default function WorkspacePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importPreview, setImportPreview] = useState<{ title: string; content: string; keywords: string[] }[] | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importAsTemp, setImportAsTemp] = useState(true);
 
   function parseMarkdownFiles(text: string, filename: string): { title: string; content: string; keywords: string[] }[] {
     // Strip YAML frontmatter
@@ -292,27 +295,25 @@ export default function WorkspacePage() {
   const handleConfirmImport = async () => {
     if (!importPreview || importing) return;
     setImporting(true);
-    let success = 0;
-    for (let i = 0; i < importPreview.length; i++) {
-      const item = importPreview[i];
-      toast(t("importing", { current: i + 1, total: importPreview.length }), "info");
-      try {
-        await cardApi.create({
+    try {
+      const resp = await cardApi.createBatch({
+        workspace_id: workspaceId,
+        mark_as_temp: importAsTemp,
+        cards: importPreview.map((item, i) => ({
           local_id: "card_" + Date.now() + "_" + i,
-          workspace_id: workspaceId,
           title: item.title,
           content: item.content,
           keywords: item.keywords,
-        });
-        success++;
-      } catch {
-        // Continue with remaining cards
-      }
+        })),
+      });
+      toast(t("importComplete", { success: resp.created, total: importPreview.length }), "success");
+      setImportPreview(null);
+      mutate(`cards-${workspaceId}-${filterKey}`);
+    } catch (e: any) {
+      toast(translateBackendError(e.message, tBackend) || t("importFailed"), "error");
+    } finally {
+      setImporting(false);
     }
-    toast(t("importComplete", { success, total: importPreview.length }), "success");
-    setImportPreview(null);
-    setImporting(false);
-    mutate(`cards-${workspaceId}-${filterKey}`);
   };
 
   const handleBatchExport = async () => {
@@ -691,6 +692,10 @@ export default function WorkspacePage() {
           <p className="mb-3 text-sm text-text-secondary">
             {t("importParsedConfirm", { count: importPreview.length })}
           </p>
+          <label className="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            <input type="checkbox" checked={importAsTemp} onChange={(e) => setImportAsTemp(e.target.checked)} />
+            {t("importAsTemp")}
+          </label>
           <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1">
             {importPreview.map((item, i) => (
               <div key={i} className="rounded-lg border border-border bg-surface p-3">
@@ -715,44 +720,119 @@ export default function WorkspacePage() {
 
       {/* Context menu for cards */}
       {ctxMenu && (() => {
-        const topic = cardTopicMap.get(ctxMenu.card.id);
-        const isInCurrentNode = nodeCardIds?.has(ctxMenu.card.id);
+        const ctxCard = ctxMenu.card;
+        const topic = cardTopicMap.get(ctxCard.id);
+        const isInCurrentNode = nodeCardIds?.has(ctxCard.id);
         const menuItems: ContextMenuItem[] = [];
-        if (topic) {
-          menuItems.push({
-            label: t("topicSynthesis"),
-            icon: <Sparkles size={14} />,
-            onClick: () => {
-              router.push(`/workspaces/${workspaceId}/synthesis?topic_id=${topic.id}`);
-            },
-          });
-        }
-        if (currentNodeId && !isInCurrentNode) {
-          menuItems.push({
-            label: t("mountToCurrentNode"),
-            icon: <GitBranch size={14} />,
-            onClick: async () => {
-              await topologyApi.addCard(currentNodeId, ctxMenu.card.id);
-              mutate(`topology-${workspaceId}`);
-              toast(t("mountedToNode"), "success");
-            },
-          });
-        }
-        if (currentNodeId && isInCurrentNode) {
-          menuItems.push({
-            label: t("removeFromCurrentNode"),
-            icon: <GitBranch size={14} />,
-            onClick: async () => {
-              await topologyApi.removeCard(currentNodeId, ctxMenu.card.id);
-              mutate(`topology-${workspaceId}`);
-              toast(t("removedFromNode"), "success");
-            },
-          });
-        }
+
+        // 查看详情
         menuItems.push({
           label: t("viewDetails"),
-          onClick: () => router.push(`/workspaces/${workspaceId}/card/${ctxMenu.card.id}`),
+          onClick: () => router.push(`/workspaces/${workspaceId}/card/${ctxCard.id}`),
         });
+
+        // ── 基本操作 ──
+        menuItems.push({ label: "", separator: true });
+
+        // 收藏/取消收藏
+        menuItems.push({
+          label: ctxCard.is_favorite ? tCommon("unfavorite") : tCommon("favorite"),
+          icon: <Star size={14} fill={ctxCard.is_favorite ? "currentColor" : "none"} />,
+          onClick: async () => {
+            try {
+              await cardApi.update(ctxCard.id, { is_favorite: !ctxCard.is_favorite });
+              mutate(`cards-${workspaceId}-${filterKey}`);
+            } catch { /* silent */ }
+          },
+        });
+
+        // 永久保存/移至临时
+        if (canCreate) {
+          menuItems.push({
+            label: ctxCard.is_temp ? t("permanentSave") : t("moveToTemp"),
+            icon: ctxCard.is_temp ? <PinOff size={14} /> : <Pin size={14} />,
+            onClick: async () => {
+              try {
+                await cardApi.update(ctxCard.id, { is_temp: !ctxCard.is_temp });
+                mutate(`cards-${workspaceId}-${filterKey}`);
+                toast(ctxCard.is_temp ? t("promoteSuccess") : t("demoteSuccess"), "success");
+              } catch (e: any) {
+                toast(translateBackendError(e.message, tBackend) || t("operationFailed"), "error");
+              }
+            },
+          });
+        }
+
+        // ── 主题与拓扑 ──
+        if (topic || currentNodeId) {
+          menuItems.push({ label: "", separator: true });
+          if (topic) {
+            menuItems.push({
+              label: t("topicSynthesis"),
+              icon: <Sparkles size={14} />,
+              onClick: () => router.push(`/workspaces/${workspaceId}/synthesis?topic_id=${topic.id}`),
+            });
+          }
+          if (currentNodeId && !isInCurrentNode) {
+            menuItems.push({
+              label: t("mountToCurrentNode"),
+              icon: <GitBranch size={14} />,
+              onClick: async () => {
+                await topologyApi.addCard(currentNodeId, ctxMenu.card.id);
+                mutate(`topology-${workspaceId}`);
+                toast(t("mountedToNode"), "success");
+              },
+            });
+          }
+          if (currentNodeId && isInCurrentNode) {
+            menuItems.push({
+              label: t("removeFromCurrentNode"),
+              icon: <GitBranch size={14} />,
+              onClick: async () => {
+                await topologyApi.removeCard(currentNodeId, ctxMenu.card.id);
+                mutate(`topology-${workspaceId}`);
+                toast(t("removedFromNode"), "success");
+              },
+            });
+          }
+        }
+
+        // ── 工具 ──
+        menuItems.push({ label: "", separator: true });
+        menuItems.push({
+          label: tCommon("copyTitle"),
+          icon: <Copy size={14} />,
+          onClick: () => {
+            navigator.clipboard.writeText(ctxCard.title || "").catch(() => {});
+            toast(tCommon("copied"), "success");
+          },
+        });
+
+        // ── 危险操作 ──
+        if (canCreate) {
+          menuItems.push({ label: "", separator: true });
+          menuItems.push({
+            label: t("deleteCard"),
+            icon: <Trash2 size={14} />,
+            danger: true,
+            onClick: () => {
+              setConfirmAction({
+                title: t("deleteCard"),
+                message: t("deleteSimpleConfirm", { title: ctxCard.title || t("unnamedCard") }),
+                action: async () => {
+                  try {
+                    await cardApi.delete(ctxCard.id);
+                    mutate(`cards-${workspaceId}-${filterKey}`);
+                    toast(t("deleteSuccess"), "success");
+                  } catch (e: any) {
+                    toast(translateBackendError(e.message, tBackend) || t("deleteFailed", { error: "" }), "error");
+                  }
+                },
+              });
+            },
+          });
+        }
+
         return (
           <ContextMenu
             x={ctxMenu.x}
@@ -762,6 +842,21 @@ export default function WorkspacePage() {
           />
         );
       })()}
+
+      {/* Confirm modal */}
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmText={tCommon("delete")}
+          danger
+          onConfirm={() => {
+            confirmAction.action();
+            setConfirmAction(null);
+          }}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   );
 }

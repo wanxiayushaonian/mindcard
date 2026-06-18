@@ -71,9 +71,9 @@ export default function NetworkPage() {
   const [forceParams, setForceParams] = useState(() => {
     if (typeof window === "undefined") {
       return {
-        charge: -800,
+        charge: -400,
         linkDistance: 120,
-        linkStrength: 0.005,
+        linkStrength: 0.3,
         centerStrength: 0.01,
         velocityDecay: 0.15,
       };
@@ -84,18 +84,18 @@ export default function NetworkPage() {
         return JSON.parse(saved);
       } catch {
         return {
-          charge: -800,
+          charge: -400,
           linkDistance: 120,
-          linkStrength: 0.005,
+          linkStrength: 0.3,
           centerStrength: 0.01,
           velocityDecay: 0.15,
         };
       }
     }
     return {
-      charge: -800,
+      charge: -400,
       linkDistance: 120,
-      linkStrength: 0.005,
+      linkStrength: 0.3,
       centerStrength: 0.01,
       velocityDecay: 0.15,
     };
@@ -346,8 +346,19 @@ export default function NetworkPage() {
       .force("charge", d3.forceManyBody<GraphNode>().strength(forceParams.charge))
       .force(
         "link",
-        d3.forceLink<GraphNode, GraphEdge>(edges).id((d) => d.id).distance(forceParams.linkDistance).strength((d) => forceParams.linkStrength * (d.weight || 1))
+        d3.forceLink<GraphNode, GraphEdge>(edges)
+          .id((d) => d.id)
+          // Manual relations (实线) pull harder & sit closer; keyword co-occurrence
+          // (虚线) is a weaker, looser signal — otherwise both get stretched out
+          // equally by the global charge force and strong relations look just as
+          // "loose" as incidental keyword overlaps.
+          .distance((d) => (d.type === "related" ? forceParams.linkDistance * 0.6 : forceParams.linkDistance))
+          .strength((d) => {
+            const base = forceParams.linkStrength * Math.sqrt(d.weight || 1);
+            return d.type === "related" ? Math.min(base * 3, 1) : base * 0.4;
+          })
       )
+      .force("collide", d3.forceCollide<GraphNode>().radius((d) => d.radius + 6).strength(0.8).iterations(2))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("x", d3.forceX<GraphNode>(width / 2).strength(forceParams.centerStrength))
       .force("y", d3.forceY<GraphNode>(height / 2).strength(forceParams.centerStrength))
@@ -396,13 +407,16 @@ export default function NetworkPage() {
 
     function topicRepelForce(alpha: number) {
       const PAD = 35;
+      // Cache centroids once per tick — avoids O(n·topics) redundant recomputation
+      const circles = new Map(topicEntries.map((td) => [td.id, getTopicCircle(td)]));
+
       // 1) Repel non-member nodes out of each topic circle
       for (const node of nodes) {
         if (!node.x || !node.y) continue;
         let fx = 0, fy = 0;
         topicEntries.forEach((td) => {
           if (memberSetByTopic.get(td.id)!.has(node.id)) return;
-          const circle = getTopicCircle(td);
+          const circle = circles.get(td.id);
           if (!circle) return;
           const totalRadius = circle.radius + PAD;
           const dx = node.x! - circle.cx;
@@ -422,34 +436,50 @@ export default function NetworkPage() {
       // 2) Repel topic circles from each other
       for (let i = 0; i < topicEntries.length; i++) {
         for (let j = i + 1; j < topicEntries.length; j++) {
-          const a = getTopicCircle(topicEntries[i]);
-          const b = getTopicCircle(topicEntries[j]);
+          const a = circles.get(topicEntries[i].id);
+          const b = circles.get(topicEntries[j].id);
           if (!a || !b) continue;
           const dx = b.cx - a.cx;
           const dy = b.cy - a.cy;
           const dist = Math.hypot(dx, dy);
-          const minDist = a.radius + b.radius + 40; // 40px gap between circles
+          const minDist = a.radius + b.radius + 40;
           if (dist < minDist && dist > 0.1) {
             const overlap = minDist - dist;
             const strength = 0.15 * alpha * (overlap / minDist);
             const fx = (dx / dist) * overlap * strength;
             const fy = (dy / dist) * overlap * strength;
-            // Push member nodes of each topic apart
-            a.memberNodes.forEach((n) => {
-              n.vx = (n.vx || 0) - fx;
-              n.vy = (n.vy || 0) - fy;
-            });
-            b.memberNodes.forEach((n) => {
-              n.vx = (n.vx || 0) + fx;
-              n.vy = (n.vy || 0) + fy;
-            });
+            a.memberNodes.forEach((n) => { n.vx = (n.vx || 0) - fx; n.vy = (n.vy || 0) - fy; });
+            b.memberNodes.forEach((n) => { n.vx = (n.vx || 0) + fx; n.vy = (n.vy || 0) + fy; });
           }
         }
       }
+
+      // 3) Cohesion: gently pull same-topic members toward their centroid
+      const COHESION = 0.02 * alpha;
+      topicEntries.forEach((td) => {
+        const circle = circles.get(td.id);
+        if (!circle) return;
+        circle.memberNodes.forEach((n) => {
+          n.vx = (n.vx || 0) + (circle.cx - n.x!) * COHESION;
+          n.vy = (n.vy || 0) + (circle.cy - n.y!) * COHESION;
+        });
+      });
     }
 
     // Add repel force to simulation
     simulation.force("topicRepel", topicRepelForce);
+
+    // Deterministic initial positions: place nodes in a circle sorted by degree desc.
+    // This ensures the same data produces the same pre-ticked layout every time.
+    const sorted = [...nodes].sort((a, b) => b.degree - a.degree);
+    const initR = Math.min(width, height) * 0.35;
+    sorted.forEach((n, i) => {
+      if (n.x === undefined || n.y === undefined) {
+        const angle = (2 * Math.PI * i) / sorted.length;
+        n.x = width / 2 + Math.cos(angle) * initR;
+        n.y = height / 2 + Math.sin(angle) * initR;
+      }
+    });
 
     // Pre-tick
     for (let i = 0; i < 200; i++) simulation.tick();
@@ -862,13 +892,13 @@ export default function NetworkPage() {
             <div>
               <label className="mb-1 flex items-center justify-between text-xs text-text-secondary">
                 <span>{t("linkStrength")}</span>
-                <span className="font-mono">{forceParams.linkStrength.toFixed(3)}</span>
+                <span className="font-mono">{forceParams.linkStrength.toFixed(2)}</span>
               </label>
               <input
                 type="range"
-                min="0.001"
-                max="0.02"
-                step="0.001"
+                min="0.05"
+                max="1.0"
+                step="0.05"
                 value={forceParams.linkStrength}
                 onChange={(e) => setForceParams({ ...forceParams, linkStrength: Number(e.target.value) })}
                 className="w-full"
@@ -924,9 +954,9 @@ export default function NetworkPage() {
             {/* Reset button */}
             <button
               onClick={() => setForceParams({
-                charge: -800,
+                charge: -400,
                 linkDistance: 120,
-                linkStrength: 0.005,
+                linkStrength: 0.3,
                 centerStrength: 0.01,
                 velocityDecay: 0.15,
               })}

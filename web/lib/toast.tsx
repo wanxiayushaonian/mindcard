@@ -2,20 +2,26 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastItem {
   id: number;
   message: string;
   type: "success" | "error" | "info";
+  action?: ToastAction;
 }
 
-let _addToast: ((msg: string, type: ToastItem["type"]) => void) | null = null;
+let _addToast: ((msg: string, type: ToastItem["type"], action?: ToastAction) => void) | null = null;
 
-export function toast(message: string, type: ToastItem["type"] = "info") {
-  _addToast?.(message, type);
+export function toast(message: string, type: ToastItem["type"] = "info", action?: ToastAction) {
+  _addToast?.(message, type, action);
 }
 
 // Convenience methods
-toast.success = (message: string) => toast(message, "success");
+toast.success = (message: string, action?: ToastAction) => toast(message, "success", action);
 toast.error = (message: string) => toast(message, "error");
 toast.info = (message: string) => toast(message, "info");
 
@@ -23,13 +29,17 @@ export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextIdRef = useRef(0);
 
-  const addToast = useCallback((message: string, type: ToastItem["type"]) => {
-    const id = ++nextIdRef.current;
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3000);
+  const removeToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  const addToast = useCallback((message: string, type: ToastItem["type"], action?: ToastAction) => {
+    const id = ++nextIdRef.current;
+    setToasts((prev) => [...prev, { id, message, type, action }]);
+    setTimeout(() => {
+      removeToast(id);
+    }, 3000);
+  }, [removeToast]);
 
   useEffect(() => {
     _addToast = addToast;
@@ -49,9 +59,21 @@ export function ToastContainer() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`animate-slide-in rounded-xl border-l-4 px-4 py-3 text-sm shadow-lg ${typeStyles[t.type]}`}
+          className={`animate-slide-in flex items-center gap-3 rounded-xl border-l-4 px-4 py-3 text-sm shadow-lg ${typeStyles[t.type]}`}
         >
-          {t.message}
+          <span>{t.message}</span>
+          {t.action && (
+            <button
+              type="button"
+              onClick={() => {
+                t.action!.onClick();
+                removeToast(t.id);
+              }}
+              className="shrink-0 rounded-md bg-white/60 px-2 py-1 text-xs font-medium underline-offset-2 hover:underline"
+            >
+              {t.action.label} →
+            </button>
+          )}
         </div>
       ))}
     </div>

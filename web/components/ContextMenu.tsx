@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 export interface ContextMenuItem {
   label: string;
   icon?: React.ReactNode;
-  onClick: () => void;
+  onClick?: () => void;
   disabled?: boolean;
   danger?: boolean;
+  separator?: boolean;
 }
 
 interface ContextMenuProps {
@@ -59,31 +60,35 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[9999] min-w-[140px] rounded-lg border border-border bg-surface py-1 shadow-lg"
+      className="fixed z-[9999] min-w-[160px] rounded-lg border border-border bg-surface py-1 shadow-lg"
       style={{ left: x, top: y }}
     >
-      {items.map((item, i) => (
-        <button
-          key={i}
-          onClick={() => {
-            if (!item.disabled) {
-              item.onClick();
-              onClose();
-            }
-          }}
-          disabled={item.disabled}
-          className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition ${
-            item.disabled
-              ? "cursor-not-allowed text-gray-400"
-              : item.danger
-                ? "text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                : "text-text hover:bg-gray-50 dark:hover:bg-gray-800"
-          }`}
-        >
-          {item.icon && <span className="shrink-0">{item.icon}</span>}
-          {item.label}
-        </button>
-      ))}
+      {items.map((item, i) =>
+        item.separator ? (
+          <div key={i} className="my-1 border-t border-border" />
+        ) : (
+          <button
+            key={i}
+            onClick={() => {
+              if (!item.disabled && item.onClick) {
+                item.onClick();
+                onClose();
+              }
+            }}
+            disabled={item.disabled}
+            className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition ${
+              item.disabled
+                ? "cursor-not-allowed text-gray-400"
+                : item.danger
+                  ? "text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  : "text-text hover:bg-gray-50 dark:hover:bg-gray-800"
+            }`}
+          >
+            {item.icon && <span className="shrink-0">{item.icon}</span>}
+            {item.label}
+          </button>
+        )
+      )}
     </div>,
     document.body
   );
