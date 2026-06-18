@@ -44,3 +44,15 @@ server/checkpoints/
 
 # Landing page (not part of core project)
 landing/
+
+# Research / thesis artifacts
+thesis*
+session-*.md
+
+# Temporary scripts and backups
+gen_er_diagrams.py
+*.sql.bak
+server/backup_*.sql
+
+# Local docs (not part of core project)
+docs/
