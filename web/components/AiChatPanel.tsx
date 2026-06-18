@@ -18,7 +18,7 @@ import { ToolCallsBlock } from "@/components/ToolCallsBlock";
 import { CardMentionPopup } from "@/components/CardMentionPopup";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { useTranslations, useLocale } from "next-intl";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain, Network } from "lucide-react";
 import { formatTimeShort } from "@/lib/format";
 
 const FORK_PREFIX = "__FORK__";
@@ -1538,6 +1538,30 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                             <div className="mt-1">{msg.webSearchResults.map((r, j) => (
                               <div key={j} className="mb-1 rounded bg-blue-50 px-2 py-1 text-[10px]"><a href={r.url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline">{r.title}</a><p className="mt-0.5 line-clamp-2 text-text-secondary">{r.snippet}</p></div>
                             ))}</div>
+                          )}
+                        </div>
+                      )}
+                      {msg.contextDebug?.reasoning_paths && msg.contextDebug.reasoning_paths.length > 0 && (
+                        <div className="mt-2 border-t border-border pt-2">
+                          <button onClick={() => setExpandedSearchResults(prev => { const n = new Set(prev); n.has(`rp-${i}`) ? n.delete(`rp-${i}`) : n.add(`rp-${i}`); return n; })} className="flex items-center gap-1.5 text-[10px] text-text-secondary hover:text-foreground">
+                            <Network size={10} />{t('reasoningPaths')} ({msg.contextDebug.reasoning_paths.length}){expandedSearchResults.has(`rp-${i}`) ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                          </button>
+                          {expandedSearchResults.has(`rp-${i}`) && (
+                            <div className="mt-1.5 space-y-1">
+                              {msg.contextDebug.reasoning_paths.map((path, pi) => (
+                                <div key={pi} className="rounded-lg border border-border/50 bg-gray-50/80 px-2.5 py-1.5">
+                                  <div className="flex items-center gap-0.5 text-[11px] flex-wrap">
+                                    {path.entities.map((entity, ei) => (
+                                      <span key={ei}>
+                                        {ei > 0 && <span className="mx-0.5 text-text-secondary">—{path.relations[ei - 1] || "?"}→</span>}
+                                        <span className="font-medium text-text">{entity}</span>
+                                      </span>
+                                    ))}
+                                    <span className="ml-auto shrink-0 text-[10px] text-text-secondary">{t('relevance')} {(path.score * 100).toFixed(0)}%</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
                       )}

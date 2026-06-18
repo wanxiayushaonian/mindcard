@@ -102,8 +102,7 @@ class RetrievalDispatcher:
         from app.models.card import Card
         from app.services.gnn_retriever import graph_retriever
 
-        # card_id mode: fall back to CARD (no graph context needed)
-        if card_id or not workspace_ids:
+        if not workspace_ids:
             result = await self._level_card(question, workspace_ids, db, top_k, card_id)
             result.level_used = RetrievalLevel.EXPLORE
             return result

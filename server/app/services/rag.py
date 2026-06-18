@@ -180,17 +180,26 @@ async def build_branch_context(
         parts.append(f"<cross_branch_insights>\n来自其他分支的发现：\n{insight_text}\n</cross_branch_insights>")
         consumed_ids = [i.id for i in insights]
 
-    # 2. Shared memory
+    # 2. Shared memory (structured: filter by importance, annotate type)
     if workspace_id:
         result = await db.execute(
             select(WorkspaceMemory).where(
                 WorkspaceMemory.workspace_id == workspace_id,
-            )
+                WorkspaceMemory.importance >= 0.3,
+            ).order_by(WorkspaceMemory.importance.desc())
         )
         memories = result.scalars().all()
         if memories:
-            memory_text = "\n\n".join(f"## {m.title}\n{m.body}" for m in memories)
+            type_labels = {"fact": "事实", "preference": "偏好", "insight": "洞察", "summary": "摘要"}
+            memory_text = "\n\n".join(
+                f"## [{type_labels.get(m.memory_type, m.memory_type)}] {m.title}\n{m.body}"
+                for m in memories
+            )
             parts.append(f"<shared_memory>\n{memory_text}\n</shared_memory>")
+            # Update last_accessed_at (fire-and-forget)
+            from datetime import datetime, timezone
+            for m in memories:
+                m.last_accessed_at = datetime.now(timezone.utc)
 
     return ("\n\n".join(parts) if parts else ""), consumed_ids
 
@@ -594,7 +603,7 @@ Respond in JSON format:
         if level == RetrievalLevel.CHAT:
             system_parts = [MARKDOWN_SYSTEM_PROMPT]
         else:
-            system_parts = [f"你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。\n\n{_MARKDOWN_FORMAT_INSTRUCTIONS}"]
+            system_parts = [f"你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。\n\n引用规则：回答中引用灵感卡片时，用 [卡片标题] 标注来源。例如：「根据 [Transformer架构笔记]，注意力机制的核心是...」\n\n{_MARKDOWN_FORMAT_INSTRUCTIONS}"]
 
         if context_card_ids:
             system_parts.append("以下卡片由用户明确指定为上下文（排列在最前面），请优先参考这些卡片的内容。")
