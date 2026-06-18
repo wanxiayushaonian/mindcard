@@ -53,6 +53,3 @@ session-*.md
 gen_er_diagrams.py
 *.sql.bak
 server/backup_*.sql
-
-# Local docs (not part of core project)
-docs/

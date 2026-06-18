@@ -45,8 +45,10 @@ MindCard is a **full-stack knowledge management platform** that combines card-ba
 
 ### AI Conversation & RAG
 - Streaming AI chat via SSE and WebSocket
+- **5-level retrieval** — CHAT / SEARCH / EXPLORE / CONTEXT / INSIGHT with auto-detection
 - Hybrid retrieval: BGE-M3 vector search + PostgreSQL full-text search + RRF fusion
-- **Source citation** — click referenced cards in AI answers to jump to source
+- **Reasoning paths** — graph traversal paths shown inline in AI answers
+- **Source citation** — AI answers reference cards with `[title]` annotations
 - **Crystallize** — select AI response text and save as a new card in one click
 - Optional web search augmentation (6 providers: DuckDuckGo, Brave, Tavily, SearXNG, Jina, Kagi)
 - Real-time model switching in the chat panel
@@ -59,10 +61,11 @@ MindCard is a **full-stack knowledge management platform** that combines card-ba
 - Per-chat branch insights and conversation path navigation
 
 ### Workspace Memory
+- **Structured memory** — 4 types (fact/preference/insight/summary), importance scoring, source card tracing
 - AI autonomously maintains persistent, slug-keyed Markdown memory entries during chat
 - `memory_edit` tool lets AI upsert or delete memories in real-time as it learns context
-- Memories are injected into the RAG context for personalized, continuity-aware responses
-- View and edit memories manually via the Memory panel
+- Memories are injected into RAG context filtered by importance, with type annotations
+- View and edit memories manually via the Memory panel with type filters
 
 ### Knowledge Topology
 - Automatic topic clustering based on pgvector semantic similarity
@@ -155,6 +158,19 @@ Auto-detection (`AUTO_LEVEL=-1`): queries <10 chars → `SEARCH`; keyword heuris
 ```
 Card Created → Embedding Generation → Topic Assignment → Topology Classification → Graph Triple Extraction
 ```
+
+## Documentation
+
+Detailed documentation for each module:
+
+| Module | Description |
+|--------|-------------|
+| [RAG Pipeline](docs/rag-pipeline.md) | Retrieval levels, hybrid search, reasoning paths, context assembly |
+| [Knowledge Graph](docs/knowledge-graph.md) | Entity extraction, linking, graph traversal, community detection |
+| [Topic & Topology](docs/topic-topology.md) | Auto-clustering, topology tree, topic synthesis |
+| [Workspace Memory](docs/workspace-memory.md) | Structured memory, RAG integration, memory_edit tool |
+| [Conversation Fork](docs/conversation-fork.md) | Fork profiles, compression, split guard, dialog tree |
+| [LLM Providers](docs/llm-providers.md) | Provider registry, multi-model support, configuration |
 
 ## Quick Start
 
