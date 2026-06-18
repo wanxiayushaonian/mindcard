@@ -590,16 +590,24 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             chatApi.updateMessage(chatIdRef.current, existingMsgId, "fork-divider", encoded).catch(() => {});
           }
         } else {
-          // No placeholder — insert fork-divider before the streaming assistant message
-          // and move the streaming message into the fork's scope.
+          // No placeholder — insert fork-divider before the (user, assistant) pair
+          // and move both into the fork's scope.
           setMessages((prev) => {
             const updated = [...prev];
             const si = streamIdx(updated);
             if (si >= 0 && updated[si].role === "assistant") {
-              // Update streaming message: belongs to fork, clear round-1 content
+              // Move streaming assistant to fork context, clear any pre-fork content
               updated[si] = { ...updated[si], childChatId, content: "" };
-              // Insert fork-divider immediately before the streaming message
-              updated.splice(si, 0, { role: "fork-divider" as const, content: encoded, childChatId });
+              // Also move the preceding root-context user message into the fork.
+              // Without this, that user message becomes an orphan in root history
+              // (no assistant reply in root), causing the LLM to see two consecutive
+              // user messages and answer both questions simultaneously.
+              let dividerAt = si;
+              if (si > 0 && updated[si - 1].role === "user" && !updated[si - 1].childChatId) {
+                updated[si - 1] = { ...updated[si - 1], childChatId };
+                dividerAt = si - 1;
+              }
+              updated.splice(dividerAt, 0, { role: "fork-divider" as const, content: encoded, childChatId });
               return updated;
             }
             // Fallback: streaming message not found, append divider at end
@@ -989,7 +997,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         keywords,
       });
       setPrecipitatedBlocks((prev) => new Set(prev).add(key));
-      toast(tCard('precipitated', { title: created.title || tCommon('unnamed') }), "success");
+	      toast(
+	        tCard('precipitatedAsTemp', { title: created.title || tCommon('unnamed') }),
+	        "success",
+	        { label: tCard('promoteNow'), onClick: () => router.push(`/workspaces/${workspaceId}/card/${created.id}`) }
+	      );
       window.dispatchEvent(new CustomEvent("card-precipitated", { detail: { cardId: created.id } }));
     } catch (e: any) {
       toast(tCard('precipitateFailed', { error: e.message }), "error");

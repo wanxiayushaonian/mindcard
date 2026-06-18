@@ -286,7 +286,13 @@ class RAGService:
         # 3. Call LLM
         messages = [{"role": "system", "content": system_prompt}]
         if history:
-            messages.extend(history[-10:])
+            h = list(history[-10:])
+            # Strip trailing orphan user turns — happens when auto-fork moves the
+            # assistant reply into a child chat; two consecutive user messages cause
+            # the LLM to answer both questions at once.
+            while h and h[-1].get("role") == "user":
+                h.pop()
+            messages.extend(h)
         messages.append({"role": "user", "content": question})
         response = await get_llm_service().complete(messages)
         answer = response.content
@@ -405,7 +411,13 @@ Respond in JSON format:
         """General chat without RAG, supports conversation history."""
         messages = [{"role": "system", "content": MARKDOWN_SYSTEM_PROMPT}]
         if history:
-            messages.extend(history)
+            h = list(history)
+            # Strip trailing orphan user turns — happens when auto-fork moves the
+            # assistant reply into a child chat; two consecutive user messages cause
+            # the LLM to answer both questions at once.
+            while h and h[-1].get("role") == "user":
+                h.pop()
+            messages.extend(h)
 
         # Optional web search
         user_message = message
@@ -424,7 +436,11 @@ Respond in JSON format:
         """Streaming general chat without RAG."""
         messages = [{"role": "system", "content": MARKDOWN_SYSTEM_PROMPT}]
         if history:
-            messages.extend(history)
+            h = list(history)
+            # Strip trailing orphan user turns — see chat() for rationale.
+            while h and h[-1].get("role") == "user":
+                h.pop()
+            messages.extend(h)
 
         # Optional web search - yield results immediately
         user_message = message
@@ -612,7 +628,13 @@ Respond in JSON format:
         # Build messages list
         messages = [{"role": "system", "content": system_prompt}]
         if history:
-            messages.extend(history[-10:])
+            h = list(history[-10:])
+            # Strip trailing orphan user turns — happens when auto-fork moves the
+            # assistant reply into a child chat; two consecutive user messages cause
+            # the LLM to answer both questions at once.
+            while h and h[-1].get("role") == "user":
+                h.pop()
+            messages.extend(h)
         messages.append({"role": "user", "content": question})
 
         # Yield sources (before messages_ready so frontend receives them in tool mode)
