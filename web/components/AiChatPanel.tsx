@@ -156,7 +156,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   precipitatedBlocksRef.current = precipitatedBlocks;
   const [precipitatingBlock, setPrecipitatingBlock] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
-  const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number>>(new Set());
+  // Mixed-type keys: web search results use numeric indices; reasoning paths
+  // use `rp-${i}` string prefix to avoid index collision in the same message.
+  const [expandedSearchResults, setExpandedSearchResults] = useState<Set<number | string>>(new Set());
   const [forkMode, setForkMode] = useState(false);
   const [isCreatingFork, setIsCreatingFork] = useState(false);
   const [forkPickerMsgIdx, setForkPickerMsgIdx] = useState<number | null>(null);
