@@ -140,7 +140,7 @@ class ClaimExtractor:
         lines: list[str] = []
         for msg in messages:
             role = msg.get("role", "user")
-            content = msg.get("content", "")
+            content = msg.get("content") or ""
             label = "用户" if role == "user" else "助手"
             lines.append(f"{label}: {content}")
         return "\n".join(lines)

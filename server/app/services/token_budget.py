@@ -178,6 +178,10 @@ class TokenBudgetAllocator:
     ) -> tuple[list[ScoredItem], int, bool]:
         """Greedily pack items into budget, highest score first.
 
+        First item is always kept even if it alone exceeds budget (no way to
+        make progress otherwise). In that case, truncated=True flags the
+        overflow so the caller can warn.
+
         Returns (kept_items, total_tokens, truncated).
         """
         if not items:
@@ -192,7 +196,9 @@ class TokenBudgetAllocator:
             kept.append(it)
             used += it.tokens
 
-        truncated = len(kept) < len(items)
+        # truncated if some items were dropped OR kept items exceed budget
+        # (single oversized item case)
+        truncated = len(kept) < len(items) or used > budget
         return kept, used, truncated
 
     def format_stats(self, stats: list[BucketStats]) -> str:

@@ -223,6 +223,11 @@ async def build_branch_context(
                     source_id=str(m.id),
                 ))
                 m.last_accessed_at = now
+            # Commit explicitly — get_db() does not auto-commit, so without this
+            # the last_accessed_at updates would be lost at session close,
+            # breaking memory decay (decay falls back to created_at).
+            if scored_mems:
+                await db.commit()
 
     return buckets, consumed_ids
 
@@ -230,7 +235,9 @@ async def build_branch_context(
 async def mark_insights_consumed(db: AsyncSession, insight_ids: list) -> None:
     """Mark insights as consumed after successful stream.
 
-    Uses a savepoint to avoid committing the caller's entire session.
+    Commits explicitly — get_db() does not auto-commit, so without this the
+    savepoint UPDATE would be rolled back at session close, causing the same
+    insights to be re-injected on every subsequent ask_stream call.
     """
     if not insight_ids:
         return
@@ -243,6 +250,7 @@ async def mark_insights_consumed(db: AsyncSession, insight_ids: list) -> None:
             .where(BranchInsight.id.in_(insight_ids))
             .values(consumed=True)
         )
+    await db.commit()
 
 
 class RAGService:
