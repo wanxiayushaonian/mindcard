@@ -727,6 +727,12 @@ export const settingsApi = {
 };
 
 // --- Topology Tree ---
+export interface RefDetail {
+  target_chat_id: string;
+  ref_type: "related" | "contradicts" | "extends";
+  reason: string;
+}
+
 export interface TopologyNode {
   id: string;
   workspace_id: string;
@@ -742,6 +748,7 @@ export interface TopologyNode {
   card_count: number;
   child_ids: string[];
   ref_ids: string[];
+  ref_details?: RefDetail[];
   created_at: string;
   updated_at: string | null;
   completed_at: string | null;

@@ -22,6 +22,14 @@ class TreeNodeUpdate(BaseModel):
     parent_id: str | None = None
 
 
+class RefDetail(BaseModel):
+    """Cross-branch reference with full type/reason metadata."""
+
+    target_chat_id: str
+    ref_type: str  # related | contradicts | extends
+    reason: str = ""
+
+
 class TreeNodeResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
@@ -37,6 +45,7 @@ class TreeNodeResponse(BaseModel):
     card_count: int = 0
     child_ids: list[str] = []
     ref_ids: list[str] = []
+    ref_details: list[RefDetail] = []
     created_at: datetime
     updated_at: datetime | None
     completed_at: datetime | None

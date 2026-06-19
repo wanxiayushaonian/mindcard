@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Link2, X, Check, GitBranch, Trash2 } from "lucide-react";
-import { topologyApi, type TopologyNode } from "@/lib/api";
+import { topologyApi, type TopologyNode, type RefDetail } from "@/lib/api";
 import { useTranslations } from "next-intl";
 import { toast } from "@/lib/toast";
 
@@ -11,6 +11,12 @@ const REF_TYPES = [
   { value: "contradicts", color: "bg-red-100 text-red-700 border-red-300" },
   { value: "extends", color: "bg-purple-100 text-purple-700 border-purple-300" },
 ] as const;
+
+const REF_TYPE_BADGE: Record<string, string> = {
+  related: "bg-blue-100 text-blue-700",
+  contradicts: "bg-red-100 text-red-700",
+  extends: "bg-purple-100 text-purple-700",
+};
 
 const HIGHLIGHT_DURATION_MS = 2000;
 
@@ -29,7 +35,7 @@ export function LinkBranchDialog({
 }: LinkBranchDialogProps) {
   const t = useTranslations("linkBranch");
   const [nodes, setNodes] = useState<TopologyNode[]>([]);
-  const [linkedChatIds, setLinkedChatIds] = useState<Set<string>>(new Set());
+  const [linkedRefs, setLinkedRefs] = useState<RefDetail[]>([]);
   const [targetId, setTargetId] = useState<string | null>(null);
   const [refType, setRefType] = useState<string>("related");
   const [reason, setReason] = useState("");
@@ -38,21 +44,28 @@ export function LinkBranchDialog({
   const [confirmingRemoval, setConfirmingRemoval] = useState<string | null>(null);
   const [recentlyLinked, setRecentlyLinked] = useState<Set<string>>(new Set());
 
-  // Load topology nodes + initialize linked set from source node's ref_ids
   useEffect(() => {
     topologyApi
       .list(workspaceId)
       .then((list) => {
         setNodes(list);
         const source = list.find((n) => n.chat_id === sourceChatId);
-        if (source) {
-          setLinkedChatIds(new Set(source.ref_ids));
+        if (source?.ref_details) {
+          setLinkedRefs(source.ref_details);
+        } else if (source) {
+          // Fallback for older backends without ref_details
+          setLinkedRefs(
+            source.ref_ids.map((id) => ({
+              target_chat_id: id,
+              ref_type: "related" as const,
+              reason: "",
+            }))
+          );
         }
       })
       .catch(() => {});
   }, [workspaceId, sourceChatId]);
 
-  // ESC to close
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -61,7 +74,6 @@ export function LinkBranchDialog({
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // Map chat_id → title for display
   const titleByChatId = useMemo(() => {
     const m = new Map<string, string>();
     for (const n of nodes) {
@@ -70,6 +82,8 @@ export function LinkBranchDialog({
     return m;
   }, [nodes]);
 
+  const linkedChatIds = useMemo(() => new Set(linkedRefs.map((r) => r.target_chat_id)), [linkedRefs]);
+
   const candidates = nodes.filter(
     (n) =>
       n.chat_id &&
@@ -77,16 +91,18 @@ export function LinkBranchDialog({
       !linkedChatIds.has(n.chat_id)
   );
 
-  const linkedList = Array.from(linkedChatIds);
-
   const handleSubmit = async () => {
     if (!targetId) return;
     setSubmitting(true);
     try {
       await topologyApi.createRef(sourceChatId, targetId, refType, reason);
       toast(t("linkSuccess"), "success");
-      setLinkedChatIds((prev) => new Set(prev).add(targetId));
-      // Highlight newly linked for visual feedback
+      const newRef: RefDetail = {
+        target_chat_id: targetId,
+        ref_type: refType as RefDetail["ref_type"],
+        reason,
+      };
+      setLinkedRefs((prev) => [...prev, newRef]);
       setRecentlyLinked((prev) => new Set(prev).add(targetId));
       setTimeout(() => {
         setRecentlyLinked((prev) => {
@@ -104,24 +120,12 @@ export function LinkBranchDialog({
     }
   };
 
-  const handleRemoveConfirm = (targetChatId: string) => {
-    setConfirmingRemoval(targetChatId);
-  };
-
-  const handleRemoveCancel = () => {
-    setConfirmingRemoval(null);
-  };
-
   const handleRemove = async (targetChatId: string) => {
     setRemoving(targetChatId);
     setConfirmingRemoval(null);
     try {
       await topologyApi.removeRef(sourceChatId, targetChatId);
-      setLinkedChatIds((prev) => {
-        const next = new Set(prev);
-        next.delete(targetChatId);
-        return next;
-      });
+      setLinkedRefs((prev) => prev.filter((r) => r.target_chat_id !== targetChatId));
       toast(t("unlinkSuccess"), "success");
     } catch (e: any) {
       toast(t("unlinkFailed") + ": " + (e?.message ?? ""), "error");
@@ -156,61 +160,76 @@ export function LinkBranchDialog({
         {/* Scrollable body */}
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
           {/* Existing refs */}
-          {linkedList.length > 0 && (
+          {linkedRefs.length > 0 && (
             <div className="space-y-1.5">
               <label className="text-xs text-text-secondary">
-                {t("existing")} ({linkedList.length})
+                {t("existing")} ({linkedRefs.length})
               </label>
               <div className="space-y-1">
-                {linkedList.map((cid) => {
+                {linkedRefs.map((ref) => {
+                  const cid = ref.target_chat_id;
                   const isConfirming = confirmingRemoval === cid;
                   const isRemoving = removing === cid;
                   const isRecent = recentlyLinked.has(cid);
                   return (
                     <div
                       key={cid}
-                      className={`flex items-center gap-2 rounded border px-2 py-1.5 text-xs transition-colors ${
+                      className={`rounded border px-2 py-1.5 text-xs transition-colors ${
                         isRecent
                           ? "border-emerald-300 bg-emerald-50"
                           : "border-border/60 bg-gray-50"
                       }`}
                     >
-                      <GitBranch className="h-3 w-3 shrink-0 text-text-secondary" />
-                      <span className="flex-1 truncate text-text">
-                        {titleByChatId.get(cid) || cid.slice(0, 8)}
-                      </span>
-                      {isConfirming ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleRemove(cid)}
-                            disabled={isRemoving}
-                            className="shrink-0 rounded bg-red-500 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 disabled:opacity-50"
-                          >
-                            {t("confirmRemove")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleRemoveCancel}
-                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-gray-100"
-                          >
-                            {t("cancel")}
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveConfirm(cid)}
-                          disabled={isRemoving}
-                          className="shrink-0 rounded p-1 text-text-secondary transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                          title={t("unlink")}
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-3 w-3 shrink-0 text-text-secondary" />
+                        <span className="flex-1 truncate text-text">
+                          {titleByChatId.get(cid) || cid.slice(0, 8)}
+                        </span>
+                        <span
+                          className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-medium ${
+                            REF_TYPE_BADGE[ref.ref_type] || "bg-gray-100 text-gray-700"
+                          }`}
                         >
-                          {isRemoving ? (
-                            <span className="animate-spin text-[10px]">⟳</span>
-                          ) : (
-                            <Trash2 className="h-3 w-3" />
-                          )}
-                        </button>
+                          {t(`type_${ref.ref_type}`)}
+                        </span>
+                        {isConfirming ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleRemove(cid)}
+                              disabled={isRemoving}
+                              className="shrink-0 rounded bg-red-500 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 disabled:opacity-50"
+                            >
+                              {t("confirmRemove")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingRemoval(null)}
+                              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-gray-100"
+                            >
+                              {t("cancel")}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingRemoval(cid)}
+                            disabled={isRemoving}
+                            className="shrink-0 rounded p-1 text-text-secondary transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                            title={t("unlink")}
+                          >
+                            {isRemoving ? (
+                              <span className="animate-spin text-[10px]">⟳</span>
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      {ref.reason && (
+                        <p className="mt-0.5 pl-5 text-[10px] text-text-secondary/80">
+                          {ref.reason}
+                        </p>
                       )}
                     </div>
                   );
