@@ -936,7 +936,16 @@
     "type_fact": "事实",
     "type_preference": "偏好",
     "type_insight": "洞察",
-    "type_summary": "摘要"
+    "type_summary": "摘要",
+    "type_claim": "断言",
+    "type_archived": "已归档",
+    "showArchived": "显示归档",
+    "hideArchived": "隐藏归档",
+    "runMaintenance": "整理记忆",
+    "maintenanceStarted": "正在整理过期记忆...",
+    "maintenanceDone": "已归档 {count} 条记忆",
+    "maintenanceNone": "没有需要归档的记忆",
+    "maintenanceFailed": "整理失败"
   },
   "theme": {
     "toggleToLight": "切换到浅色模式",
@@ -966,6 +975,18 @@
     "copy": "复制",
     "copied": "已复制",
     "chars": "字符",
-    "totalContext": "总字符"
+    "totalContext": "总字符",
+    "budgetAllocation": "预算分配",
+    "budgetIn": "输入",
+    "budgetOut": "输出",
+    "budgetTruncated": "已截断",
+    "budgetBuckets": "桶",
+    "bucketQueryInstructions": "指令",
+    "bucketCurrentDialog": "当前对话",
+    "bucketRetrievedCards": "检索卡片",
+    "bucketGraphPaths": "图路径",
+    "bucketMemory": "记忆",
+    "bucketBranchInsights": "分支洞察",
+    "bucketTopology": "拓扑"
   }
 }

@@ -936,7 +936,16 @@
     "type_fact": "Fact",
     "type_preference": "Preference",
     "type_insight": "Insight",
-    "type_summary": "Summary"
+    "type_summary": "Summary",
+    "type_claim": "Claim",
+    "type_archived": "Archived",
+    "showArchived": "Show archived",
+    "hideArchived": "Hide archived",
+    "runMaintenance": "Run maintenance",
+    "maintenanceStarted": "Archiving stale memories...",
+    "maintenanceDone": "Archived {count} memories",
+    "maintenanceNone": "Nothing to archive",
+    "maintenanceFailed": "Maintenance failed"
   },
   "theme": {
     "toggleToLight": "Switch to light mode",
@@ -966,6 +975,18 @@
     "copy": "Copy",
     "copied": "Copied",
     "chars": "chars",
-    "totalContext": "total chars"
+    "totalContext": "total chars",
+    "budgetAllocation": "Budget Allocation",
+    "budgetIn": "in",
+    "budgetOut": "out",
+    "budgetTruncated": "truncated",
+    "budgetBuckets": "buckets",
+    "bucketQueryInstructions": "Instructions",
+    "bucketCurrentDialog": "Current Dialog",
+    "bucketRetrievedCards": "Retrieved Cards",
+    "bucketGraphPaths": "Graph Paths",
+    "bucketMemory": "Memory",
+    "bucketBranchInsights": "Branch Insights",
+    "bucketTopology": "Topology"
   }
 }

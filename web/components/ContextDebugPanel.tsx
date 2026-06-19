@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Copy,
   Database,
+  Gauge,
   GitBranch,
   Globe,
   Layers,
@@ -17,7 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import type { ContextDebugData } from "@/lib/unified-ws";
+import type { BudgetAllocationStat, ContextDebugData } from "@/lib/unified-ws";
 
 const LEVEL_NAMES = ["CHAT", "SEARCH", "EXPLORE", "CONTEXT", "INSIGHT"];
 const LEVEL_COLORS = [
@@ -96,6 +97,80 @@ interface CrossRef {
   title: string;
   ref_type: string;
   reason: string;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+const BUCKET_LABEL_KEYS: Record<string, string> = {
+  query_instructions: "bucketQueryInstructions",
+  current_dialog: "bucketCurrentDialog",
+  retrieved_cards: "bucketRetrievedCards",
+  graph_paths: "bucketGraphPaths",
+  memory: "bucketMemory",
+  branch_insights: "bucketBranchInsights",
+  topology: "bucketTopology",
+};
+
+function BudgetAllocationView({ stats }: { stats: BudgetAllocationStat[] }) {
+  const t = useTranslations("contextDebug");
+  const totalIn = stats.reduce((s, b) => s + b.input_tokens, 0);
+  const totalOut = stats.reduce((s, b) => s + b.output_tokens, 0);
+  const truncatedCount = stats.filter((s) => s.truncated).length;
+
+  return (
+    <div className="space-y-2.5 py-1">
+      <div className="flex items-center justify-between text-[10px]">
+        <span className="text-text-secondary">
+          <span className="font-medium text-text">{formatTokens(totalOut)}</span>
+          <span className="mx-1">/</span>
+          <span>{formatTokens(totalIn)}</span>
+          <span className="ml-1 text-text-secondary/70">tokens</span>
+        </span>
+        {truncatedCount > 0 && (
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">
+            {truncatedCount} {t("budgetTruncated")}
+          </span>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {stats.map((s) => {
+          const ratio = s.budget > 0 ? s.output_tokens / s.budget : 0;
+          const widthPct = Math.min(100, ratio * 100);
+          const labelKey = BUCKET_LABEL_KEYS[s.bucket];
+          const label = labelKey ? t(labelKey as any) : s.bucket;
+          return (
+            <div key={s.bucket} className="space-y-0.5">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="flex items-center gap-1 font-medium text-text">
+                  {label}
+                  {s.truncated && (
+                    <span className="text-amber-600" title={t("budgetTruncated")}>✂</span>
+                  )}
+                </span>
+                <span className="text-text-secondary tabular-nums">
+                  {formatTokens(s.output_tokens)}/{formatTokens(s.budget)}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className={`h-full transition-all ${s.truncated ? "bg-amber-400" : "bg-primary"}`}
+                  style={{ width: `${widthPct}%` }}
+                />
+              </div>
+              {s.input_count !== s.output_count && (
+                <div className="text-[9px] text-text-secondary/70">
+                  {s.input_count} → {s.output_count} items
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function ContextDebugPanel({ data }: { data: ContextDebugData }) {
@@ -210,6 +285,18 @@ export function ContextDebugPanel({ data }: { data: ContextDebugData }) {
               </div>
             )}
           </CollapsibleSection>
+
+          {/* Budget Allocation */}
+          {data.budget_allocation && data.budget_allocation.length > 0 && (
+            <CollapsibleSection
+              title={t("budgetAllocation")}
+              icon={<Gauge className="h-3 w-3 text-text-secondary" />}
+              defaultOpen={true}
+              {...sectionProps}
+            >
+              <BudgetAllocationView stats={data.budget_allocation} />
+            </CollapsibleSection>
+          )}
 
           {/* Reasoning Paths */}
           {data.reasoning_paths.length > 0 && (

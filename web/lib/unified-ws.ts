@@ -24,6 +24,16 @@ export type StreamEventType =
   | "pong"
   | "ws_reconnected";
 
+export interface BudgetAllocationStat {
+  bucket: string;
+  budget: number;
+  input_count: number;
+  input_tokens: number;
+  output_count: number;
+  output_tokens: number;
+  truncated: boolean;
+}
+
 export interface ContextDebugData {
   retrieval_level: number;
   reasoning_paths: Array<{ entities: string[]; relations: string[]; score: number }>;
@@ -37,6 +47,7 @@ export interface ContextDebugData {
   topology_context: string;
   community_context: string;
   branch_context: string;
+  budget_allocation?: BudgetAllocationStat[];
   web_search_results: Array<{ title: string; snippet: string; url: string }>;
   system_prompt: string;
 }

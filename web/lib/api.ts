@@ -946,8 +946,8 @@ export interface Memory {
 }
 
 export const memoryApi = {
-  list: (workspaceId: string) =>
-    request<Memory[]>(`/api/workspaces/${workspaceId}/memories`),
+  list: (workspaceId: string, includeArchived = false) =>
+    request<Memory[]>(`/api/workspaces/${workspaceId}/memories${includeArchived ? "?include_archived=true" : ""}`),
   upsert: (workspaceId: string, data: {
     slug: string;
     title: string;
@@ -968,6 +968,8 @@ export const memoryApi = {
     }),
   delete: (workspaceId: string, slug: string) =>
     request<{ ok: boolean }>(`/api/workspaces/${workspaceId}/memories/${slug}`, { method: "DELETE" }),
+  runMaintenance: (workspaceId: string) =>
+    request<{ archived_count: number }>(`/api/workspaces/${workspaceId}/memories/maintenance`, { method: "POST" }),
 };
 
 // --- Fork Settings ---

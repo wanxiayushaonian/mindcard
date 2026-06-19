@@ -1,19 +1,22 @@
 "use client";
 
-import { Brain, ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2, X, Check, Filter } from "lucide-react";
+import { Brain, ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2, X, Check, Filter, Archive, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { memoryApi, type Memory } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useTranslations } from "next-intl";
 import { useLocale } from "next-intl";
 
-const MEMORY_TYPES = ["fact", "preference", "insight", "summary"] as const;
+const MEMORY_TYPES = ["fact", "preference", "insight", "summary", "claim"] as const;
 
 const TYPE_COLORS: Record<string, string> = {
   fact: "bg-blue-100 text-blue-700",
   preference: "bg-purple-100 text-purple-700",
   insight: "bg-amber-100 text-amber-700",
   summary: "bg-green-100 text-green-700",
+  claim: "bg-pink-100 text-pink-700",
+  archived: "bg-gray-200 text-gray-500",
 };
 
 function relativeTime(dateStr: string | undefined, locale: string): string {
@@ -38,9 +41,10 @@ function MemoryItem({ memory, onDelete, onEdit }: MemoryItemProps) {
   const [expanded, setExpanded] = useState(false);
   const locale = useLocale();
   const t = useTranslations("memory");
+  const isArchived = memory.memory_type === "archived";
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-3 transition-colors hover:border-primary/30">
+    <div className={`rounded-lg border border-border bg-surface p-3 transition-colors hover:border-primary/30 ${isArchived ? "opacity-60" : ""}`}>
       <div className="flex items-start gap-2">
         <button
           type="button"
@@ -51,7 +55,7 @@ function MemoryItem({ memory, onDelete, onEdit }: MemoryItemProps) {
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-text">{memory.title}</span>
+            <span className={`truncate text-sm font-medium text-text ${isArchived ? "line-through" : ""}`}>{memory.title}</span>
             <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-medium ${TYPE_COLORS[memory.memory_type] || "bg-gray-100 text-gray-600"}`}>
               {t(`type_${memory.memory_type}`)}
             </span>
@@ -228,9 +232,11 @@ interface MemoryPanelProps {
 
 export function MemoryPanel({ workspaceId, onClose }: MemoryPanelProps) {
   const t = useTranslations("memory");
+  const [showArchived, setShowArchived] = useState(false);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const { data: memories, mutate, isLoading } = useSWR(
-    workspaceId ? ["memories", workspaceId] : null,
-    () => memoryApi.list(workspaceId),
+    workspaceId ? ["memories", workspaceId, showArchived] : null,
+    () => memoryApi.list(workspaceId, showArchived),
   );
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<Memory | null>(null);
@@ -239,6 +245,24 @@ export function MemoryPanel({ workspaceId, onClose }: MemoryPanelProps) {
   const handleDelete = async (slug: string) => {
     await memoryApi.delete(workspaceId, slug);
     mutate();
+  };
+
+  const handleMaintenance = async () => {
+    setMaintenanceLoading(true);
+    toast(t("maintenanceStarted"), "info");
+    try {
+      const result = await memoryApi.runMaintenance(workspaceId);
+      if (result.archived_count > 0) {
+        toast(t("maintenanceDone", { count: result.archived_count }), "success");
+      } else {
+        toast(t("maintenanceNone"), "info");
+      }
+      mutate();
+    } catch (e: any) {
+      toast(t("maintenanceFailed") + ": " + (e?.message ?? ""), "error");
+    } finally {
+      setMaintenanceLoading(false);
+    }
   };
 
   const filtered = typeFilter
@@ -261,6 +285,23 @@ export function MemoryPanel({ workspaceId, onClose }: MemoryPanelProps) {
         <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-text-secondary">
           {memories?.length ?? 0}
         </span>
+        <button
+          type="button"
+          onClick={() => setShowArchived(!showArchived)}
+          className={`rounded-lg p-1 transition hover:bg-gray-100 ${showArchived ? "text-primary" : "text-text-secondary"}`}
+          title={showArchived ? t("hideArchived") : t("showArchived")}
+        >
+          {showArchived ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
+          onClick={handleMaintenance}
+          disabled={maintenanceLoading}
+          className="rounded-lg p-1 text-text-secondary transition hover:bg-gray-100 hover:text-text disabled:opacity-50"
+          title={t("runMaintenance")}
+        >
+          {maintenanceLoading ? <span className="animate-spin">⟳</span> : <Archive className="h-3.5 w-3.5" />}
+        </button>
         <button
           type="button"
           onClick={() => { setShowAdd(true); setEditTarget(null); }}
