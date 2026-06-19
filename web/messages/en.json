@@ -363,7 +363,11 @@
     "cancel": "Cancel",
     "create": "Create link",
     "linkSuccess": "Branch link created",
-    "linkFailed": "Link failed"
+    "linkFailed": "Link failed",
+    "existing": "Linked",
+    "unlink": "Unlink",
+    "unlinkSuccess": "Link removed",
+    "unlinkFailed": "Failed to remove link"
   },
   "settings": {
     "modelSettings": "Model Settings",

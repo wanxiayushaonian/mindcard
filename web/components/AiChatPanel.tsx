@@ -1334,7 +1334,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             sourceChatId={String(activeForkId || chatId)}
             sourceTitle={chatPath[chatPath.length - 1]?.title || t('newChat')}
             workspaceId={workspaceId}
-            existingTargets={new Set<string>()}
             onClose={() => setShowLinkBranch(false)}
           />
         )}
