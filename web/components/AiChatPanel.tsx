@@ -594,6 +594,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         } else {
           // No placeholder — insert fork-divider before the (user, assistant) pair
           // and move both into the fork's scope.
+          let triggeringQuestion: string | null = null;
           setMessages((prev) => {
             const updated = [...prev];
             const si = streamIdx(updated);
@@ -606,6 +607,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               // user messages and answer both questions simultaneously.
               let dividerAt = si;
               if (si > 0 && updated[si - 1].role === "user" && !updated[si - 1].childChatId) {
+                triggeringQuestion = updated[si - 1].content;
                 updated[si - 1] = { ...updated[si - 1], childChatId };
                 dividerAt = si - 1;
               }
@@ -619,6 +621,13 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           // Update backend divider with encoded content
           if (event.divider_msg_id && chatIdRef.current) {
             chatApi.updateMessage(chatIdRef.current, event.divider_msg_id, "fork-divider", encoded).catch(() => {});
+          }
+          // Persist the triggering user question to the child chat. The frontend
+          // childChatId field is UI-only; without this, reloading the child chat
+          // loses the user question (chat_id stays parent's), leaving an orphan
+          // assistant reply with no context.
+          if (triggeringQuestion) {
+            chatApi.addMessage(childChatId, "user", triggeringQuestion).catch(() => {});
           }
         }
         // Auto-expand the new fork so streaming content is immediately visible
