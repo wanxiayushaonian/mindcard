@@ -346,7 +346,24 @@
     "createKnowledgeBranch": "创建知识分支",
     "copiedToEditor": "已复制到编辑器",
     "newChatTitle": "新对话",
-    "forkTitle": "分支"
+    "forkTitle": "分支",
+    "linkBranchTitle": "链接到其他分支"
+  },
+  "linkBranch": {
+    "title": "链接分支",
+    "source": "源对话",
+    "targetBranch": "目标分支",
+    "noCandidates": "没有可链接的分支（其他对话可能都已链接）",
+    "refType": "引用类型",
+    "type_related": "相关",
+    "type_contradicts": "矛盾",
+    "type_extends": "扩展",
+    "reason": "原因（可选）",
+    "reasonPlaceholder": "为什么链接这两个分支？",
+    "cancel": "取消",
+    "create": "创建链接",
+    "linkSuccess": "已建立分支链接",
+    "linkFailed": "链接失败"
   },
   "settings": {
     "modelSettings": "模型设置",

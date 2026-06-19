@@ -346,7 +346,24 @@
     "createKnowledgeBranch": "Create knowledge branch",
     "copiedToEditor": "Copied to editor",
     "newChatTitle": "New Chat",
-    "forkTitle": "Branch"
+    "forkTitle": "Branch",
+    "linkBranchTitle": "Link to another branch"
+  },
+  "linkBranch": {
+    "title": "Link Branch",
+    "source": "Source",
+    "targetBranch": "Target branch",
+    "noCandidates": "No branches available to link (others may already be linked)",
+    "refType": "Reference type",
+    "type_related": "Related",
+    "type_contradicts": "Contradicts",
+    "type_extends": "Extends",
+    "reason": "Reason (optional)",
+    "reasonPlaceholder": "Why link these two branches?",
+    "cancel": "Cancel",
+    "create": "Create link",
+    "linkSuccess": "Branch link created",
+    "linkFailed": "Link failed"
   },
   "settings": {
     "modelSettings": "Model Settings",

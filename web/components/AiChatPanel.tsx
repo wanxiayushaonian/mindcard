@@ -11,6 +11,7 @@ import AssistantResponse from "@/components/AssistantResponse";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { ForkDivider } from "@/components/ForkDivider";
 import { ForkBreadcrumb } from "@/components/ForkBreadcrumb";
+import { LinkBranchDialog } from "@/components/LinkBranchDialog";
 import { ContextDebugPanel } from "@/components/ContextDebugPanel";
 import { MemoryPanel } from "@/components/MemoryPanel";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
@@ -18,7 +19,7 @@ import { ToolCallsBlock } from "@/components/ToolCallsBlock";
 import { CardMentionPopup } from "@/components/CardMentionPopup";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { useTranslations, useLocale } from "next-intl";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain, Network } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain, Network, Link2 } from "lucide-react";
 import { formatTimeShort } from "@/lib/format";
 
 const FORK_PREFIX = "__FORK__";
@@ -104,6 +105,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   };
   const [showHistory, setShowHistory] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
+  const [showLinkBranch, setShowLinkBranch] = useState(false);
   const { mutate: swrMutate } = useSWRConfig();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1326,6 +1328,17 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           <MemoryPanel workspaceId={workspaceId} onClose={() => setShowMemory(false)} />
         )}
 
+        {/* Link Branch dialog */}
+        {showLinkBranch && (activeForkId || chatId) && workspaceId && (
+          <LinkBranchDialog
+            sourceChatId={String(activeForkId || chatId)}
+            sourceTitle={chatPath[chatPath.length - 1]?.title || t('newChat')}
+            workspaceId={workspaceId}
+            existingTargets={new Set<string>()}
+            onClose={() => setShowLinkBranch(false)}
+          />
+        )}
+
         {/* History sub-panel */}
         {showHistory && (
           <div className="absolute inset-0 z-10 flex flex-col bg-bg">
@@ -1391,12 +1404,26 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
         {/* Chat area — flex layout so breadcrumb stays pinned */}
         {!rightCollapsed && chatPath.length > 0 && (
-          <ForkBreadcrumb
-            path={chatPath}
-            activeChatId={activeForkId || chatId}
-            onNavigate={loadChatAndFocusFork}
-            topologyNodes={topologyNodes}
-          />
+          <div className="flex items-center gap-1 border-b border-border/60 bg-surface/95 px-3 py-2 backdrop-blur-sm">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <ForkBreadcrumb
+                path={chatPath}
+                activeChatId={activeForkId || chatId}
+                onNavigate={loadChatAndFocusFork}
+                topologyNodes={topologyNodes}
+              />
+            </div>
+            {(activeForkId || chatId) && (
+              <button
+                type="button"
+                onClick={() => setShowLinkBranch(true)}
+                className="shrink-0 rounded-md p-1 text-text-secondary transition hover:bg-muted hover:text-text"
+                title={t('linkBranchTitle')}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
             {messages.length === 0 && (
