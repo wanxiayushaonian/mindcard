@@ -632,6 +632,11 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         }
         // Auto-expand the new fork so streaming content is immediately visible
         syncExpandedForks((prev) => new Set([...prev, childChatId]));
+        // Switch active fork — without this, breadcrumb stays on root while
+        // messages route to the child (getDeepestExpandedFork already returns
+        // child), creating visual/data inconsistency.
+        setActiveForkId(childChatId);
+        activeChatIdRef.current = childChatId;
         // Switch in-flight stream context to fork
         forkChildIdRef.current = childChatId;
         streamingForkIdRef.current = childChatId;
