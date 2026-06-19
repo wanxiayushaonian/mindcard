@@ -170,6 +170,7 @@ Detailed documentation for each module:
 | [Topic & Topology](docs/topic-topology.md) | Auto-clustering, topology tree, topic synthesis |
 | [Workspace Memory](docs/workspace-memory.md) | Structured memory, RAG integration, memory_edit tool |
 | [Conversation Fork](docs/conversation-fork.md) | Fork profiles, compression, split guard, dialog tree |
+| [Fork Message Routing](docs/fork-message-routing.md) | Deepest expanded fork rule, state sync, breadcrumb alignment |
 | [LLM Providers](docs/llm-providers.md) | Provider registry, multi-model support, configuration |
 
 ## Quick Start
