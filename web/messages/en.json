@@ -367,7 +367,9 @@
     "existing": "Linked",
     "unlink": "Unlink",
     "unlinkSuccess": "Link removed",
-    "unlinkFailed": "Failed to remove link"
+    "unlinkFailed": "Failed to remove link",
+    "confirmRemove": "Confirm",
+    "close": "Close"
   },
   "settings": {
     "modelSettings": "Model Settings",

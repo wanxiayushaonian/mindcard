@@ -12,6 +12,8 @@ const REF_TYPES = [
   { value: "extends", color: "bg-purple-100 text-purple-700 border-purple-300" },
 ] as const;
 
+const HIGHLIGHT_DURATION_MS = 2000;
+
 interface LinkBranchDialogProps {
   sourceChatId: string;
   sourceTitle: string;
@@ -33,7 +35,10 @@ export function LinkBranchDialog({
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [confirmingRemoval, setConfirmingRemoval] = useState<string | null>(null);
+  const [recentlyLinked, setRecentlyLinked] = useState<Set<string>>(new Set());
 
+  // Load topology nodes + initialize linked set from source node's ref_ids
   useEffect(() => {
     topologyApi
       .list(workspaceId)
@@ -46,6 +51,15 @@ export function LinkBranchDialog({
       })
       .catch(() => {});
   }, [workspaceId, sourceChatId]);
+
+  // ESC to close
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   // Map chat_id → title for display
   const titleByChatId = useMemo(() => {
@@ -72,6 +86,15 @@ export function LinkBranchDialog({
       await topologyApi.createRef(sourceChatId, targetId, refType, reason);
       toast(t("linkSuccess"), "success");
       setLinkedChatIds((prev) => new Set(prev).add(targetId));
+      // Highlight newly linked for visual feedback
+      setRecentlyLinked((prev) => new Set(prev).add(targetId));
+      setTimeout(() => {
+        setRecentlyLinked((prev) => {
+          const next = new Set(prev);
+          next.delete(targetId);
+          return next;
+        });
+      }, HIGHLIGHT_DURATION_MS);
       setTargetId(null);
       setReason("");
     } catch (e: any) {
@@ -81,8 +104,17 @@ export function LinkBranchDialog({
     }
   };
 
+  const handleRemoveConfirm = (targetChatId: string) => {
+    setConfirmingRemoval(targetChatId);
+  };
+
+  const handleRemoveCancel = () => {
+    setConfirmingRemoval(null);
+  };
+
   const handleRemove = async (targetChatId: string) => {
     setRemoving(targetChatId);
+    setConfirmingRemoval(null);
     try {
       await topologyApi.removeRef(sourceChatId, targetChatId);
       setLinkedChatIds((prev) => {
@@ -109,6 +141,7 @@ export function LinkBranchDialog({
             type="button"
             onClick={onClose}
             className="rounded p-1 text-text-secondary hover:bg-gray-100"
+            title={t("close")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -129,30 +162,59 @@ export function LinkBranchDialog({
                 {t("existing")} ({linkedList.length})
               </label>
               <div className="space-y-1">
-                {linkedList.map((cid) => (
-                  <div
-                    key={cid}
-                    className="flex items-center gap-2 rounded border border-border/60 bg-gray-50 px-2 py-1.5 text-xs"
-                  >
-                    <GitBranch className="h-3 w-3 shrink-0 text-text-secondary" />
-                    <span className="flex-1 truncate text-text">
-                      {titleByChatId.get(cid) || cid.slice(0, 8)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(cid)}
-                      disabled={removing === cid}
-                      className="shrink-0 rounded p-1 text-text-secondary transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                      title={t("unlink")}
+                {linkedList.map((cid) => {
+                  const isConfirming = confirmingRemoval === cid;
+                  const isRemoving = removing === cid;
+                  const isRecent = recentlyLinked.has(cid);
+                  return (
+                    <div
+                      key={cid}
+                      className={`flex items-center gap-2 rounded border px-2 py-1.5 text-xs transition-colors ${
+                        isRecent
+                          ? "border-emerald-300 bg-emerald-50"
+                          : "border-border/60 bg-gray-50"
+                      }`}
                     >
-                      {removing === cid ? (
-                        <span className="animate-spin text-[10px]">⟳</span>
+                      <GitBranch className="h-3 w-3 shrink-0 text-text-secondary" />
+                      <span className="flex-1 truncate text-text">
+                        {titleByChatId.get(cid) || cid.slice(0, 8)}
+                      </span>
+                      {isConfirming ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleRemove(cid)}
+                            disabled={isRemoving}
+                            className="shrink-0 rounded bg-red-500 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 disabled:opacity-50"
+                          >
+                            {t("confirmRemove")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRemoveCancel}
+                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-gray-100"
+                          >
+                            {t("cancel")}
+                          </button>
+                        </>
                       ) : (
-                        <Trash2 className="h-3 w-3" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveConfirm(cid)}
+                          disabled={isRemoving}
+                          className="shrink-0 rounded p-1 text-text-secondary transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                          title={t("unlink")}
+                        >
+                          {isRemoving ? (
+                            <span className="animate-spin text-[10px]">⟳</span>
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                        </button>
                       )}
-                    </button>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

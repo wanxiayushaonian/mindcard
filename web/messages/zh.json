@@ -367,7 +367,9 @@
     "existing": "已链接",
     "unlink": "取消链接",
     "unlinkSuccess": "已取消链接",
-    "unlinkFailed": "取消链接失败"
+    "unlinkFailed": "取消链接失败",
+    "confirmRemove": "确认删除",
+    "close": "关闭"
   },
   "settings": {
     "modelSettings": "模型设置",
