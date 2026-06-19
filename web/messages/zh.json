@@ -365,6 +365,7 @@
     "linkSuccess": "已建立分支链接",
     "linkFailed": "链接失败",
     "existing": "已链接",
+    "incoming": "被引用",
     "unlink": "取消链接",
     "unlinkSuccess": "已取消链接",
     "unlinkFailed": "取消链接失败",

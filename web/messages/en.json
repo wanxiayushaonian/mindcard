@@ -365,6 +365,7 @@
     "linkSuccess": "Branch link created",
     "linkFailed": "Link failed",
     "existing": "Linked",
+    "incoming": "Referenced by",
     "unlink": "Unlink",
     "unlinkSuccess": "Link removed",
     "unlinkFailed": "Failed to remove link",

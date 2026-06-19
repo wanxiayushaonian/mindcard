@@ -14,6 +14,7 @@ from app.models.topology import NodeCard, NodeRef
 from app.models.user import User
 from app.schemas.card import CardResponse
 from app.schemas.topology import (
+    IncomingRefDetail,
     NodeCardAdd,
     NodeRefCreate,
     NodeSynthesizeRequest,
@@ -51,7 +52,7 @@ async def _build_node_response(db: AsyncSession, node: AiChat) -> TreeNodeRespon
     )
     child_ids = [str(row[0]) for row in child_result.all()]
 
-    # Fetch refs (both directions)
+    # Fetch outgoing refs (this node → others)
     ref_result = await db.execute(
         select(NodeRef.target_chat_id, NodeRef.ref_type, NodeRef.reason)
         .where(NodeRef.source_chat_id == node.id)
@@ -65,6 +66,20 @@ async def _build_node_response(db: AsyncSession, node: AiChat) -> TreeNodeRespon
         for row in ref_result.all()
     ]
     ref_ids = [d.target_chat_id for d in ref_details]
+
+    # Fetch incoming refs (others → this node)
+    incoming_result = await db.execute(
+        select(NodeRef.source_chat_id, NodeRef.ref_type, NodeRef.reason)
+        .where(NodeRef.target_chat_id == node.id)
+    )
+    incoming_ref_details = [
+        IncomingRefDetail(
+            source_chat_id=str(row[0]),
+            ref_type=row[1] or "related",
+            reason=row[2] or "",
+        )
+        for row in incoming_result.all()
+    ]
 
     return TreeNodeResponse(
         id=node.id,
@@ -82,6 +97,7 @@ async def _build_node_response(db: AsyncSession, node: AiChat) -> TreeNodeRespon
         child_ids=child_ids,
         ref_ids=ref_ids,
         ref_details=ref_details,
+        incoming_ref_details=incoming_ref_details,
         created_at=node.created_at,
         updated_at=node.updated_at,
         completed_at=node.completed_at,

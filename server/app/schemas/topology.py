@@ -30,6 +30,18 @@ class RefDetail(BaseModel):
     reason: str = ""
 
 
+class IncomingRefDetail(BaseModel):
+    """A reference pointing TO this node from another (the source's view).
+
+    Semantics: this node is the target of someone else's NodeRef.
+    Useful for showing "branches that reference me".
+    """
+
+    source_chat_id: str
+    ref_type: str
+    reason: str = ""
+
+
 class TreeNodeResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
@@ -46,6 +58,7 @@ class TreeNodeResponse(BaseModel):
     child_ids: list[str] = []
     ref_ids: list[str] = []
     ref_details: list[RefDetail] = []
+    incoming_ref_details: list[IncomingRefDetail] = []
     created_at: datetime
     updated_at: datetime | None
     completed_at: datetime | None

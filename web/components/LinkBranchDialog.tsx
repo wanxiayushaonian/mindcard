@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Link2, X, Check, GitBranch, Trash2 } from "lucide-react";
-import { topologyApi, type TopologyNode, type RefDetail } from "@/lib/api";
+import { topologyApi, type TopologyNode, type RefDetail, type IncomingRefDetail } from "@/lib/api";
 import { useTranslations } from "next-intl";
 import { toast } from "@/lib/toast";
 
@@ -36,6 +36,7 @@ export function LinkBranchDialog({
   const t = useTranslations("linkBranch");
   const [nodes, setNodes] = useState<TopologyNode[]>([]);
   const [linkedRefs, setLinkedRefs] = useState<RefDetail[]>([]);
+  const [incomingRefs, setIncomingRefs] = useState<IncomingRefDetail[]>([]);
   const [targetId, setTargetId] = useState<string | null>(null);
   const [refType, setRefType] = useState<string>("related");
   const [reason, setReason] = useState("");
@@ -61,6 +62,9 @@ export function LinkBranchDialog({
               reason: "",
             }))
           );
+        }
+        if (source?.incoming_ref_details) {
+          setIncomingRefs(source.incoming_ref_details);
         }
       })
       .catch(() => {});
@@ -234,6 +238,42 @@ export function LinkBranchDialog({
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Incoming refs (others → this branch) */}
+          {incomingRefs.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs text-text-secondary">
+                {t("incoming")} ({incomingRefs.length})
+              </label>
+              <div className="space-y-1">
+                {incomingRefs.map((ref) => (
+                  <div
+                    key={ref.source_chat_id}
+                    className="rounded border border-dashed border-border/60 bg-amber-50/40 px-2 py-1.5 text-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="h-3 w-3 shrink-0 text-amber-700/70" />
+                      <span className="flex-1 truncate text-text">
+                        {titleByChatId.get(ref.source_chat_id) || ref.source_chat_id.slice(0, 8)}
+                      </span>
+                      <span
+                        className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-medium ${
+                          REF_TYPE_BADGE[ref.ref_type] || "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {t(`type_${ref.ref_type}`)}
+                      </span>
+                    </div>
+                    {ref.reason && (
+                      <p className="mt-0.5 pl-5 text-[10px] text-text-secondary/80">
+                        {ref.reason}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
