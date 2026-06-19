@@ -348,7 +348,14 @@
     "newChatTitle": "New Chat",
     "forkTitle": "Branch",
     "linkBranchTitle": "Link to another branch",
-    "mergeBranchTitle": "Merge two branches"
+    "mergeBranchTitle": "Merge two branches",
+    "promptHistory": "Prompt history (switch to previous inputs)",
+    "history": "History"
+  },
+  "promptHistory": {
+    "title": "Prompt History",
+    "hint": "↑↓ navigate · Enter to fill",
+    "noHistory": "No prompts sent yet"
   },
   "linkBranch": {
     "title": "Link Branch",

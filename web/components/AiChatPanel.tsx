@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import { chatApi, aiApi, cardApi, workspaceApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode, type TopologyNode } from "@/lib/api";
@@ -13,6 +13,7 @@ import { ForkDivider } from "@/components/ForkDivider";
 import { ForkBreadcrumb } from "@/components/ForkBreadcrumb";
 import { LinkBranchDialog } from "@/components/LinkBranchDialog";
 import { MergeBranchDialog } from "@/components/MergeBranchDialog";
+import { PromptHistoryPopover } from "@/components/PromptHistoryPopover";
 import { ContextDebugPanel } from "@/components/ContextDebugPanel";
 import { MemoryPanel } from "@/components/MemoryPanel";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
@@ -20,7 +21,7 @@ import { ToolCallsBlock } from "@/components/ToolCallsBlock";
 import { CardMentionPopup } from "@/components/CardMentionPopup";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { useTranslations, useLocale } from "next-intl";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain, Network, Link2, GitMerge } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain, Network, Link2, GitMerge, Clock } from "lucide-react";
 import { formatTimeShort } from "@/lib/format";
 
 const FORK_PREFIX = "__FORK__";
@@ -108,6 +109,8 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [showMemory, setShowMemory] = useState(false);
   const [showLinkBranch, setShowLinkBranch] = useState(false);
   const [showMergeBranch, setShowMergeBranch] = useState(false);
+  const [showPromptHistory, setShowPromptHistory] = useState(false);
+  const promptHistoryAnchorRef = useRef<HTMLButtonElement>(null);
   const { mutate: swrMutate } = useSWRConfig();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1044,6 +1047,35 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     return deepest;
   }, []);
 
+  // Build prompt history from sent user messages — latest first, deduped, capped.
+  const userPrompts = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== "user" || !m.content.trim()) continue;
+      if (seen.has(m.content)) continue;
+      seen.add(m.content);
+      out.push(m.content);
+      if (out.length >= 20) break;
+    }
+    return out;
+  }, [messages]);
+
+  const handlePromptHistorySelect = useCallback((text: string) => {
+    setInput(text);
+    setShowPromptHistory(false);
+    // Focus textarea and move cursor to end + auto-resize
+    setTimeout(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+    }, 0);
+  }, []);
+
   const doSend = async (question: string, force = false) => {
     if (!question.trim() || (!force && isStreaming)) return;
 
@@ -1348,6 +1380,16 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             workspaceId={workspaceId}
             onClose={() => setShowMergeBranch(false)}
             onMerged={(newChatId) => loadChatAndFocusFork(newChatId)}
+          />
+        )}
+
+        {/* Prompt history popover */}
+        {showPromptHistory && (
+          <PromptHistoryPopover
+            prompts={userPrompts}
+            onSelect={handlePromptHistorySelect}
+            onClose={() => setShowPromptHistory(false)}
+            anchorEl={promptHistoryAnchorRef.current}
           />
         )}
 
@@ -1705,6 +1747,24 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 <div className="flex items-center gap-1.5">
                   {!rightCollapsed && (
                     <>
+                      {/* Prompt history */}
+                      <button
+                        ref={promptHistoryAnchorRef}
+                        onClick={() => setShowPromptHistory((s) => !s)}
+                        disabled={isStreaming}
+                        className={`inline-flex shrink-0 items-center gap-1 py-1 px-1.5 text-[11px] font-medium transition-colors disabled:opacity-40 ${
+                          showPromptHistory
+                            ? "text-primary"
+                            : "text-text-secondary hover:text-foreground"
+                        }`}
+                        title={t('promptHistory')}
+                      >
+                        <Clock size={12} />
+                        {t('history')}
+                      </button>
+
+                      <div className="h-3.5 w-px bg-border/30" />
+
                       {/* Web search toggle */}
                       <button
                         onClick={() => setWebSearch(!webSearch)}

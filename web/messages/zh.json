@@ -348,7 +348,14 @@
     "newChatTitle": "新对话",
     "forkTitle": "分支",
     "linkBranchTitle": "链接到其他分支",
-    "mergeBranchTitle": "合并两个分支"
+    "mergeBranchTitle": "合并两个分支",
+    "promptHistory": "提示词历史（一键切换之前的输入）",
+    "history": "历史"
+  },
+  "promptHistory": {
+    "title": "提示词历史",
+    "hint": "↑↓ 选择 · Enter 填入",
+    "noHistory": "还没有发送过的提示词"
   },
   "linkBranch": {
     "title": "链接分支",
