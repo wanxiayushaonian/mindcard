@@ -1038,5 +1038,10 @@
     "bucketMemory": "记忆",
     "bucketBranchInsights": "分支洞察",
     "bucketTopology": "拓扑"
+  },
+  "messageNav": {
+    "prev": "上一条",
+    "next": "下一条",
+    "jumpTo": "跳到第 {n} 条"
   }
 }

@@ -1038,5 +1038,10 @@
     "bucketMemory": "Memory",
     "bucketBranchInsights": "Branch Insights",
     "bucketTopology": "Topology"
+  },
+  "messageNav": {
+    "prev": "Previous",
+    "next": "Next",
+    "jumpTo": "Jump to #{n}"
   }
 }

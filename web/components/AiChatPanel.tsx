@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import { chatApi, aiApi, cardApi, workspaceApi, topologyApi, type RAGResponse, type WebSearchResult, type ChatSession, type ChatPathNode, type TopologyNode } from "@/lib/api";
@@ -14,6 +15,7 @@ import { ForkBreadcrumb } from "@/components/ForkBreadcrumb";
 import { LinkBranchDialog } from "@/components/LinkBranchDialog";
 import { MergeBranchDialog } from "@/components/MergeBranchDialog";
 import { PromptHistoryPopover } from "@/components/PromptHistoryPopover";
+import { MessageNavigator } from "@/components/MessageNavigator";
 import { ContextDebugPanel } from "@/components/ContextDebugPanel";
 import { MemoryPanel } from "@/components/MemoryPanel";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
@@ -197,6 +199,87 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   // expandedForksRef is kept in sync by syncExpandedForks — no useEffect needed
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { forkMetaRef.current = forkMeta; }, [forkMeta]);
+
+  // ── Message Navigator ──
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const [currentMsgIdx, setCurrentMsgIdx] = useState(0);
+  const [scrollRect, setScrollRect] = useState<DOMRect | null>(null);
+
+  // Track scroll container bounding box for portal-based fixed navigator
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    const update = () => setScrollRect(el.getBoundingClientRect());
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    // Also observe size changes (panel collapse/expand)
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => { el.removeEventListener("scroll", update); window.removeEventListener("resize", update); ro.disconnect(); };
+  }, []);
+
+  // Indices of *visible* user messages — skips messages inside collapsed forks.
+  // Mirrors the same depth-first walk as renderBlock.
+  const userMsgIndices = useMemo(() => {
+    const indices: number[] = [];
+    let skipDepth = -1; // >=0 means we're inside a collapsed fork at this depth
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role === "fork-divider" && msg.childChatId) {
+        const meta = forkMeta[msg.childChatId];
+        const forkDepth = meta?.depth ?? 0;
+        if (skipDepth >= 0 && forkDepth <= skipDepth) {
+          // Exiting a collapsed fork's scope (sibling or parent-level divider)
+          skipDepth = -1;
+        }
+        if (skipDepth < 0 && !expandedForks.has(msg.childChatId)) {
+          // This fork is collapsed — skip its children
+          skipDepth = forkDepth;
+        }
+        continue;
+      }
+      if (skipDepth >= 0) continue; // inside collapsed fork
+      if (msg.role === "user") indices.push(i);
+    }
+    return indices;
+  }, [messages, expandedForks, forkMeta]);
+
+  // Clamp currentMsgIdx when visible set shrinks (e.g. fork collapsed)
+  useEffect(() => {
+    setCurrentMsgIdx((prev) => Math.min(prev, Math.max(0, userMsgIndices.length - 1)));
+  }, [userMsgIndices.length]);
+
+  // Scroll a user message into view by its navigator index
+  const scrollToMessage = useCallback((navIdx: number) => {
+    const msgIdx = userMsgIndices[navIdx];
+    if (msgIdx == null) return;
+    const el = chatScrollRef.current?.querySelector(`[data-msg-idx="${msgIdx}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [userMsgIndices]);
+
+  // IntersectionObserver: track which user message is currently visible
+  useEffect(() => {
+    const container = chatScrollRef.current;
+    if (!container || userMsgIndices.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const idx = Number(entry.target.getAttribute("data-msg-idx"));
+            const navPos = userMsgIndices.indexOf(idx);
+            if (navPos >= 0) setCurrentMsgIdx(navPos);
+          }
+        }
+      },
+      { root: container, rootMargin: "-20% 0px -60% 0px", threshold: 0.1 }
+    );
+
+    const elements = container.querySelectorAll("[data-msg-idx]");
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [messages, userMsgIndices]);
 
   const { data: workspace } = useSWR(
     workspaceId ? `workspace-${workspaceId}` : null,
@@ -1280,6 +1363,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const rightCollapsed = usePanelStore((s) => s.rightCollapsed);
 
   return (
+    <>
     <div className="flex h-full w-full flex-col border-l border-border bg-bg">
       {/* Header */}
       <div className="relative z-20 flex items-center gap-2 border-b border-border bg-surface/80 px-3 py-2 backdrop-blur-sm">
@@ -1489,7 +1573,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
             )}
           </div>
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+        <div ref={chatScrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-3 py-4">
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center text-center text-text-secondary">
                 <div className="mb-3 text-3xl font-bold text-primary/30">AI</div>
@@ -1556,7 +1640,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 if (parentForkId !== undefined && (msg.childChatId ?? null) !== (parentForkId ?? null)) break;
                 // ── Root message: render normally ──
                 out.push(
-                  <div key={msg._key || `msg-${i}`} data-fork-child={msg.childChatId || ""} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div key={msg._key || `msg-${i}`} data-msg-idx={msg.role === "user" ? i : undefined} data-fork-child={msg.childChatId || ""} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 backdrop-blur-sm ${msg.role === "user" ? "bg-primary/20 text-foreground border border-primary/30 shadow-sm" : "bg-surface text-text shadow-sm"}`}>
                       {msg.role === "assistant" ? (
                         msg._isSearching ? (
@@ -1883,5 +1967,27 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       })()}
 
     </div>
+
+    {/* Message Navigator — portal to body, fixed overlay on scroll area */}
+    {userMsgIndices.length > 0 && !isStreaming && scrollRect && createPortal(
+      <div
+        className="pointer-events-none"
+        style={{
+          position: "fixed",
+          right: window.innerWidth - scrollRect.right + 8,
+          top: scrollRect.top + scrollRect.height / 2,
+          transform: "translateY(-50%)",
+          zIndex: 50,
+        }}
+      >
+        <MessageNavigator
+          count={userMsgIndices.length}
+          currentIdx={currentMsgIdx}
+          onNavigate={scrollToMessage}
+        />
+      </div>,
+      document.body
+    )}
+  </>
   );
 }
