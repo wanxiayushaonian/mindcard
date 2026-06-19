@@ -383,7 +383,7 @@
     "mountOn": "挂在 {title} 下",
     "depthPreview": "新分支将挂在 {parent} 下，depth={depth}",
     "sourceIsAncestor": "源对话是目标分支的祖先。合并产物将挂在源子树下，目标作为辅引用，可能导致与已有兄弟分支语义混乱。",
-    "targetIsAncestor": "目标分支是源对话的祖先。合并产物将挂在源子树下，但语义上"祖先+后代"的合并可能产生不直观的层级。",
+    "targetIsAncestor": "目标分支是源对话的祖先。合并产物将挂在源子树下，但语义上「祖先+后代」的合并可能产生不直观的层级。",
     "cancel": "取消",
     "merge": "开始合并",
     "merging": "AI 综合中...",
