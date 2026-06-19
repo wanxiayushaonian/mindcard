@@ -20,16 +20,41 @@ router = APIRouter()
 @router.get("/{workspace_id}/memories", response_model=list[WorkspaceMemoryResponse])
 async def list_memories(
     workspace_id: str,
+    include_archived: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     ws_id = uuid.UUID(workspace_id)
     await get_workspace_membership(ws_id, user, db)
 
-    result = await db.execute(
-        select(WorkspaceMemory).where(WorkspaceMemory.workspace_id == ws_id)
-    )
+    stmt = select(WorkspaceMemory).where(WorkspaceMemory.workspace_id == ws_id)
+    if not include_archived:
+        stmt = stmt.where(WorkspaceMemory.memory_type != "archived")
+    result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.post("/{workspace_id}/memories/maintenance")
+async def run_memory_maintenance(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Run memory archive pass: physically mark low-value aged memories as archived.
+
+    Memories qualify for archival when:
+      decayed_importance < 0.1 AND age > 90 days.
+
+    Archived memories are excluded from RAG injection and from default list responses.
+    """
+    ws_id = uuid.UUID(workspace_id)
+    membership = await get_workspace_membership(ws_id, user, db)
+    require_role(membership, "owner", "admin")
+
+    from app.services.memory_decay import run_archive_pass
+
+    archived_count = await run_archive_pass(workspace_id, db)
+    return {"archived_count": archived_count}
 
 
 @router.post("/{workspace_id}/memories", response_model=WorkspaceMemoryResponse)

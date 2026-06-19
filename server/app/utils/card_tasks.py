@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import uuid
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,18 @@ logger = logging.getLogger(__name__)
 # Each task does: embedding → topic → topology → triple extraction (multiple LLM calls).
 _EXTRACTION_CONCURRENCY = 2
 _extraction_semaphore = asyncio.Semaphore(_EXTRACTION_CONCURRENCY)
+
+# Per-workspace semaphore for Fork claim extraction. Limits each workspace to
+# one concurrent claim extraction to avoid LLM API contention. Does not occupy
+# the card _extraction_semaphore — claim extraction is independent of card pipeline.
+_claim_semaphores: dict[str, asyncio.Semaphore] = {}
+
+
+def _get_claim_semaphore(ws_key: str) -> asyncio.Semaphore:
+    if ws_key not in _claim_semaphores:
+        _claim_semaphores[ws_key] = asyncio.Semaphore(1)
+    return _claim_semaphores[ws_key]
+
 
 # Per-workspace queue: cards in the same workspace are processed one at a time
 # to avoid topology lock contention and ensure consistent ordering.
@@ -203,3 +216,70 @@ async def generate_card_embedding(
 ) -> None:
     """Enqueue card for background processing (legacy API)."""
     await enqueue_card_task(card_id, default_chat_id, extraction_language)
+
+
+# ── Fork claim extraction ──────────────────────────────────────────────
+
+
+def enqueue_claim_extraction_task(
+    parent_chat_id: str,
+    workspace_id: str,
+    child_chat_id: str,
+    messages: list[dict[str, Any]],
+) -> None:
+    """Fire-and-forget claim extraction for a freshly forked conversation.
+
+    Schedules extraction as an asyncio task; per-workspace semaphore prevents
+    concurrent extractions in the same workspace. Returns immediately — Fork
+    main flow is never blocked by this.
+
+    Must be called from within an event loop (FastAPI handler context).
+    """
+    asyncio.create_task(_process_claim_extraction(
+        parent_chat_id=parent_chat_id,
+        workspace_id=workspace_id,
+        child_chat_id=child_chat_id,
+        messages=messages,
+    ))
+
+
+async def _process_claim_extraction(
+    parent_chat_id: str,
+    workspace_id: str,
+    child_chat_id: str,
+    messages: list[dict[str, Any]],
+) -> None:
+    """Extract claims from parent conversation, store as workspace memory."""
+    ws_key = workspace_id
+    sem = _get_claim_semaphore(ws_key)
+    async with sem:
+        try:
+            from app.database import async_session
+
+            from app.services.claim_extractor import claim_extractor
+
+            claims = await claim_extractor.extract(messages)
+            if not claims:
+                logger.info(
+                    "No claims extracted for parent_chat=%s (msg_count=%d)",
+                    parent_chat_id, len(messages),
+                )
+                return
+
+            async with async_session() as db:
+                stored = await claim_extractor.store_claims(
+                    claims=claims,
+                    parent_chat_id=parent_chat_id,
+                    workspace_id=workspace_id,
+                    child_chat_id=child_chat_id,
+                    db=db,
+                )
+                logger.info(
+                    "Claim extraction done: parent=%s child=%s stored=%d",
+                    parent_chat_id, child_chat_id, stored,
+                )
+        except Exception as e:
+            logger.error(
+                "Claim extraction failed for parent_chat=%s: %s",
+                parent_chat_id, e, exc_info=True,
+            )

@@ -150,22 +150,20 @@ async def build_branch_context(
     db: AsyncSession,
     chat_id: str,
     workspace_id: str | None,
-) -> tuple[str, list]:
-    """Build branch context string for system prompt injection.
+) -> tuple[dict, list]:
+    """Build branch context as scored items per bucket for budget allocator.
 
-    Includes: cross-branch insights and shared memory.
-    Parent context is intentionally excluded — it lives in fork-divider
-    metadata for UI display only, following Stello's principle that memory
-    should not enter its own session's context (avoids self-referential noise).
-
-    Returns (context_string, unconsumed_insight_ids) — caller should call
-    mark_insights_consumed() only after the stream succeeds.
+    Returns:
+        (bucketed_items, unconsumed_insight_ids).
+        bucketed_items maps bucket keys ("branch_insights", "memory") to
+        lists of ScoredItem ready for TokenBudgetAllocator.
     """
     from app.models.branch_insight import BranchInsight
     from app.models.workspace_memory import WorkspaceMemory
+    from app.services.token_budget import ScoredItem
 
-    parts = []
-    consumed_ids = []
+    buckets: dict[str, list[ScoredItem]] = {"branch_insights": [], "memory": []}
+    consumed_ids: list = []
 
     # 1. Unconsumed cross-branch insights (read-only, don't consume yet)
     result = await db.execute(
@@ -175,33 +173,58 @@ async def build_branch_context(
         )
     )
     insights = result.scalars().all()
-    if insights:
-        insight_text = "\n".join(f"- {i.content}" for i in insights)
-        parts.append(f"<cross_branch_insights>\n来自其他分支的发现：\n{insight_text}\n</cross_branch_insights>")
-        consumed_ids = [i.id for i in insights]
+    for i in insights:
+        buckets["branch_insights"].append(ScoredItem(
+            text=f"- {i.content}",
+            score=0.5,  # insights are equal-priority; allocator packs by score
+            source_id=str(i.id),
+        ))
+        consumed_ids.append(i.id)
 
-    # 2. Shared memory (structured: filter by importance, annotate type)
+    # 2. Shared memory (decayed importance filter, annotate type)
     if workspace_id:
         result = await db.execute(
             select(WorkspaceMemory).where(
                 WorkspaceMemory.workspace_id == workspace_id,
-                WorkspaceMemory.importance >= 0.3,
-            ).order_by(WorkspaceMemory.importance.desc())
+                WorkspaceMemory.importance >= 0.1,  # wide in: SQL pre-filter
+                WorkspaceMemory.memory_type != "archived",
+            )
         )
         memories = result.scalars().all()
         if memories:
-            type_labels = {"fact": "事实", "preference": "偏好", "insight": "洞察", "summary": "摘要"}
-            memory_text = "\n\n".join(
-                f"## [{type_labels.get(m.memory_type, m.memory_type)}] {m.title}\n{m.body}"
-                for m in memories
-            )
-            parts.append(f"<shared_memory>\n{memory_text}\n</shared_memory>")
-            # Update last_accessed_at (fire-and-forget)
             from datetime import datetime, timezone
-            for m in memories:
-                m.last_accessed_at = datetime.now(timezone.utc)
 
-    return ("\n\n".join(parts) if parts else ""), consumed_ids
+            from app.services.memory_decay import decayed_importance
+
+            now = datetime.now(timezone.utc)
+            type_labels = {
+                "fact": "事实",
+                "preference": "偏好",
+                "insight": "洞察",
+                "summary": "摘要",
+                "claim": "断言",
+            }
+            scored_mems = []
+            for m in memories:
+                if m.memory_type == "archived":
+                    continue
+                decayed = decayed_importance(
+                    m.importance, m.last_accessed_at, m.created_at, now=now
+                )
+                if decayed < 0.3:
+                    continue
+                text = f"## [{type_labels.get(m.memory_type, m.memory_type)}] {m.title}\n{m.body}"
+                scored_mems.append((m, decayed, text))
+            scored_mems.sort(key=lambda x: x[1], reverse=True)
+            for m, score, text in scored_mems:
+                buckets["memory"].append(ScoredItem(
+                    text=text,
+                    score=score,
+                    source_id=str(m.id),
+                ))
+                m.last_accessed_at = now
+
+    return buckets, consumed_ids
 
 
 async def mark_insights_consumed(db: AsyncSession, insight_ids: list) -> None:
@@ -565,6 +588,17 @@ Respond in JSON format:
         topo_ctx = retrieval_dispatcher.build_topology_context_string(retrieval_result)
         community_ctx = retrieval_result.community_context or ""
 
+        # Build card_id → score map from positional list. card_scores is a list
+        # aligned with retrieval_result.cards (original order). context_cards
+        # may be reordered by explicit injection above, so we key by id not index.
+        card_score_map: dict[str, float] = {}
+        for idx, c in enumerate(retrieval_result.cards):
+            if idx < len(retrieval_result.card_scores):
+                card_score_map[str(c.id)] = float(retrieval_result.card_scores[idx])
+        explicit_card_ids: set[uuid.UUID] = (
+            {uuid.UUID(cid) for cid in context_card_ids} if context_card_ids else set()
+        )
+
         logger.info("RAG.ask_stream: dispatch returned %d cards, level_used=%s, %d reasoning_paths, entity_ctx=%d chars, topo_ctx=%d chars, community_ctx=%d chars",
                      len(context_cards), retrieval_result.level_used, len(retrieval_result.reasoning_paths),
                      len(entity_ctx), len(topo_ctx), len(community_ctx))
@@ -573,14 +607,6 @@ Respond in JSON format:
         if not context_cards and level not in (RetrievalLevel.CHAT, RetrievalLevel.INSIGHT):
             level = RetrievalLevel.CHAT
             retrieval_result.level_used = RetrievalLevel.CHAT
-
-        # Build context from cards
-        if context_cards:
-            context = "\n\n".join(
-                f"【{c.title or 'Untitled'}】{c.content}" for c in context_cards
-            )
-        else:
-            context = ""
 
         # 2.5 Optional web search - yield results immediately
         search_context = ""
@@ -599,40 +625,151 @@ Respond in JSON format:
                     ],
                 }
 
-        # Build enhanced system prompt based on retrieval level
+        # Build enhanced system prompt using TokenBudgetAllocator.
+        # Sources are packed into ScoredItem lists per bucket; allocator
+        # enforces global token budget to prevent silent overflow.
+        from app.services.token_budget import ScoredItem, TokenBudgetAllocator
+
         if level == RetrievalLevel.CHAT:
-            system_parts = [MARKDOWN_SYSTEM_PROMPT]
+            base_instructions = MARKDOWN_SYSTEM_PROMPT
         else:
-            system_parts = [f"你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。\n\n引用规则：回答中引用灵感卡片时，用 [卡片标题] 标注来源。例如：「根据 [Transformer架构笔记]，注意力机制的核心是...」\n\n{_MARKDOWN_FORMAT_INSTRUCTIONS}"]
+            base_instructions = (
+                "你是一个知识问答助手。基于以下灵感卡片回答用户问题。如果卡片内容不足以回答，请说明。\n\n"
+                "引用规则：回答中引用灵感卡片时，用 [卡片标题] 标注来源。"
+                "例如：「根据 [Transformer架构笔记]，注意力机制的核心是...」\n\n"
+                f"{_MARKDOWN_FORMAT_INSTRUCTIONS}"
+            )
 
+        instruction_extras: list[str] = []
         if context_card_ids:
-            system_parts.append("以下卡片由用户明确指定为上下文（排列在最前面），请优先参考这些卡片的内容。")
+            instruction_extras.append(
+                "以下卡片由用户明确指定为上下文（排列在最前面），请优先参考这些卡片的内容。"
+            )
+        if tools:
+            instruction_extras.append(CREATE_FORK_INSTRUCTION)
+            instruction_extras.append(MEMORY_EDIT_INSTRUCTION)
 
+        query_instructions_text = base_instructions + (
+            "\n\n" + "\n\n".join(instruction_extras) if instruction_extras else ""
+        )
+
+        # Build scored items per bucket
+        sources: dict[str, list[ScoredItem]] = {
+            "query_instructions": [
+                ScoredItem(text=query_instructions_text, score=1.0, source_id="instructions")
+            ],
+            "current_dialog": [],
+            "retrieved_cards": [],
+            "graph_paths": [],
+            "memory": [],
+            "branch_insights": [],
+            "topology": [],
+        }
+
+        # Retrieved cards (use card_scores from dispatcher; explicit cards get top score)
+        for c in context_cards:
+            if c.id in explicit_card_ids:
+                score = 1.0  # explicit context cards: top priority
+            else:
+                score = card_score_map.get(str(c.id), 0.5)
+            sources["retrieved_cards"].append(ScoredItem(
+                text=f"【{c.title or 'Untitled'}】{c.content}",
+                score=score,
+                source_id=str(c.id),
+            ))
+
+        # Graph paths: entity_ctx + community_ctx
         if entity_ctx:
-            system_parts.append(entity_ctx)
-        if topo_ctx:
-            system_parts.append(topo_ctx)
+            sources["graph_paths"].append(ScoredItem(
+                text=entity_ctx, score=0.85, source_id="entities",
+            ))
         if community_ctx:
-            system_parts.append(community_ctx)
-        if context:
-            system_parts.append(f"\n相关灵感卡片：\n{context}")
-        if search_context:
-            system_parts.append(search_context)
+            sources["graph_paths"].append(ScoredItem(
+                text=community_ctx, score=0.75, source_id="community",
+            ))
 
-        # Inject branch context (cross-branch insights + shared memory)
-        branch_context, insight_ids = await build_branch_context(
+        # Topology context
+        if topo_ctx:
+            sources["topology"].append(ScoredItem(
+                text=topo_ctx, score=0.8, source_id="topology",
+            ))
+
+        # Search context (treated as retrieved_cards — elastic bucket)
+        if search_context:
+            sources["retrieved_cards"].append(ScoredItem(
+                text=search_context.strip(), score=0.6, source_id="web_search",
+            ))
+
+        # Branch context (memory + cross-branch insights)
+        branch_buckets, insight_ids = await build_branch_context(
             db, chat_id,
             workspace_id=workspace_ids[0] if workspace_ids else None,
         )
-        if branch_context:
-            system_parts.append(branch_context)
+        sources["memory"].extend(branch_buckets.get("memory", []))
+        sources["branch_insights"].extend(branch_buckets.get("branch_insights", []))
 
-        # Add memory_edit + fork instructions when tools are available
-        if tools:
-            system_parts.append(CREATE_FORK_INSTRUCTION)
-            system_parts.append(MEMORY_EDIT_INSTRUCTION)
+        # Current dialog: budget placeholder so allocator knows history weight.
+        # History is still passed as standalone messages to the LLM; this item
+        # is never injected into system_prompt — it only reserves token budget.
+        dialog_text_parts: list[str] = []
+        if history:
+            for m in history[-10:]:
+                dialog_text_parts.append(f"{m.get('role', 'user')}: {m.get('content', '')}")
+        dialog_text_parts.append(f"user: {question}")
+        sources["current_dialog"].append(ScoredItem(
+            text="\n".join(dialog_text_parts),
+            score=1.0,
+            source_id="dialog_placeholder",
+        ))
+
+        # Allocate
+        allocator = TokenBudgetAllocator()
+        allocated, bucket_stats = allocator.allocate(sources)
+
+        # Reassemble system_parts from allocated items
+        system_parts: list[str] = []
+        instructions_items = allocated.get("query_instructions", [])
+        if instructions_items:
+            system_parts.append(instructions_items[0].text)
+
+        graph_items = allocated.get("graph_paths", [])
+        if graph_items:
+            system_parts.append("\n\n".join(it.text for it in graph_items))
+
+        topo_items = allocated.get("topology", [])
+        if topo_items:
+            system_parts.append("\n\n".join(it.text for it in topo_items))
+
+        cards_items = allocated.get("retrieved_cards", [])
+        if cards_items:
+            cards_text = "\n\n".join(it.text for it in cards_items)
+            system_parts.append(f"相关灵感卡片与检索结果：\n{cards_text}")
+
+        memory_items = allocated.get("memory", [])
+        if memory_items:
+            mem_text = "\n\n".join(it.text for it in memory_items)
+            system_parts.append(f"<shared_memory>\n{mem_text}\n</shared_memory>")
+
+        insight_items = allocated.get("branch_insights", [])
+        if insight_items:
+            ins_text = "\n".join(it.text for it in insight_items)
+            system_parts.append(
+                f"<cross_branch_insights>\n来自其他分支的发现：\n{ins_text}\n</cross_branch_insights>"
+            )
 
         system_prompt = "\n\n".join(system_parts)
+
+        # For context_debug: display only branch context (memory + insights)
+        branch_context_display_parts: list[str] = []
+        if memory_items:
+            mem_text_dbg = "\n\n".join(it.text for it in memory_items)
+            branch_context_display_parts.append(f"<shared_memory>\n{mem_text_dbg}\n</shared_memory>")
+        if insight_items:
+            ins_text_dbg = "\n".join(it.text for it in insight_items)
+            branch_context_display_parts.append(
+                f"<cross_branch_insights>\n来自其他分支的发现：\n{ins_text_dbg}\n</cross_branch_insights>"
+            )
+        branch_context = "\n\n".join(branch_context_display_parts)
 
         # Build messages list
         messages = [{"role": "system", "content": system_prompt}]
@@ -688,6 +825,18 @@ Respond in JSON format:
                 "topology_context": topo_ctx,
                 "community_context": community_ctx,
                 "branch_context": branch_context,
+                "budget_allocation": [
+                    {
+                        "bucket": s.key,
+                        "budget": s.budget,
+                        "input_count": s.input_count,
+                        "input_tokens": s.input_tokens,
+                        "output_count": s.output_count,
+                        "output_tokens": s.output_tokens,
+                        "truncated": s.truncated,
+                    }
+                    for s in bucket_stats
+                ],
                 "web_search_results": [
                     {"title": r.title, "snippet": r.snippet, "url": r.url}
                     for r in (web_search_results or [])

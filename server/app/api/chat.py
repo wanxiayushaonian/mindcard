@@ -551,6 +551,20 @@ async def fork_chat(
     db.add(divider)
     await db.commit()
 
+    # Fire-and-forget claim extraction: distill parent conversation into 3-7
+    # standalone claims stored as workspace memory (memory_type='claim'). Child
+    # branch retrieves these via the existing memory injection path. Only
+    # triggers when context strategy is not 'none' (no inheritance = no claims).
+    if context_strategy != "none":
+        from app.utils.card_tasks import enqueue_claim_extraction_task
+
+        enqueue_claim_extraction_task(
+            parent_chat_id=str(parent_chat.id),
+            workspace_id=str(parent_chat.workspace_id),
+            child_chat_id=str(child_chat.id),
+            messages=messages,
+        )
+
     return ChatForkResponse(
         chat_id=str(child_chat.id),
         context_summary=context_summary or "",
