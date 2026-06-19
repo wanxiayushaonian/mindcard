@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { GitMerge, X, Check, GitBranch, AlertTriangle } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { GitMerge, X, Check, GitBranch, AlertTriangle, ArrowRight } from "lucide-react";
 import { topologyApi, type TopologyNode } from "@/lib/api";
 import { useTranslations } from "next-intl";
 import { toast } from "@/lib/toast";
@@ -14,6 +14,57 @@ interface MergeBranchDialogProps {
   onMerged?: (newChatId: string) => void;
 }
 
+/**
+ * Compute the depth of a chat by walking the parent_id chain.
+ * TopologyNode has no depth field, so we count ancestors.
+ */
+function computeDepth(nodes: TopologyNode[], chatId: string | null): number {
+  if (!chatId) return 0;
+  const nodeById = new Map<string, TopologyNode>();
+  const nodeByChat = new Map<string, TopologyNode>();
+  for (const n of nodes) {
+    nodeById.set(n.id, n);
+    if (n.chat_id) nodeByChat.set(n.chat_id, n);
+  }
+  let depth = 0;
+  let current = nodeByChat.get(chatId);
+  const seen = new Set<string>();
+  while (current?.parent_id && !seen.has(current.id)) {
+    seen.add(current.id);
+    depth++;
+    current = nodeById.get(current.parent_id);
+  }
+  return depth;
+}
+
+/**
+ * Check if `ancestorId` is an ancestor of `descendantId` by walking parent_id up.
+ */
+function isAncestor(
+  nodes: TopologyNode[],
+  descendantChatId: string,
+  ancestorChatId: string,
+): boolean {
+  if (descendantChatId === ancestorChatId) return false;
+  const nodeById = new Map<string, TopologyNode>();
+  const nodeByChat = new Map<string, TopologyNode>();
+  for (const n of nodes) {
+    nodeById.set(n.id, n);
+    if (n.chat_id) nodeByChat.set(n.chat_id, n);
+  }
+  let current = nodeByChat.get(descendantChatId);
+  const seen = new Set<string>();
+  while (current?.parent_id && !seen.has(current.id)) {
+    seen.add(current.id);
+    if (current.parent_id === ancestorChatId) return true;
+    // Also check chat_id match (parent_id might be the node id)
+    const parentNode = nodeById.get(current.parent_id);
+    if (parentNode?.chat_id === ancestorChatId) return true;
+    current = parentNode;
+  }
+  return false;
+}
+
 export function MergeBranchDialog({
   sourceChatId,
   sourceTitle,
@@ -24,6 +75,7 @@ export function MergeBranchDialog({
   const t = useTranslations("mergeBranch");
   const [nodes, setNodes] = useState<TopologyNode[]>([]);
   const [targetId, setTargetId] = useState<string | null>(null);
+  const [mountOn, setMountOn] = useState<"source" | "target">("source");
   const [merging, setMerging] = useState(false);
 
   useEffect(() => {
@@ -41,15 +93,41 @@ export function MergeBranchDialog({
   const candidates = nodes.filter(
     (n) => n.chat_id && n.chat_id !== sourceChatId
   );
-  const targetTitle =
-    candidates.find((n) => n.chat_id === targetId)?.title || "";
+
+  const targetNode = candidates.find((n) => n.chat_id === targetId);
+  const targetTitle = targetNode?.title || "";
+
+  // Ancestor/descendant detection (any direction)
+  const ancestorWarning = useMemo(() => {
+    if (!targetId) return null;
+    const sourceIsAncestor = isAncestor(nodes, targetId, sourceChatId);
+    const targetIsAncestor = isAncestor(nodes, sourceChatId, targetId);
+    if (sourceIsAncestor) return t("sourceIsAncestor");
+    if (targetIsAncestor) return t("targetIsAncestor");
+    return null;
+  }, [nodes, targetId, sourceChatId, t]);
+
+  // Primary = where the merged chat will be mounted; secondary = the other
+  const primaryChatId = mountOn === "source" ? sourceChatId : targetId;
+  const primaryTitle = mountOn === "source" ? sourceTitle : targetTitle;
+  const newDepth = useMemo(
+    () => computeDepth(nodes, primaryChatId) + 1,
+    [nodes, primaryChatId],
+  );
 
   const handleSubmit = async () => {
     if (!targetId) return;
     setMerging(true);
     try {
-      const result = await topologyApi.mergeBranches(sourceChatId, targetId);
-      toast(t("mergeSuccess", { title: `${sourceTitle} + ${targetTitle}` }), "success");
+      // Swap source/target based on mount selection — the backend treats
+      // source_chat_id as the parent (mount point).
+      const actualSource = mountOn === "source" ? sourceChatId : targetId;
+      const actualTarget = mountOn === "source" ? targetId : sourceChatId;
+      const result = await topologyApi.mergeBranches(actualSource, actualTarget);
+      toast(
+        t("mergeSuccess", { title: `${sourceTitle} + ${targetTitle}` }),
+        "success",
+      );
       onMerged?.(result.chat_id);
       onClose();
     } catch (e: any) {
@@ -91,6 +169,14 @@ export function MergeBranchDialog({
             <span>{t("warning")}</span>
           </div>
 
+          {/* Ancestor relationship warning */}
+          {ancestorWarning && (
+            <div className="flex items-start gap-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{ancestorWarning}</span>
+            </div>
+          )}
+
           {/* Target selection */}
           <div className="space-y-1">
             <label className="text-xs text-text-secondary">{t("targetBranch")}</label>
@@ -120,6 +206,50 @@ export function MergeBranchDialog({
               </div>
             )}
           </div>
+
+          {/* Mount point selection (only when target selected) */}
+          {targetId && (
+            <div className="space-y-1.5">
+              <label className="text-xs text-text-secondary">{t("mountPoint")}</label>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setMountOn("source")}
+                  disabled={merging}
+                  className={`flex-1 rounded border px-2 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                    mountOn === "source"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-text-secondary hover:bg-gray-50"
+                  }`}
+                >
+                  {t("mountOn", { title: sourceTitle.slice(0, 12) })}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMountOn("target")}
+                  disabled={merging}
+                  className={`flex-1 rounded border px-2 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                    mountOn === "target"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-text-secondary hover:bg-gray-50"
+                  }`}
+                >
+                  {t("mountOn", { title: targetTitle.slice(0, 12) })}
+                </button>
+              </div>
+
+              {/* Depth preview */}
+              <div className="flex items-center gap-1.5 rounded bg-blue-50 px-2 py-1.5 text-[11px] text-blue-800">
+                <ArrowRight className="h-3 w-3 shrink-0" />
+                <span>
+                  {t("depthPreview", {
+                    parent: primaryTitle.slice(0, 16),
+                    depth: newDepth,
+                  })}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
