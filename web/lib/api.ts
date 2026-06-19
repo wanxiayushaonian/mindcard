@@ -800,6 +800,11 @@ export const topologyApi = {
     }),
   removeRef: (nodeId: string, targetId: string) =>
     request<{ ok: boolean }>(`/api/topology/${nodeId}/refs/${targetId}`, { method: "DELETE" }),
+  mergeBranches: (sourceChatId: string, targetChatId: string) =>
+    request<{ chat_id: string; synthesis: string; depth: number }>(`/api/topology/merge`, {
+      method: "POST",
+      body: JSON.stringify({ source_chat_id: sourceChatId, target_chat_id: targetChatId }),
+    }),
   subtreeCards: (nodeId: string) =>
     request<{ cards: Card[]; node_ids: string[] }>(`/api/topology/${nodeId}/subtree-cards`),
   synthesize: (

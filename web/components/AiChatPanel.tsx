@@ -12,6 +12,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { ForkDivider } from "@/components/ForkDivider";
 import { ForkBreadcrumb } from "@/components/ForkBreadcrumb";
 import { LinkBranchDialog } from "@/components/LinkBranchDialog";
+import { MergeBranchDialog } from "@/components/MergeBranchDialog";
 import { ContextDebugPanel } from "@/components/ContextDebugPanel";
 import { MemoryPanel } from "@/components/MemoryPanel";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
@@ -19,7 +20,7 @@ import { ToolCallsBlock } from "@/components/ToolCallsBlock";
 import { CardMentionPopup } from "@/components/CardMentionPopup";
 import { usePanelStore } from "@/lib/workspace-layout-store";
 import { useTranslations, useLocale } from "next-intl";
-import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain, Network, Link2 } from "lucide-react";
+import { X, History, MessageSquarePlus, Send, Square, ArrowLeft, Trash2, Globe, ChevronDown, ChevronUp, GitBranch, Copy, Sparkles, Loader2, Brain, Network, Link2, GitMerge } from "lucide-react";
 import { formatTimeShort } from "@/lib/format";
 
 const FORK_PREFIX = "__FORK__";
@@ -106,6 +107,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [showHistory, setShowHistory] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showLinkBranch, setShowLinkBranch] = useState(false);
+  const [showMergeBranch, setShowMergeBranch] = useState(false);
   const { mutate: swrMutate } = useSWRConfig();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1338,6 +1340,17 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           />
         )}
 
+        {/* Merge Branch dialog */}
+        {showMergeBranch && (activeForkId || chatId) && workspaceId && (
+          <MergeBranchDialog
+            sourceChatId={String(activeForkId || chatId)}
+            sourceTitle={chatPath[chatPath.length - 1]?.title || t('newChat')}
+            workspaceId={workspaceId}
+            onClose={() => setShowMergeBranch(false)}
+            onMerged={(newChatId) => loadChatAndFocusFork(newChatId)}
+          />
+        )}
+
         {/* History sub-panel */}
         {showHistory && (
           <div className="absolute inset-0 z-10 flex flex-col bg-bg">
@@ -1413,14 +1426,24 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               />
             </div>
             {(activeForkId || chatId) && (
-              <button
-                type="button"
-                onClick={() => setShowLinkBranch(true)}
-                className="shrink-0 rounded-md p-1 text-text-secondary transition hover:bg-muted hover:text-text"
-                title={t('linkBranchTitle')}
-              >
-                <Link2 className="h-3.5 w-3.5" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowLinkBranch(true)}
+                  className="shrink-0 rounded-md p-1 text-text-secondary transition hover:bg-muted hover:text-text"
+                  title={t('linkBranchTitle')}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMergeBranch(true)}
+                  className="shrink-0 rounded-md p-1 text-text-secondary transition hover:bg-muted hover:text-text"
+                  title={t('mergeBranchTitle')}
+                >
+                  <GitMerge className="h-3.5 w-3.5" />
+                </button>
+              </>
             )}
           </div>
         )}

@@ -84,3 +84,16 @@ class NodeRefCreate(BaseModel):
     target_chat_id: str
     ref_type: str = Field("related", pattern=r"^(related|contradicts|extends)$")
     reason: str = ""
+
+
+class MergeBranchesRequest(BaseModel):
+    """Request to merge two branches into a synthesized new conversation."""
+
+    source_chat_id: str
+    target_chat_id: str
+
+
+class MergeBranchesResponse(BaseModel):
+    chat_id: str
+    synthesis: str
+    depth: int

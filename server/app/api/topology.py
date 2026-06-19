@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
+import logging
+import uuid as uuid_lib
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -8,13 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.card import Card
-from app.models.chat import AiChat
+from app.models.chat import AiChat, ChatMessage
 from app.models.synthesis_template import SynthesisTemplate
 from app.models.topology import NodeCard, NodeRef
 from app.models.user import User
 from app.schemas.card import CardResponse
 from app.schemas.topology import (
     IncomingRefDetail,
+    MergeBranchesRequest,
+    MergeBranchesResponse,
     NodeCardAdd,
     NodeRefCreate,
     NodeSynthesizeRequest,
@@ -34,6 +38,8 @@ from app.services.synthesis import (
 from app.utils.auth import get_current_user, get_workspace_membership, require_role
 from app.utils.helpers import parse_uuid
 from app.services.topology import topology_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -495,3 +501,174 @@ async def synthesize_node(
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+async def _fetch_recent_messages(
+    db: AsyncSession, chat_id: UUID, limit: int = 30
+) -> list[dict]:
+    """Fetch the most recent user/assistant messages from a chat."""
+    result = await db.execute(
+        select(ChatMessage)
+        .where(
+            ChatMessage.chat_id == chat_id,
+            ChatMessage.role.in_(["user", "assistant"]),
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .limit(limit)
+    )
+    return [
+        {"role": m.role, "content": m.content}
+        for m in reversed(result.scalars().all())
+    ]
+
+
+def _format_messages_for_synthesis(messages: list[dict], char_cap: int = 600) -> str:
+    """Format chat messages into a compact text block for LLM synthesis."""
+    lines: list[str] = []
+    for msg in messages:
+        label = "用户" if msg.get("role") == "user" else "助手"
+        content = (msg.get("content") or "")[:char_cap]
+        if content.strip():
+            lines.append(f"{label}: {content}")
+    return "\n".join(lines)
+
+
+async def _synthesize_branches(
+    source_title: str,
+    source_text: str,
+    target_title: str,
+    target_text: str,
+) -> str:
+    """LLM-synthesize a structured comparison of two branch conversations."""
+    prompt = (
+        "请综合以下两个独立分支对话的核心观点，输出一份结构化综合报告：\n\n"
+        f"## 分支A: {source_title}\n{source_text}\n\n"
+        f"## 分支B: {target_title}\n{target_text}\n\n"
+        "## 输出要求\n"
+        "1. 用 `## 分支A核心论点` 提取分支A 3 条核心论点\n"
+        "2. 用 `## 分支B核心论点` 提取分支B 3 条核心论点\n"
+        "3. 用 `## 共识`、`## 分歧`、`## 互补` 分别总结\n"
+        "4. 用 `## 综合视角` 提出整合两边的观点\n"
+        "5. 中文 Markdown 输出，总长不超过 800 字"
+    )
+    synthesis = await get_llm_service().complete_simple(
+        system_prompt="你是一个对话综合助手，擅长结构化对比和综合多方观点。",
+        user_content=prompt,
+        max_tokens=1500,
+        temperature=0.4,
+    )
+    return synthesis.strip()
+
+
+@router.post("/merge", response_model=MergeBranchesResponse)
+async def merge_branches(
+    req: MergeBranchesRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Merge two branches into a new synthesized conversation.
+
+    Creates a new AiChat C with parent_id = source. LLM synthesizes both
+    branches into a structured report, injected as C's first assistant
+    message. Establishes NodeRef(source → C, "extends") and
+    NodeRef(target → C, "extends") to preserve merge provenance.
+    """
+    source = await db.get(AiChat, parse_uuid(req.source_chat_id))
+    target = await db.get(AiChat, parse_uuid(req.target_chat_id))
+    if not source or not target:
+        raise HTTPException(404, "源或目标对话不存在")
+    if source.id == target.id:
+        raise HTTPException(400, "不能与自己合并")
+    if source.workspace_id != target.workspace_id:
+        raise HTTPException(400, "对话不属于同一工作区")
+    membership = await get_workspace_membership(source.workspace_id, user, db)
+    require_role(membership, "owner", "admin", "editor")
+
+    # Gather messages from both branches
+    source_msgs = await _fetch_recent_messages(db, source.id)
+    target_msgs = await _fetch_recent_messages(db, target.id)
+    if not source_msgs or not target_msgs:
+        raise HTTPException(400, "源或目标对话没有可综合的消息")
+
+    # LLM synthesize (best-effort, fail gracefully)
+    source_text = _format_messages_for_synthesis(source_msgs)
+    target_text = _format_messages_for_synthesis(target_msgs)
+    try:
+        synthesis = await _synthesize_branches(
+            source.title or "分支A", source_text,
+            target.title or "分支B", target_text,
+        )
+    except Exception as e:
+        logger.error("Merge synthesis failed: %s", e, exc_info=True)
+        raise HTTPException(500, f"综合失败: {e}")
+
+    # Create merged child chat (parent = source)
+    merged_chat = AiChat(
+        local_id=f"merge-{uuid_lib.uuid4().hex[:12]}",
+        workspace_id=source.workspace_id,
+        parent_id=source.id,
+        user_id=user.id,
+        mode="rag",
+        title=f"{source.title or '分支A'} + {target.title or '分支B'}",
+        node_type="branch",
+        depth=(source.depth or 0) + 1,
+    )
+    db.add(merged_chat)
+    await db.flush()
+
+    # Insert fork-divider in source chat (marks where merge happened)
+    divider = ChatMessage(
+        chat_id=source.id,
+        role="fork-divider",
+        content="",
+        metadata_={
+            "child_chat_id": str(merged_chat.id),
+            "branch_label": f"合并: {source.title} + {target.title}",
+            "merge_target_chat_id": str(target.id),
+            "merge_target_title": target.title,
+            "synthesis": synthesis,
+            "depth": merged_chat.depth,
+            "fork_profile": "merge",
+        },
+    )
+    db.add(divider)
+
+    # NodeRefs preserve merge provenance (both branches → merged)
+    db.add(NodeRef(
+        source_chat_id=source.id,
+        target_chat_id=merged_chat.id,
+        ref_type="extends",
+        reason=f"Merge with {target.title}",
+    ))
+    db.add(NodeRef(
+        source_chat_id=target.id,
+        target_chat_id=merged_chat.id,
+        ref_type="extends",
+        reason=f"Merge with {source.title}",
+    ))
+
+    # Inject synthesis as merged chat's first assistant message
+    initial_msg = ChatMessage(
+        chat_id=merged_chat.id,
+        role="assistant",
+        content=synthesis,
+        metadata_={
+            "merge_source": str(source.id),
+            "merge_target": str(target.id),
+            "merge_source_title": source.title,
+            "merge_target_title": target.title,
+        },
+    )
+    db.add(initial_msg)
+
+    await db.commit()
+    logger.info(
+        "Merge: %s + %s → %s",
+        source.id, target.id, merged_chat.id,
+    )
+
+    return MergeBranchesResponse(
+        chat_id=str(merged_chat.id),
+        synthesis=synthesis,
+        depth=merged_chat.depth,
+    )

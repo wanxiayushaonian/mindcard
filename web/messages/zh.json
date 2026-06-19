@@ -347,7 +347,8 @@
     "copiedToEditor": "已复制到编辑器",
     "newChatTitle": "新对话",
     "forkTitle": "分支",
-    "linkBranchTitle": "链接到其他分支"
+    "linkBranchTitle": "链接到其他分支",
+    "mergeBranchTitle": "合并两个分支"
   },
   "linkBranch": {
     "title": "链接分支",
@@ -370,6 +371,19 @@
     "unlinkSuccess": "已取消链接",
     "unlinkFailed": "取消链接失败",
     "confirmRemove": "确认删除",
+    "close": "关闭"
+  },
+  "mergeBranch": {
+    "title": "合并分支",
+    "source": "源对话",
+    "targetBranch": "选择要合并的目标分支",
+    "noCandidates": "没有可合并的分支",
+    "warning": "将创建一个新对话，由 LLM 综合两个分支的核心观点。原分支不会被修改。",
+    "cancel": "取消",
+    "merge": "开始合并",
+    "merging": "AI 综合中...",
+    "mergeSuccess": "已合并：{title}",
+    "mergeFailed": "合并失败",
     "close": "关闭"
   },
   "settings": {

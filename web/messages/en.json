@@ -347,7 +347,8 @@
     "copiedToEditor": "Copied to editor",
     "newChatTitle": "New Chat",
     "forkTitle": "Branch",
-    "linkBranchTitle": "Link to another branch"
+    "linkBranchTitle": "Link to another branch",
+    "mergeBranchTitle": "Merge two branches"
   },
   "linkBranch": {
     "title": "Link Branch",
@@ -370,6 +371,19 @@
     "unlinkSuccess": "Link removed",
     "unlinkFailed": "Failed to remove link",
     "confirmRemove": "Confirm",
+    "close": "Close"
+  },
+  "mergeBranch": {
+    "title": "Merge Branches",
+    "source": "Source",
+    "targetBranch": "Select branch to merge with",
+    "noCandidates": "No branches available to merge",
+    "warning": "Creates a new conversation with LLM-synthesized comparison of both branches. Original branches are not modified.",
+    "cancel": "Cancel",
+    "merge": "Start merge",
+    "merging": "AI synthesizing...",
+    "mergeSuccess": "Merged: {title}",
+    "mergeFailed": "Merge failed",
     "close": "Close"
   },
   "settings": {
