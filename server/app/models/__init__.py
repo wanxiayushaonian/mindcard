@@ -3,6 +3,7 @@ from .api_key import ApiKey
 from .branch_insight import BranchInsight
 from .card import Card, CardRelation
 from .card_chunk import CardChunk
+from .card_processing_job import CardProcessingJob
 from .chat import AiChat, ChatMessage
 from .comment import Comment
 from .graph import Community, CommunityReport, EntityCard, GraphEntity, GraphRelation
@@ -20,6 +21,7 @@ __all__ = [
     "Card",
     "CardRelation",
     "CardChunk",
+    "CardProcessingJob",
     "AiChat",
     "ChatMessage",
     "Comment",

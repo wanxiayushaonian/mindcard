@@ -5,12 +5,17 @@ import logging
 import uuid
 from typing import Any
 
+from sqlalchemy import select
+
 logger = logging.getLogger(__name__)
 
 # Limit concurrent card processing tasks to avoid overwhelming LLM API and DB pool.
 # Each task does: embedding → topic → topology → triple extraction (multiple LLM calls).
 _EXTRACTION_CONCURRENCY = 2
 _extraction_semaphore = asyncio.Semaphore(_EXTRACTION_CONCURRENCY)
+
+# Max attempts for a persisted job before it is left failed.
+MAX_ATTEMPTS = 3
 
 # Per-workspace semaphore for Fork claim extraction. Limits each workspace to
 # one concurrent claim extraction to avoid LLM API contention. Does not occupy
@@ -35,27 +40,61 @@ async def enqueue_card_task(
     default_chat_id: uuid.UUID | None = None,
     extraction_language: str = "zh",
 ) -> None:
-    """Enqueue a card for background processing. Non-blocking."""
-    from app.database import async_session
+    """Persist a card-processing job, then schedule it for processing.
 
-    # Determine workspace_id for per-workspace queueing
+    The job is written to ``card_processing_jobs`` first so the work is not
+    lost on a process restart. Idempotent: an existing pending/running job
+    for the same card is not duplicated.
+    """
+    from app.database import async_session
+    from app.models.card import Card
+    from app.models.card_processing_job import CardProcessingJob
+
     async with async_session() as db:
-        from app.models.card import Card
         card = await db.get(Card, card_id)
         if not card:
             logger.warning("Card %s not found, skipping", card_id)
             return
         ws_key = str(card.workspace_id)
 
-    # Get or create workspace queue
+        # Idempotency: skip if an active job already exists for this card
+        existing = await db.execute(
+            select(CardProcessingJob).where(
+                CardProcessingJob.card_id == card_id,
+                CardProcessingJob.status.in_(["pending", "running"]),
+            )
+        )
+        if existing.scalar_one_or_none():
+            logger.info("Card %s already queued, skipping duplicate enqueue", card_id)
+            return
+
+        job = CardProcessingJob(
+            card_id=card_id,
+            workspace_id=card.workspace_id,
+            default_chat_id=default_chat_id,
+            extraction_language=extraction_language,
+            status="pending",
+        )
+        db.add(job)
+        await db.commit()
+        job_id = job.id
+
+    await _schedule_for_workspace(
+        ws_key, (job_id, card_id, default_chat_id, extraction_language)
+    )
+
+
+async def _schedule_for_workspace(ws_key: str, item: tuple) -> None:
+    """Put an item on the workspace queue and start its worker if needed."""
     if ws_key not in _workspace_queues:
         _workspace_queues[ws_key] = asyncio.Queue()
     queue = _workspace_queues[ws_key]
 
-    await queue.put((card_id, default_chat_id, extraction_language))
-    logger.info("Card %s enqueued for workspace %s (queue size: %d)", card_id, ws_key, queue.qsize())
+    await queue.put(item)
+    logger.info(
+        "Card job scheduled for workspace %s (queue size: %d)", ws_key, queue.qsize()
+    )
 
-    # Start worker if not already running for this workspace
     if ws_key not in _workspace_workers or not _workspace_workers[ws_key]:
         _workspace_workers[ws_key] = True
         asyncio.create_task(_workspace_worker(ws_key))
@@ -71,20 +110,20 @@ async def _workspace_worker(ws_key: str) -> None:
         try:
             # Wait for next task with timeout — exit if queue is idle
             try:
-                card_id, default_chat_id, lang = await asyncio.wait_for(
+                job_id, card_id, default_chat_id, lang = await asyncio.wait_for(
                     queue.get(), timeout=60.0
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.info("Workspace %s queue idle, worker exiting", ws_key)
                 break
 
             # Acquire global semaphore (limits total concurrency across all workspaces)
             async with _extraction_semaphore:
                 logger.info(
-                    "Processing card %s (queue remaining: %d)",
-                    card_id, queue.qsize(),
+                    "Processing job %s (card %s, queue remaining: %d)",
+                    job_id, card_id, queue.qsize(),
                 )
-                await _process_card(card_id, default_chat_id, lang)
+                await _run_job(job_id, card_id, default_chat_id, lang)
 
             queue.task_done()
 
@@ -92,6 +131,87 @@ async def _workspace_worker(ws_key: str) -> None:
             logger.error("Workspace worker error for %s: %s", ws_key, e, exc_info=True)
 
     _workspace_workers[ws_key] = False
+
+
+async def _run_job(
+    job_id: uuid.UUID,
+    card_id: uuid.UUID,
+    default_chat_id: uuid.UUID | None,
+    extraction_language: str,
+) -> None:
+    """Execute one persisted job, tracking status and attempt count."""
+    from app.database import async_session
+    from app.models.card_processing_job import CardProcessingJob
+
+    # Mark running (attempts is incremented here, not at enqueue time)
+    async with async_session() as db:
+        job = await db.get(CardProcessingJob, job_id)
+        if job is None:
+            logger.warning("Job %s not found, skipping", job_id)
+            return
+        job.status = "running"
+        job.attempts += 1
+        await db.commit()
+
+    try:
+        await _process_card(card_id, default_chat_id, extraction_language)
+    except Exception as e:
+        logger.error(
+            "Card %s processing failed (job %s): %s", card_id, job_id, e, exc_info=True
+        )
+        async with async_session() as db:
+            job = await db.get(CardProcessingJob, job_id)
+            if job is not None:
+                job.status = "failed"
+                job.last_error = str(e)[:1000]
+                await db.commit()
+        return
+
+    async with async_session() as db:
+        job = await db.get(CardProcessingJob, job_id)
+        if job is not None:
+            job.status = "done"
+            job.last_error = None
+            await db.commit()
+    logger.info("Card %s processing complete (job %s)", card_id, job_id)
+
+
+async def recover_pending_jobs() -> int:
+    """Re-schedule pending and retryable failed jobs (call on startup).
+
+    Pending jobs (killed mid-flight or never picked up) are re-queued
+    immediately. Failed jobs below ``MAX_ATTEMPTS`` are retried; a restart
+    is treated as the retry backoff. Returns the number recovered.
+    """
+    from app.database import async_session
+    from app.models.card_processing_job import CardProcessingJob
+
+    async with async_session() as db:
+        pending = (
+            await db.execute(
+                select(CardProcessingJob).where(CardProcessingJob.status == "pending")
+            )
+        ).scalars().all()
+        retryable = (
+            await db.execute(
+                select(CardProcessingJob).where(
+                    CardProcessingJob.status == "failed",
+                    CardProcessingJob.attempts < MAX_ATTEMPTS,
+                )
+            )
+        ).scalars().all()
+
+    recovered = 0
+    for job in list(pending) + list(retryable):
+        await _schedule_for_workspace(
+            str(job.workspace_id),
+            (job.id, job.card_id, job.default_chat_id, job.extraction_language),
+        )
+        recovered += 1
+
+    if recovered:
+        logger.info("Recovered %d pending/retryable jobs after restart", recovered)
+    return recovered
 
 
 async def _process_card(

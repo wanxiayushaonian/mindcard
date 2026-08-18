@@ -43,6 +43,14 @@ async def lifespan(app: FastAPI):
     register_builtin_tools()
     logger.info("Built-in tools registered")
 
+    # Resume card-processing jobs that were pending or retryable before a restart
+    from app.utils.card_tasks import recover_pending_jobs
+    try:
+        recovered = await recover_pending_jobs()
+        logger.info("Card processing job recovery: %d re-scheduled", recovered)
+    except Exception as e:
+        logger.warning("Card processing job recovery failed (continuing startup): %s", e)
+
     yield
     # Shutdown: cleanup
     from app.services.embedding import embedding_service
