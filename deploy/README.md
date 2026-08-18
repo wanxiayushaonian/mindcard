@@ -24,9 +24,12 @@ mindcard.online ─▶  web 容器 :3000    api.mindcard.online ─▶  server �
 
 ```bash
 # 服务器上一次性准备
-sudo apt update
-sudo apt install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx
-sudo systemctl enable --now docker nginx
+# 方式 A：一键脚本（推荐，含镜像加速与基础镜像预拉）
+sudo bash deploy/setup-server.sh
+# 方式 B：手动
+# sudo apt update
+# sudo apt install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx
+# sudo systemctl enable --now docker nginx
 ```
 
 ### 网络加速（国内服务器必做）
@@ -60,7 +63,7 @@ docker tag  docker.m.daocloud.io/library/node:20-alpine node:20-alpine
 
 ```bash
 cd server
-cp .env.example .env
+cp ../deploy/env.prod.example .env   # 生产模板（含全部变量说明）
 chmod 600 .env
 ```
 
