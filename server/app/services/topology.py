@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 import numpy as np
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.card import Card
@@ -30,15 +30,15 @@ class TopologyService:
     async def assign_card_to_node(
         self, db: AsyncSession, card: Card, default_node_id: uuid.UUID | None = None
     ):
-        """Find the best-matching tree node (AiChat) for a card and attach it.
+        """Find the tree node (AiChat) to attach a card to and attach it.
 
-        If default_node_id is provided, checks similarity with that node first.
-        Only assigns to default node if similarity > 0.7 (or if embeddings are missing).
-        Otherwise falls back to embedding-based search.
+        If default_node_id (the source conversation) is provided, the card is
+        mounted to that node directly — source mounting, VISION 理念4: the card
+        belongs where it was created from. Any root attachment is dropped so the
+        card lives in exactly one node.
 
-        Skips the root node — only matches against branch/leaf nodes that
-        have an embedding (i.e., nodes with at least one card already).
-        Falls back to attaching to root if no good match is found.
+        Without a source, falls back to embedding-based search (skips the root,
+        matches branch/leaf nodes with an embedding), then to the root node.
         """
         # Serialize per-workspace
         await db.execute(
@@ -77,44 +77,30 @@ class TopologyService:
             default_node = default_node_result.scalar_one_or_none()
 
             if default_node:
-                # If both card and default node have embeddings, check similarity
-                if default_node.embedding and card.embedding:
-                    similarity = 1.0 - self._cosine_distance(card.embedding, default_node.embedding)
-                    if similarity > 0.7:
-                        # High similarity - assign to default node
-                        existing = await db.execute(
-                            select(NodeCard).where(
-                                NodeCard.chat_id == default_node.id,
-                                NodeCard.card_id == card.id,
-                            )
-                        )
-                        if not existing.scalar_one_or_none():
-                            db.add(NodeCard(chat_id=default_node.id, card_id=card.id))
-                            await db.flush()
-                            await self._recalculate_node_centroid(db, default_node.id)
-                            logger.info(
-                                "Card %s assigned to default node %s '%s' (similarity=%.4f)",
-                                card.id, default_node.id, default_node.title, similarity,
-                            )
-                        return
-                    # Similarity too low - fall through to embedding-based search
-                else:
-                    # Missing embeddings - assign directly to default node
-                    existing = await db.execute(
-                        select(NodeCard).where(
-                            NodeCard.chat_id == default_node.id,
-                            NodeCard.card_id == card.id,
-                        )
+                # Source mounting (VISION 理念4): the card belongs to the node it
+                # was created from — bind directly, no similarity gate. Also drop
+                # any root attachment so the card isn't in two nodes at once.
+                await db.execute(
+                    delete(NodeCard).where(
+                        NodeCard.card_id == card.id,
+                        NodeCard.chat_id == root_node.id,
                     )
-                    if not existing.scalar_one_or_none():
-                        db.add(NodeCard(chat_id=default_node.id, card_id=card.id))
-                        await db.flush()
-                        await self._recalculate_node_centroid(db, default_node.id)
-                        logger.info(
-                            "Card %s assigned to default node %s '%s' (no embeddings)",
-                            card.id, default_node.id, default_node.title,
-                        )
-                    return
+                )
+                existing = await db.execute(
+                    select(NodeCard).where(
+                        NodeCard.chat_id == default_node.id,
+                        NodeCard.card_id == card.id,
+                    )
+                )
+                if not existing.scalar_one_or_none():
+                    db.add(NodeCard(chat_id=default_node.id, card_id=card.id))
+                    await db.flush()
+                    await self._recalculate_node_centroid(db, default_node.id)
+                    logger.info(
+                        "Card %s source-mounted to node %s '%s'",
+                        card.id, default_node.id, default_node.title,
+                    )
+                return
 
         # Fall through to embedding-based assignment
         if not card.embedding:

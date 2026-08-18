@@ -134,19 +134,28 @@ async def create_card(
     db.add(card)
     await db.flush()
 
-    # Auto-attach card to workspace root node in topology tree
+    # Auto-attach card to its source conversation node when provided (source
+    # mounting — VISION 理念4: the card belongs where it was created from),
+    # else fall back to the workspace root node.
     from app.models.chat import AiChat
     from app.models.topology import NodeCard
 
-    root_result = await db.execute(
-        select(AiChat).where(
-            AiChat.workspace_id == parse_uuid(req.workspace_id),
-            AiChat.parent_id.is_(None),
-        ).limit(1)
-    )
-    root_node = root_result.scalar_one_or_none()
-    if root_node:
-        db.add(NodeCard(chat_id=root_node.id, card_id=card.id))
+    attach_node_id = default_chat_id
+    if attach_node_id:
+        source_node = await db.get(AiChat, attach_node_id)
+        if not source_node:
+            attach_node_id = None
+    if not attach_node_id:
+        root_result = await db.execute(
+            select(AiChat).where(
+                AiChat.workspace_id == parse_uuid(req.workspace_id),
+                AiChat.parent_id.is_(None),
+            ).limit(1)
+        )
+        root_node = root_result.scalar_one_or_none()
+        attach_node_id = root_node.id if root_node else None
+    if attach_node_id:
+        db.add(NodeCard(chat_id=attach_node_id, card_id=card.id))
 
     background_tasks.add_task(_generate_embedding, card.id, default_chat_id)
     await create_activity(
@@ -185,14 +194,21 @@ async def create_cards_batch(
     if conflicts:
         raise HTTPException(status_code=409, detail=f"local_id 已存在: {', '.join(conflicts[:10])}")
 
-    # Find root topology node
+    # Attach to source conversation node if provided (source mounting), else root
     from app.models.chat import AiChat
     from app.models.topology import NodeCard
 
-    root_result = await db.execute(
-        select(AiChat).where(AiChat.workspace_id == ws_id, AiChat.parent_id.is_(None)).limit(1)
-    )
-    root_node = root_result.scalar_one_or_none()
+    attach_node_id = default_chat_id
+    if attach_node_id:
+        source_node = await db.get(AiChat, attach_node_id)
+        if not source_node:
+            attach_node_id = None
+    if not attach_node_id:
+        root_result = await db.execute(
+            select(AiChat).where(AiChat.workspace_id == ws_id, AiChat.parent_id.is_(None)).limit(1)
+        )
+        root_node = root_result.scalar_one_or_none()
+        attach_node_id = root_node.id if root_node else None
 
     # Bulk create
     created_ids = []
@@ -209,8 +225,8 @@ async def create_cards_batch(
             await db.flush()
             created_ids.append(str(card.id))
 
-            if root_node:
-                db.add(NodeCard(chat_id=root_node.id, card_id=card.id))
+            if attach_node_id:
+                db.add(NodeCard(chat_id=attach_node_id, card_id=card.id))
 
             if not card_data.get("is_temp"):
                 background_tasks.add_task(_generate_embedding, card.id, default_chat_id)
