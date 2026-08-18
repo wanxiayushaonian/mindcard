@@ -1,0 +1,23 @@
+services:
+  postgres:
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mindcard
+      POSTGRES_PASSWORD: 1rU0Z3FfUSRxa8vOFU6S
+      POSTGRES_DB: mindcard
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  app:
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mindcard:1rU0Z3FfUSRxa8vOFU6S@postgres:5432/mindcard
+      REDIS_URL: redis://redis:6379/0
+    volumes: !override []
+    command: !override uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
