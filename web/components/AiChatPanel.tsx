@@ -219,6 +219,60 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const loadChatRef = useRef<(id: string) => Promise<boolean>>(() => Promise.resolve(false));
   const forkMetaRef = useRef<Record<string, ForkMetaEntry>>({});
 
+  // Real tree structure from chat history — used to decide fork kinship by the
+  // actual parent chain, NOT by depth (sibling branches at the same depth must
+  // stay mutually exclusive).
+  const { parentMap, childrenMap } = useMemo(() => {
+    const pm = new Map<string, string | null>();
+    const cm = new Map<string, string[]>();
+    for (const c of history) {
+      pm.set(c.id, c.parent_id);
+      if (c.parent_id) {
+        const arr = cm.get(c.parent_id) ?? [];
+        arr.push(c.id);
+        cm.set(c.parent_id, arr);
+      }
+    }
+    return { parentMap: pm, childrenMap: cm };
+  }, [history]);
+
+  // Chat-id chain from this fork up to the root (excluding the root itself).
+  // forkId IS the child chat id for real forks, so walk parentMap directly
+  // (nodeId can be empty for dividers loaded without the encoded prefix).
+  const getAncestorChain = useCallback(
+    (forkId: string): string[] => {
+      const chain: string[] = [];
+      let cur = forkId;
+      const visited = new Set<string>();
+      while (cur && !visited.has(cur)) {
+        visited.add(cur);
+        const pid = parentMap.get(cur);
+        if (!pid) break;
+        chain.push(pid);
+        cur = pid;
+      }
+      return chain;
+    },
+    [parentMap]
+  );
+
+  // All descendant chat ids of a chat (recursive).
+  const getDescendantIds = useCallback(
+    (chatId: string): string[] => {
+      const out: string[] = [];
+      const stack = [chatId];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        for (const child of childrenMap.get(cur) ?? []) {
+          out.push(child);
+          stack.push(child);
+        }
+      }
+      return out;
+    },
+    [childrenMap]
+  );
+
   const expandedForksRef = useRef<Set<string>>(new Set());
   // Sync wrapper: updates both state AND ref atomically
   const syncExpandedForks = useCallback((updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
@@ -359,9 +413,14 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     if (scrollTargetForkRef.current) {
       const forkId = scrollTargetForkRef.current;
       scrollTargetForkRef.current = null;
-      const elements = document.querySelectorAll(`[data-fork-child="${forkId}"]`);
-      const last = elements[elements.length - 1] as HTMLElement | undefined;
-      last?.scrollIntoView({ behavior: "smooth", block: "end" });
+      // Wait for ForkExpandable's open animation (~300ms) so the fork content is
+      // at its final height — scrolling mid-animation lands short as the block grows.
+      const t = setTimeout(() => {
+        const elements = document.querySelectorAll(`[data-fork-child="${forkId}"]`);
+        const last = elements[elements.length - 1] as HTMLElement | undefined;
+        last?.scrollIntoView({ behavior: "smooth", block: "end" });
+      }, 350);
+      return () => clearTimeout(t);
     } else if (activeStreamForkRef.current) {
       // Streaming inside a fork — follow the latest content; clear after streaming ends
       const forkId = activeStreamForkRef.current;
@@ -429,52 +488,39 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     [t]
   );
 
-  // Toggle fork expansion (for ForkDivider clicks)
+  // Toggle fork expansion (for ForkDivider clicks). Kinship is decided by the
+  // real parent chain: expanding a fork also expands its ancestors (contained),
+  // and collapses every non-kinship fork (mutually exclusive siblings).
   const toggleFork = useCallback((forkId: string) => {
     syncExpandedForks((prev) => {
-      const next = new Set(prev);
-      if (next.has(forkId)) {
-        // Already expanded → collapse it and all deeper children
-        const collapseDepth = forkMetaRef.current[forkId]?.depth ?? 0;
+      if (prev.has(forkId)) {
+        // Collapse this fork and its actual descendants
+        const descendants = getDescendantIds(forkId);
+        const next = new Set(prev);
         next.delete(forkId);
-        for (const [cid, m] of Object.entries(forkMetaRef.current)) {
-          if ((m.depth ?? 0) > collapseDepth) {
-            next.delete(cid);
-          }
-        }
-        // Reset active fork if it was this fork or any descendant
+        for (const d of descendants) next.delete(d);
+        // Reset active fork if it was this fork or a descendant
         const activeId = activeChatIdRef.current;
-        if (activeId) {
-          const activeDepth = forkMetaRef.current[activeId]?.depth ?? 0;
-          if (activeId === forkId || activeDepth > collapseDepth) {
-            setActiveForkId(null);
-            activeChatIdRef.current = null;
-          }
+        if (activeId && (activeId === forkId || descendants.includes(activeId))) {
+          setActiveForkId(null);
+          activeChatIdRef.current = null;
         }
-      } else {
-        // Collapsed → expand it, collapse siblings and all deeper forks
-        const meta = forkMetaRef.current[forkId];
-        const depth = meta?.depth ?? 0;
-        for (const [cid, m] of Object.entries(forkMetaRef.current)) {
-          if (cid !== forkId && (m.depth ?? 0) >= depth) {
-            next.delete(cid);
-          }
-        }
-        next.add(forkId);
-        // Also expand parent forks
-        for (const [cid, m] of Object.entries(forkMetaRef.current)) {
-          if (cid !== forkId && (m.depth ?? 0) < depth) {
-            next.add(cid);
-          }
-        }
-        setActiveForkId(forkId);
-        activeChatIdRef.current = forkId;
-        // Load fork messages from child chat
-        loadForkContent(forkId, chatIdRef.current, { scroll: true });
+        return next;
       }
+
+      // Expand this fork + its ancestors; collapse everything else
+      const ancestors = getAncestorChain(forkId);
+      const next = new Set<string>();
+      for (const a of ancestors) {
+        if (forkMetaRef.current[a]) next.add(a); // only forks (skip the root)
+      }
+      next.add(forkId);
+      setActiveForkId(forkId);
+      activeChatIdRef.current = forkId;
+      loadForkContent(forkId, chatIdRef.current, { scroll: true });
       return next;
     });
-  }, []);
+  }, [getAncestorChain, getDescendantIds, loadForkContent]);
 
   const handleCreateFork = useCallback((topic: string, profile: string) => {
     const parentId = activeChatIdRef.current || chatIdRef.current;
@@ -513,40 +559,22 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       return;
     }
 
-    // Clicking a fork: expand it, collapse siblings at same depth, load its messages
-    const meta = forkMetaRef.current[targetChatId];
-    const targetDepth = meta?.depth ?? 0;
-
-    syncExpandedForks((prev) => {
-      const next = new Set(prev);
-      // Collapse everything deeper than the target
-      for (const [cid, m] of Object.entries(forkMetaRef.current)) {
-        if ((m.depth ?? 0) > targetDepth) {
-          next.delete(cid);
-        }
-      }
-      // Collapse siblings at the same depth
-      for (const [cid, m] of Object.entries(forkMetaRef.current)) {
-        if (cid !== targetChatId && (m.depth ?? 0) === targetDepth) {
-          next.delete(cid);
-        }
-      }
-      // Expand the target and all its ancestors
-      next.add(targetChatId);
-      for (const [cid, m] of Object.entries(forkMetaRef.current)) {
-        if (cid !== targetChatId && (m.depth ?? 0) < targetDepth) {
-          next.add(cid);
-        }
-      }
-      return next;
-    });
+    // Clicking a fork: expand it + its ancestors, collapse everything else
+    // (kinship by the real parent chain, not depth).
+    const ancestors = getAncestorChain(targetChatId);
+    const next = new Set<string>();
+    for (const a of ancestors) {
+      if (forkMetaRef.current[a]) next.add(a); // only forks (skip the root)
+    }
+    next.add(targetChatId);
+    syncExpandedForks(next);
 
     setActiveForkId(targetChatId);
     activeChatIdRef.current = targetChatId;
 
     // Load fork messages from child chat for display (skip synthetic IDs)
     loadForkContent(targetChatId, rootChatId, { scroll: true });
-  }, []);
+  }, [getAncestorChain, loadForkContent]);
 
   // Initialize WebSocket client
   useEffect(() => {
