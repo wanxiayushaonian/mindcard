@@ -6,12 +6,21 @@ logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
-    """Embedding service using Ollama API with bge-m3 model."""
+    """Embedding service supporting Ollama (local) or OpenAI-compatible APIs.
+
+    Provider is selected via ``embedding_provider`` in settings:
+    - ``ollama`` (default): POST {base}/api/embed with bge-m3
+    - ``openai``: POST {base}/embeddings (OpenAI-compatible, e.g. SiliconFlow BAAI/bge-m3)
+    Both must output vectors matching ``embedding_dim`` (1024) since the DB
+    columns are fixed to vector(1024).
+    """
 
     def __init__(self):
         from app.config import settings
-        self._base_url = settings.ollama_base_url.rstrip("/")
+        self._provider = settings.embedding_provider.strip().lower()
+        self._base_url = (settings.embedding_base_url or settings.ollama_base_url).rstrip("/")
         self._model = settings.embedding_model
+        self._api_key = settings.embedding_api_key
         self._client: httpx.AsyncClient | None = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -19,19 +28,40 @@ class EmbeddingService:
             self._client = httpx.AsyncClient(timeout=httpx.Timeout(120.0), trust_env=False)
         return self._client
 
+    async def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
+        """Call Ollama embed API (POST {base}/api/embed)."""
+        resp = await self._get_client().post(
+            f"{self._base_url}/api/embed",
+            json={"model": self._model, "input": texts},
+        )
+        resp.raise_for_status()
+        return resp.json()["embeddings"]
+
+    async def _embed_openai(self, texts: list[str]) -> list[list[float]]:
+        """Call an OpenAI-compatible embeddings API (POST {base}/embeddings)."""
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        resp = await self._get_client().post(
+            f"{self._base_url}/embeddings",
+            headers=headers,
+            json={"model": self._model, "input": texts},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return [item["embedding"] for item in data["data"]]
+
     async def _embed_raw(self, texts: list[str]) -> list[list[float]]:
-        """Call Ollama embed API and return raw embeddings."""
-        client = self._get_client()
+        """Generate raw embeddings via the configured provider."""
         try:
-            resp = await client.post(
-                f"{self._base_url}/api/embed",
-                json={"model": self._model, "input": texts},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["embeddings"]
+            if self._provider == "openai":
+                return await self._embed_openai(texts)
+            return await self._embed_ollama(texts)
         except Exception as e:
-            logger.error("Ollama embed API failed (%s): %s", self._base_url, e)
+            logger.error(
+                "Embedding API failed (provider=%s, base=%s): %s",
+                self._provider, self._base_url, e,
+            )
             raise
 
     async def embed(self, text: str) -> list[float]:
@@ -49,10 +79,10 @@ class EmbeddingService:
         """
         if not texts:
             return []
-        CHUNK = 64
+        chunk_size = 64
         all_embeddings: list[list[float]] = []
-        for i in range(0, len(texts), CHUNK):
-            chunk = texts[i : i + CHUNK]
+        for i in range(0, len(texts), chunk_size):
+            chunk = texts[i : i + chunk_size]
             all_embeddings.extend(await self._embed_raw(chunk))
         return all_embeddings
 

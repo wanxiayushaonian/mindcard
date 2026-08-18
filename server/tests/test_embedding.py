@@ -1,7 +1,8 @@
 """Unit tests for EmbeddingService."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 from app.services.embedding import EmbeddingService
@@ -115,3 +116,93 @@ class TestEmbed:
         service._embed_raw = AsyncMock(side_effect=Exception("Ollama down"))
         with pytest.raises(Exception, match="Ollama down"):
             await service.embed("hello")
+
+
+class TestProviderDispatch:
+    """Tests for embedding provider selection (Ollama vs OpenAI-compatible API)."""
+
+    @pytest.mark.asyncio
+    async def test_ollama_provider_uses_embed_endpoint(self):
+        service = EmbeddingService()
+        service._provider = "ollama"
+        service._base_url = "http://localhost:11434"
+        service._model = "bge-m3"
+        client = AsyncMock()
+        resp = MagicMock()
+        resp.json.return_value = {"embeddings": [[0.1, 0.2]]}
+        client.post = AsyncMock(return_value=resp)
+        service._get_client = MagicMock(return_value=client)
+
+        result = await service._embed_raw(["hello"])
+
+        assert result == [[0.1, 0.2]]
+        client.post.assert_called_once_with(
+            "http://localhost:11434/api/embed",
+            json={"model": "bge-m3", "input": ["hello"]},
+        )
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_uses_embeddings_endpoint(self):
+        service = EmbeddingService()
+        service._provider = "openai"
+        service._base_url = "https://api.siliconflow.cn/v1"
+        service._model = "BAAI/bge-m3"
+        service._api_key = "sk-test"
+        client = AsyncMock()
+        resp = MagicMock()
+        resp.json.return_value = {
+            "data": [
+                {"embedding": [0.1, 0.2]},
+                {"embedding": [0.3, 0.4]},
+            ]
+        }
+        client.post = AsyncMock(return_value=resp)
+        service._get_client = MagicMock(return_value=client)
+
+        result = await service._embed_raw(["a", "b"])
+
+        assert result == [[0.1, 0.2], [0.3, 0.4]]
+        client.post.assert_called_once_with(
+            "https://api.siliconflow.cn/v1/embeddings",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer sk-test",
+            },
+            json={"model": "BAAI/bge-m3", "input": ["a", "b"]},
+        )
+
+    @pytest.mark.asyncio
+    async def test_openai_without_key_omits_auth_header(self):
+        service = EmbeddingService()
+        service._provider = "openai"
+        service._base_url = "https://api.example.com/v1"
+        service._model = "m"
+        service._api_key = ""
+        client = AsyncMock()
+        resp = MagicMock()
+        resp.json.return_value = {"data": [{"embedding": [1.0]}]}
+        client.post = AsyncMock(return_value=resp)
+        service._get_client = MagicMock(return_value=client)
+
+        await service._embed_raw(["x"])
+
+        _, kwargs = client.post.call_args
+        assert kwargs["headers"] == {"Content-Type": "application/json"}
+
+    @pytest.mark.asyncio
+    async def test_openai_error_propagates(self):
+        service = EmbeddingService()
+        service._provider = "openai"
+        service._base_url = "https://api.example.com/v1"
+        service._model = "m"
+        service._api_key = "sk-test"
+        client = AsyncMock()
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "401", request=MagicMock(), response=MagicMock()
+        )
+        client.post = AsyncMock(return_value=resp)
+        service._get_client = MagicMock(return_value=client)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await service._embed_raw(["x"])
