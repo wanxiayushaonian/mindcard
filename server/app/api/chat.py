@@ -67,12 +67,11 @@ async def list_chats(
         await get_workspace_membership(parse_uuid(workspace_id), user, db)
     stmt = select(AiChat).order_by(AiChat.created_at.desc())
     if workspace_id:
-        # Include: user's own chats + shared workspace root nodes (no owner)
-        from sqlalchemy import and_
+        # Include: user's own chats + shared (ownerless) conversations visible to members
         stmt = stmt.where(
             or_(
                 AiChat.user_id == user.id,
-                and_(AiChat.node_type == "root", AiChat.user_id.is_(None)),
+                AiChat.user_id.is_(None),
             )
         )
         stmt = stmt.where(AiChat.workspace_id == parse_uuid(workspace_id))
