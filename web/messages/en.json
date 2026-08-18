@@ -1063,5 +1063,31 @@
     "prev": "Previous",
     "next": "Next",
     "jumpTo": "Jump to #{n}"
+  },
+  "landing": {
+    "badge": "Cognitive Workflow · AI Agent",
+    "tagline": "Turn divergent thoughts into a forest of knowledge, and harvest clear reports",
+    "ctaStart": "Get Started",
+    "ctaLogin": "Already have an account? Log in",
+    "loopTitle": "A complete cognitive loop",
+    "loopSubtitle": "Think, record, and produce in one place",
+    "loop1Title": "Diverge",
+    "loop1Desc": "Explore freely with an AI teacher; conversation forking carries jumpy thinking",
+    "loop2Title": "Sediment",
+    "loop2Desc": "Cards born naturally from conversations, mounted onto the knowledge forest",
+    "loop3Title": "Converge",
+    "loop3Desc": "An agent walks the forest; a stronger LLM produces reports and thinking analysis",
+    "loop4Title": "Revisit",
+    "loop4Desc": "Resurface old knowledge regularly, compounding your thinking",
+    "featuresTitle": "More than notes — a thinking infrastructure",
+    "feature1Title": "Smart conversation forking",
+    "feature1Desc": "AI detects topic drift and forks, keeping divergent explorations independent",
+    "feature2Title": "Knowledge topology forest",
+    "feature2Desc": "Cards mount to the conversation where they were born, preserving context",
+    "feature3Title": "Forest-level convergence",
+    "feature3Desc": "A stronger LLM walks the whole forest and synthesizes fragments into a report",
+    "feature4Title": "Retrieval as a plugin",
+    "feature4Desc": "RAG and knowledge graph as plugins, feeding context on demand",
+    "footer": "MindCard — your knowledge forest"
   }
 }

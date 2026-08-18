@@ -1063,5 +1063,31 @@
     "prev": "上一条",
     "next": "下一条",
     "jumpTo": "跳到第 {n} 条"
+  },
+  "landing": {
+    "badge": "认知工作流 · AI Agent",
+    "tagline": "把发散的思想，沉淀成知识的森林，并收获清晰的报告",
+    "ctaStart": "开始使用",
+    "ctaLogin": "已有账号？登录",
+    "loopTitle": "一个完整的认知循环",
+    "loopSubtitle": "MindCard 让思考、记录与产出发生在同一个地方",
+    "loop1Title": "发散",
+    "loop1Desc": "在 AI 老师面前自由探索，对话分叉承载跳跃性思维",
+    "loop2Title": "沉淀",
+    "loop2Desc": "卡片从对话中自然诞生，挂载到知识拓扑森林",
+    "loop3Title": "收敛",
+    "loop3Desc": "Agent 走查森林，更强 LLM 产出报告与思维模式分析",
+    "loop4Title": "复现",
+    "loop4Desc": "定期重遇旧知识，让思想持续复利",
+    "featuresTitle": "不只是笔记，是一套思维基础设施",
+    "feature1Title": "智能对话分叉",
+    "feature1Desc": "AI 自动识别话题漂移并分叉，让发散探索互不干扰",
+    "feature2Title": "知识拓扑森林",
+    "feature2Desc": "卡片源码挂载到诞生它的对话节点，想法保留语境",
+    "feature3Title": "森林级收敛",
+    "feature3Desc": "更强的 LLM 走查整片森林，把碎片思想合成一份报告",
+    "feature4Title": "检索即插件",
+    "feature4Desc": "RAG 与知识图谱作为增强插件，按需为上下文补充知识",
+    "footer": "MindCard — 你的知识森林"
   }
 }
