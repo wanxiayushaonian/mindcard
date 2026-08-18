@@ -21,6 +21,10 @@ export function ThemeToggle() {
     setDark(next);
     document.documentElement.classList.toggle("dark", next);
     localStorage.setItem("theme", next ? "dark" : "light");
+    // Keep the cookie in sync so server-rendered <html className> matches on
+    // the next RSC refresh (locale switch etc.) — otherwise React resets the
+    // `.dark` class it does not know about.
+    document.cookie = `theme=${next ? "dark" : "light"};path=/;max-age=31536000`;
   };
 
   return (

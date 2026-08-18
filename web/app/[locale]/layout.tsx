@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getTranslations } from "next-intl/server";
 import "./globals.css";
@@ -45,16 +46,35 @@ export default async function RootLayout({
 }) {
   const messages = await getMessages();
 
+  // Server-side theme so React's virtual DOM matches the real class list.
+  // The inline script below keeps the first paint correct (no flash) and
+  // persists its system-preference inference to the same cookie, so a
+  // router.refresh() (e.g. locale switch) re-renders <html> with the right
+  // className instead of resetting the manually-added `.dark`.
+  const theme = cookies().get("theme")?.value;
+  const isDark = theme === "dark";
+
   return (
-    <html lang={locale} suppressHydrationWarning>
+    <html lang={locale} className={isDark ? "dark" : ""} suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
-                var t = localStorage.getItem('theme');
+                var m = document.cookie.match(/theme=([^;]+)/);
+                var t = m ? m[1] : null;
+                if (!t) {
+                  var stored = localStorage.getItem('theme');
+                  if (stored) {
+                    t = stored;
+                    document.cookie = 'theme=' + stored + ';path=/;max-age=31536000';
+                  }
+                }
                 var d = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-                if (d) document.documentElement.classList.add('dark');
+                if (d) {
+                  document.documentElement.classList.add('dark');
+                  if (!t) document.cookie = 'theme=dark;path=/;max-age=31536000';
+                }
               })();
             `,
           }}
