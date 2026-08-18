@@ -165,7 +165,8 @@
     "expandCardList": "Expand card list",
     "collapseCardList": "Collapse card list",
     "expandAiChat": "Expand AI chat",
-    "collapseAiChat": "Collapse AI chat"
+    "collapseAiChat": "Collapse AI chat",
+    "synthesis": "Synthesis"
   },
   "role": {
     "owner": "Owner",

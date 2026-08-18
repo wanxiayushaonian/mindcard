@@ -165,7 +165,8 @@
     "expandCardList": "展开卡片列表",
     "collapseCardList": "收起卡片列表",
     "expandAiChat": "展开AI对话",
-    "collapseAiChat": "收起AI对话"
+    "collapseAiChat": "收起AI对话",
+    "synthesis": "合成"
   },
   "role": {
     "owner": "创建者",

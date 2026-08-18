@@ -162,6 +162,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const navItems = [
     { label: t("insights"), href: `/workspaces/${workspaceId}/insights`, highlight: false, icon: <Lightbulb size={14} /> },
+    { label: t("synthesis"), href: `/workspaces/${workspaceId}/synthesis`, highlight: false, icon: <Sparkles size={14} /> },
     { label: t("relatedNetwork"), href: `/workspaces/${workspaceId}/network`, highlight: false, icon: <Network size={14} /> },
     { label: t("knowledgeGraph"), href: `/workspaces/${workspaceId}/knowledge-graph`, highlight: false, icon: <GitBranch size={14} /> },
     { label: t("activities"), href: `/workspaces/${workspaceId}/activities`, highlight: false, icon: <Activity size={14} /> },

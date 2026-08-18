@@ -112,8 +112,12 @@ function SynthesisContent() {
   const templateList = templates?.templates ?? [];
 
   const [mode, setMode] = useState("free");
-  // Standard topic/node synthesis vs. agent-driven forest convergence (VISION 理念6)
-  const [viewMode, setViewMode] = useState<"standard" | "forest">("standard");
+  // Standard topic/node synthesis vs. agent-driven forest convergence (VISION 理念6).
+  // Without a topic/node source param, default to the workspace-level forest
+  // convergence — the standard view requires a source param.
+  const [viewMode, setViewMode] = useState<"standard" | "forest">(
+    !topicId && !nodeId ? "forest" : "standard"
+  );
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [preview, setPreview] = useState(false);
@@ -633,7 +637,7 @@ function SynthesisContent() {
     [scheduleAutoSave]
   );
 
-  if (!topicId && !nodeId) {
+  if (viewMode === "standard" && !topicId && !nodeId) {
     return (
       <div className="flex h-screen items-center justify-center text-text-secondary">
         {t("missingParam")}
