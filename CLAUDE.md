@@ -116,6 +116,9 @@ uv run ruff check .                        # Lint
 uv run mypy app/                           # Type check
 uv run pytest                              # Run tests
 uv run python -m scripts.reembed           # 重嵌入（embedding_model 打标/换模型时用）
+uv run python -m scripts.seed_demo         # 生成演示工作区（分支对话/卡片/拓扑，供测试）
+uv run python -m scripts.seed_demo --full  # 同上 + 完整管道（主题/三元组，耗 LLM）
+uv run python -m scripts.seed_demo --reset # 重建演示工作区
 ```
 
 ### Web Frontend (web/)
