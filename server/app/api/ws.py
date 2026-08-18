@@ -411,11 +411,15 @@ async def chat_websocket(websocket: WebSocket):
     # ── Synthesis mode: forest-level convergence (VISION 理念6) ────────────
 
     async def handle_synthesis(goal: str, workspace_id: str | None) -> None:
-        """Let the LLM walk the topology forest with the exploration tools and
-        produce a convergent report (阶段1 目标导向下钻 → 两遍式合成第一遍).
+        """Two-pass forest convergence (VISION 理念6).
 
-        Streams `synthesis_start`, tool events, `content` chunks, then
-        `synthesis_complete {report}`. No chat_id — it's a workspace-level op.
+        Pass 1: the agent walks the forest with the exploration tools; its draft
+        is buffered (only tool events stream to the UI).
+        Pass 2: produce_synthesis refines the draft with the stronger synthesis
+        LLM and streams the final report.
+
+        Events: `synthesis_start` → tool events → `synthesis_progress {refining}`
+        → `content` (report) → `synthesis_complete {report}`.
         """
         from app.tools.registry import get_all_tool_specs
 
@@ -431,15 +435,15 @@ async def chat_websocket(websocket: WebSocket):
         system_content = (
             "你是 MindCard 的知识森林收敛分析员。用户会给出一个收敛目标。\n"
             "你的任务是走查工作区的知识拓扑森林（对话分叉 + 沉淀卡片 + 关系），"
-            "然后产出一份结构化的 Markdown 报告。\n\n"
+            "然后产出一份**草稿**（会被更强的模型精修为最终报告）。\n\n"
             "分析步骤：\n"
             "1. 先用 topology_forest_map 看整片森林的结构与各分支摘要。\n"
             "2. 根据收敛目标，用 get_node_detail 或 get_node_subtree 深入相关分支，"
             "用 get_card_relations 查看关键卡片的连接。\n"
             "3. 观察：哪些分支被充分探索、哪些是孤立的；卡片之间的关系揭示了怎样的思考结构；"
             "是否有本该连接却未连接的知识。\n"
-            "4. 最后综合成一份 Markdown 报告，包含：主题概览、关键洞察、"
-            "知识之间的关系、以及可进一步探索的方向。\n\n"
+            "4. 最后产出一份结构化的**草稿**（Markdown），包含：主题概览、关键洞察、"
+            "知识之间的关系、以及可进一步探索的方向。草稿只需条理清晰，表达精修交给后续模型。\n\n"
             "如果森林为空或目标无法从森林中获取信息，如实说明，不要编造。"
         )
         messages = [
@@ -449,7 +453,8 @@ async def chat_websocket(websocket: WebSocket):
 
         await safe_send({"type": "synthesis_start", "goal": goal})
 
-        full_response = ""
+        # Pass 1: agent walk — buffer the draft, stream only tool events.
+        draft = ""
         try:
             async for db_session in get_db():
                 try:
@@ -461,16 +466,34 @@ async def chat_websocket(websocket: WebSocket):
                         if isinstance(chunk, dict):
                             await safe_send(chunk)
                         else:
-                            full_response += chunk
-                            await safe_send({"type": "content", "content": chunk})
+                            draft += chunk
                 finally:
                     break
         except Exception as e:
-            logger.error(f"Synthesis error: {e}", exc_info=True)
+            logger.error(f"Synthesis walk error: {e}", exc_info=True)
             await safe_send({"type": "synthesis_error", "message": str(e)})
             return
 
-        await safe_send({"type": "synthesis_complete", "report": full_response})
+        if not draft.strip():
+            await safe_send({
+                "type": "synthesis_error",
+                "message": "agent 未产出草稿，无法收敛",
+            })
+            return
+
+        # Pass 2: refine the draft with the stronger synthesis LLM.
+        await safe_send({"type": "synthesis_progress", "stage": "refining"})
+        try:
+            from app.services.synthesis import produce_synthesis
+
+            report = await produce_synthesis(goal, draft)
+        except Exception as e:
+            logger.error(f"Synthesis refine error: {e}", exc_info=True)
+            report = draft  # fall back to the raw draft
+
+        if report:
+            await safe_send({"type": "content", "content": report})
+        await safe_send({"type": "synthesis_complete", "report": report})
 
     async def handle_rag(
         question: str,

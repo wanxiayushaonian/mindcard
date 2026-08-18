@@ -36,6 +36,7 @@ export function ForestConvergencePanel({ workspaceId }: { workspaceId: string })
   const t = useTranslations("synthesis");
   const [goal, setGoal] = useState("");
   const [running, setRunning] = useState(false);
+  const [refining, setRefining] = useState(false);
   const [steps, setSteps] = useState<WalkStep[]>([]);
   const [report, setReport] = useState("");
   const [error, setError] = useState("");
@@ -61,16 +62,21 @@ export function ForestConvergencePanel({ workspaceId }: { workspaceId: string })
           return next;
         });
         break;
+      case "synthesis_progress":
+        if (event.stage === "refining") setRefining(true);
+        break;
       case "content":
         if (event.content) setReport((prev) => prev + event.content);
         break;
       case "synthesis_complete":
         setRunning(false);
+        setRefining(false);
         break;
       case "synthesis_error":
       case "error":
         setError(event.message || event.content || "收敛失败");
         setRunning(false);
+        setRefining(false);
         break;
     }
   }, []);
@@ -78,6 +84,7 @@ export function ForestConvergencePanel({ workspaceId }: { workspaceId: string })
   const run = useCallback(() => {
     if (!goal.trim() || running) return;
     setRunning(true);
+    setRefining(false);
     setSteps([]);
     setReport("");
     setError("");
@@ -131,7 +138,8 @@ export function ForestConvergencePanel({ workspaceId }: { workspaceId: string })
           </button>
           {running && (
             <span className="flex items-center gap-1.5 text-xs text-text-secondary">
-              <Loader2 size={12} className="animate-spin" /> {t("exploring")}
+              <Loader2 size={12} className="animate-spin" />
+              {refining ? t("refining") : t("exploring")}
             </span>
           )}
         </div>

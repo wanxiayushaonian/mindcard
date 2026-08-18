@@ -856,7 +856,8 @@
     "walkLog": "Exploration Path",
     "walkLogEmpty": "No exploration yet",
     "reportEmpty": "The convergence report will appear here",
-    "connectionLost": "Connection lost"
+    "connectionLost": "Connection lost",
+    "refining": "Refining with a stronger model…"
   },
   "insight": {
     "title": "Knowledge Insights",

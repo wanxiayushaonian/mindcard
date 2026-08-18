@@ -87,6 +87,18 @@ class LLMService:
     def reset_extraction_provider(self) -> None:
         self._extraction_provider = None
 
+    # -- Synthesis refinement LLM (VISION 理念6 两遍式第二遍) ----------------
+
+    @property
+    def synthesis_provider_name(self) -> str:
+        return settings.synthesis_llm_provider or settings.default_llm_provider
+
+    def _build_synthesis_provider(self) -> LLMProvider:
+        provider_name = settings.synthesis_llm_provider or settings.default_llm_provider
+        api_key, base_url = self._resolve_credentials(provider_name)
+        model = settings.synthesis_llm_model or None
+        return make_provider(provider_name, api_key, base_url, model)
+
     # ------------------------------------------------------------------
     # Completion methods
     # ------------------------------------------------------------------

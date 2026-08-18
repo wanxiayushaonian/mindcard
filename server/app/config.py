@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     extraction_llm_provider: str = ""  # empty = use default_llm_provider
     extraction_llm_model: str = ""  # empty = use provider's default model
 
+    # LLM for the final synthesis refinement pass (forest convergence, VISION 理念6).
+    # Should be a stronger model than the one used for the forest walk.
+    synthesis_llm_provider: str = ""  # empty = use default_llm_provider
+    synthesis_llm_model: str = ""  # empty = use provider's default model
+
     # Admin whitelist (comma-separated usernames). Gates server-wide settings
     # (provider switching, web-search config, .env writes). Empty = all denied.
     admin_usernames: str = ""

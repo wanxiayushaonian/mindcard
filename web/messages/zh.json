@@ -856,7 +856,8 @@
     "walkLog": "探索路径",
     "walkLogEmpty": "尚未开始探索",
     "reportEmpty": "收敛报告将显示在这里",
-    "connectionLost": "连接中断"
+    "connectionLost": "连接中断",
+    "refining": "正在用更强模型精修报告…"
   },
   "insight": {
     "title": "知识洞察",
