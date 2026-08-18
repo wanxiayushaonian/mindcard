@@ -11,7 +11,7 @@ interface MessageNavigatorProps {
   currentIdx: number;
   /** Navigate to a specific index */
   onNavigate: (idx: number) => void;
-  /** Disabled while streaming or when no messages */
+  /** Disabled while streaming — rail stays visible but interactions are inert */
   disabled?: boolean;
 }
 
@@ -27,20 +27,32 @@ export function MessageNavigator({
   count,
   currentIdx,
   onNavigate,
-  disabled,
+  disabled = false,
 }: MessageNavigatorProps) {
   const t = useTranslations("messageNav");
   const activeRef = useRef<HTMLButtonElement>(null);
+  const dotListRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll the active dot into view within the rail
+  // Manually scroll the active dot into view within the rail. Avoids
+  // scrollIntoView(), which can pull the whole page when the navigator
+  // is rendered in a portal to document.body.
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [currentIdx]);
+    const list = dotListRef.current;
+    const active = activeRef.current;
+    if (!list || !active) return;
+    const top = active.offsetTop;
+    const bottom = top + active.offsetHeight;
+    if (top < list.scrollTop) {
+      list.scrollTop = top;
+    } else if (bottom > list.scrollTop + list.clientHeight) {
+      list.scrollTop = bottom - list.clientHeight;
+    }
+  }, [currentIdx, disabled]);
 
-  if (disabled || count === 0) return null;
+  if (count === 0) return null;
 
-  const canPrev = currentIdx > 0;
-  const canNext = currentIdx < count - 1;
+  const canPrev = !disabled && currentIdx > 0;
+  const canNext = !disabled && currentIdx < count - 1;
 
   return (
     <div className="pointer-events-auto flex flex-col items-center gap-1 rounded-full border border-border/50 bg-surface/80 px-1 py-1.5 shadow-sm backdrop-blur-sm">
@@ -50,6 +62,7 @@ export function MessageNavigator({
         onClick={() => canPrev && onNavigate(currentIdx - 1)}
         disabled={!canPrev}
         title={t("prev")}
+        aria-label={t("prev")}
         className="flex h-5 w-5 items-center justify-center rounded-full text-text-secondary transition hover:bg-muted hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
       >
         <ChevronUp className="h-3.5 w-3.5" />
@@ -57,6 +70,7 @@ export function MessageNavigator({
 
       {/* Indicator dots */}
       <div
+        ref={dotListRef}
         className="flex max-h-[240px] flex-col items-center gap-1 overflow-y-auto py-1 [scrollbar-width:none]"
         style={{ scrollbarWidth: "none" }}
       >
@@ -67,9 +81,12 @@ export function MessageNavigator({
               key={idx}
               ref={isActive ? activeRef : undefined}
               type="button"
-              onClick={() => onNavigate(idx)}
+              onClick={() => !disabled && onNavigate(idx)}
+              disabled={disabled}
               title={t("jumpTo", { n: idx + 1 })}
-              className="group flex h-3 w-3 items-center justify-center"
+              aria-label={t("jumpTo", { n: idx + 1 })}
+              aria-current={isActive ? "true" : undefined}
+              className="group flex h-5 w-5 items-center justify-center"
             >
               <span
                 className={`block rounded-full transition-all ${
@@ -89,6 +106,7 @@ export function MessageNavigator({
         onClick={() => canNext && onNavigate(currentIdx + 1)}
         disabled={!canNext}
         title={t("next")}
+        aria-label={t("next")}
         className="flex h-5 w-5 items-center justify-center rounded-full text-text-secondary transition hover:bg-muted hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
       >
         <ChevronDown className="h-3.5 w-3.5" />

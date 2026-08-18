@@ -265,12 +265,28 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
     const observer = new IntersectionObserver(
       (entries) => {
+        // Pick the message closest to the observation band's center. Iterating
+        // entries in order and overwriting would make the active dot jitter
+        // between neighbours when several messages are intersecting at once.
+        const containerRect = container.getBoundingClientRect();
+        const bandTop = containerRect.top + containerRect.height * 0.2;
+        const bandBottom = containerRect.top + containerRect.height * 0.4;
+        const bandCenter = (bandTop + bandBottom) / 2;
+        let bestIdx = -1;
+        let bestDist = Infinity;
         for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const idx = Number(entry.target.getAttribute("data-msg-idx"));
-            const navPos = userMsgIndices.indexOf(idx);
-            if (navPos >= 0) setCurrentMsgIdx(navPos);
+          if (!entry.isIntersecting) continue;
+          const idx = Number(entry.target.getAttribute("data-msg-idx"));
+          const rect = entry.boundingClientRect;
+          const dist = Math.abs(rect.top + rect.height / 2 - bandCenter);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = idx;
           }
+        }
+        if (bestIdx >= 0) {
+          const navPos = userMsgIndices.indexOf(bestIdx);
+          if (navPos >= 0) setCurrentMsgIdx(navPos);
         }
       },
       { root: container, rootMargin: "-20% 0px -60% 0px", threshold: 0.1 }
@@ -1968,8 +1984,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
     </div>
 
-    {/* Message Navigator — portal to body, fixed overlay on scroll area */}
-    {userMsgIndices.length > 0 && !isStreaming && scrollRect && createPortal(
+    {/* Message Navigator — portal to body, fixed overlay on scroll area.
+        Stays mounted while streaming (disabled) to avoid flicker. */}
+    {userMsgIndices.length > 0 && scrollRect && createPortal(
       <div
         className="pointer-events-none"
         style={{
@@ -1984,6 +2001,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           count={userMsgIndices.length}
           currentIdx={currentMsgIdx}
           onNavigate={scrollToMessage}
+          disabled={isStreaming}
         />
       </div>,
       document.body
