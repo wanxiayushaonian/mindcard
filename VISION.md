@@ -113,7 +113,7 @@ MindCard 把**灵感生成的地方**搬到 AI agent 面前——让 AI 作为"�
 | 1 卡片笔记 | `Card`/`CardRelation`/WikiLink/原子性提示 | ✅ 已实现 |
 | 2 灵感诞生地 | AI 聊天 + `consolidation` 沉淀记忆 + 划选沉淀卡片 | ✅ 基础已实现 |
 | 3 发散分叉 | fork 全套（工具/守卫/压缩/折叠/持久化） | ✅ 已实现 |
-| 4 双层拓扑 | `NodeCard` 绑定 + `assign_card_to_node` | ⚠️ **偏差：挂载用 embedding 而非源码** |
+| 4 双层拓扑 | `NodeCard` 绑定 + `assign_card_to_node` 源码挂载 | ✅ 已实现（源码即归属） |
 | 5 检索插件 | 5 级检索 + RRF + 图遍历 + 社区报告 | ✅ 已实现 |
 | 6 森林级收敛 | `consolidation`(单会话) / `synthesis`(主题级) / INSIGHT(社区级) | ⚠️ **缺森林级** |
 | 7 复现循环 | `memory_decay.last_accessed_at` 已有种子 | ❌ 待建 |
@@ -125,7 +125,7 @@ MindCard 把**灵感生成的地方**搬到 AI agent 面前——让 AI 作为"�
 
 ## 关键偏差与修正优先级
 
-### P0 — 源码挂载（理念4）
+### P0 — 源码挂载（理念4）✅ 已实现
 
 **现状**：`topology_service.assign_card_to_node` 用 **embedding 相似度**决定卡片挂到哪个节点。
 **愿景**：卡片应挂到**它诞生时所在（当前打开的）对话节点**。
