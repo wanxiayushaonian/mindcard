@@ -65,16 +65,10 @@ export default async function RootLayout({
                 var t = m ? m[1] : null;
                 if (!t) {
                   var stored = localStorage.getItem('theme');
-                  if (stored) {
-                    t = stored;
-                    document.cookie = 'theme=' + stored + ';path=/;max-age=31536000';
-                  }
+                  if (stored) t = stored;
                 }
-                var d = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-                if (d) {
-                  document.documentElement.classList.add('dark');
-                  if (!t) document.cookie = 'theme=dark;path=/;max-age=31536000';
-                }
+                // Light by default; dark only when the user explicitly chose it.
+                if (t === 'dark') document.documentElement.classList.add('dark');
               })();
             `,
           }}

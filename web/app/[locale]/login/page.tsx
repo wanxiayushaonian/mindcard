@@ -4,11 +4,19 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { mutate } from "swr";
 import { useTranslations } from "next-intl";
-import { AtSign, Lock, Sparkles, User } from "lucide-react";
+import { AtSign, Cpu, GitBranch, Lock, MessageSquare, Search, Sparkles, User } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { authApi } from "@/lib/api";
 import { translateBackendError } from "@/lib/backend-errors";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
+const FEATURES = [
+  { icon: MessageSquare, titleKey: "featureAITitle", descKey: "featureAIDesc" },
+  { icon: Search, titleKey: "featureRagTitle", descKey: "featureRagDesc" },
+  { icon: GitBranch, titleKey: "featureTopologyTitle", descKey: "featureTopologyDesc" },
+  { icon: Cpu, titleKey: "featureMultiModelTitle", descKey: "featureMultiModelDesc" },
+] as const;
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,7 +51,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg px-4">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg px-4 py-10">
       {/* Soft brand-tinted ambient background */}
       <div className="pointer-events-none absolute inset-0" aria-hidden>
         <div className="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-primary-light/40 blur-3xl" />
@@ -51,14 +59,47 @@ export default function LoginPage() {
         <div className="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/5 blur-2xl" />
       </div>
 
-      <div className="absolute right-5 top-5">
+      {/* Top-right utilities */}
+      <div className="absolute right-5 top-5 flex items-center gap-2">
+        <ThemeToggle />
         <LanguageSwitcher />
       </div>
 
-      <div className="relative w-full max-w-md">
+      {/* Main content: product showcase (lg) + auth card */}
+      <div className="relative grid w-full max-w-4xl items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
+        {/* Product showcase — hidden on small screens */}
+        <div className="hidden lg:block">
+          <div className="mb-10">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-dark shadow-lg shadow-primary/30">
+              <Sparkles className="h-7 w-7 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight text-text">MindCard</h1>
+            <p className="mt-2 max-w-sm text-base leading-relaxed text-text-secondary">
+              {t("tagline")}
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            {FEATURES.map(({ icon: Icon, titleKey, descKey }) => (
+              <div key={titleKey} className="flex items-start gap-4">
+                <div className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-text">{t(titleKey)}</h3>
+                  <p className="mt-1 max-w-xs text-xs leading-relaxed text-text-secondary">
+                    {t(descKey)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Auth card */}
         <div className="rounded-card border border-border/50 bg-surface/90 p-8 shadow-xl shadow-primary/10 backdrop-blur-sm sm:p-10">
-          {/* Brand */}
-          <div className="mb-8 flex flex-col items-center text-center">
+          {/* Brand — only shown on small screens (large screens show it in the left column) */}
+          <div className="mb-8 flex flex-col items-center text-center lg:hidden">
             <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-dark shadow-lg shadow-primary/30">
               <Sparkles className="h-7 w-7 text-white" />
             </div>
@@ -160,8 +201,6 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-
-        <p className="mt-6 text-center text-xs text-text-secondary/60">MindCard</p>
       </div>
     </div>
   );
