@@ -126,4 +126,4 @@ When the backend is running, Swagger UI is available at `http://localhost:8000/d
 - **Chinese-first**: UI text, system prompts, and extraction defaults are in Chinese. Full-text search supports zhparser/pg_jieba for Chinese tokenization.
 - **Cursor-based pagination**: Card listing uses keyset pagination with `(sort_col, id)` tuples — not offset-based.
 - **No SDK dependencies**: All LLM providers use raw `httpx` calls. Do not add provider SDKs.
-- **Graph features**: GNN training (PyTorch), knowledge graph triple extraction, entity linking, and graph-based retrieval live in `server/app/services/`. Training can run locally or on Modal Labs remote GPU.
+- **Graph features**: knowledge graph triple extraction, entity linking, and graph-based retrieval (hop-traversal scoring) live in `server/app/services/`. All implemented in pure Python with SQLAlchemy + numpy — no PyTorch/torch dependency in the runtime.
