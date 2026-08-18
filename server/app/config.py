@@ -23,10 +23,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24  # 24 hours
 
-    # Embedding (Ollama)
+    # Embedding — provider: "ollama" (local Ollama) or "openai" (OpenAI-compatible API)
     ollama_base_url: str = "http://localhost:11434"
-    embedding_model: str = "bge-m3"
-    embedding_dim: int = 1024
+    embedding_provider: str = "ollama"
+    embedding_base_url: str = ""  # OpenAI-compatible base URL, e.g. https://api.siliconflow.cn/v1
+    embedding_api_key: str = ""  # required when embedding_provider == "openai"
+    embedding_model: str = "bge-m3"  # ollama: "bge-m3"; openai: e.g. "BAAI/bge-m3"
+    embedding_dim: int = 1024  # must match the DB vector(1024) columns
 
     # LLM — DeepSeek (default)
     deepseek_api_key: str = ""
@@ -59,6 +62,10 @@ class Settings(BaseSettings):
     extraction_llm_provider: str = ""  # empty = use default_llm_provider
     extraction_llm_model: str = ""  # empty = use provider's default model
 
+    # Admin whitelist (comma-separated usernames). Gates server-wide settings
+    # (provider switching, web-search config, .env writes). Empty = all denied.
+    admin_usernames: str = ""
+
     # CORS
     cors_origins: str = "*"
 
@@ -69,6 +76,8 @@ class Settings(BaseSettings):
     rate_limit_ai_window: int = 60
     rate_limit_rag_max: int = 10
     rate_limit_rag_window: int = 60
+    rate_limit_ws_max: int = 60  # WebSocket chat/rag messages per user per window
+    rate_limit_ws_window: int = 60
 
     # Search
     search_top_k: int = 20

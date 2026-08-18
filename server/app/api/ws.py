@@ -21,6 +21,7 @@ from app.services.rag import rag_service
 from app.services.topology import topology_service
 from app.services.web_search import web_search_service
 from app.utils.helpers import parse_uuid
+from app.utils.rate_limit import ws_limiter
 
 MAX_TOOL_ROUNDS = 5
 
@@ -537,6 +538,11 @@ async def chat_websocket(websocket: WebSocket):
                 if current_task and not current_task.done():
                     current_task.cancel()
 
+                # Rate limit per user (LLM cost protection)
+                if not ws_limiter.is_allowed(user_id):
+                    await safe_send({"type": "error", "content": "消息过于频繁，请稍后再试"})
+                    continue
+
                 message = msg.get("message", "")
                 history = msg.get("history")
                 web_search = msg.get("web_search", False)
@@ -566,6 +572,11 @@ async def chat_websocket(websocket: WebSocket):
                 # Cancel previous task if any
                 if current_task and not current_task.done():
                     current_task.cancel()
+
+                # Rate limit per user (LLM cost protection)
+                if not ws_limiter.is_allowed(user_id):
+                    await safe_send({"type": "error", "content": "消息过于频繁，请稍后再试"})
+                    continue
 
                 question = msg.get("question", "")
                 workspace_ids = msg.get("workspace_ids")

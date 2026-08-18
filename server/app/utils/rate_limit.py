@@ -45,6 +45,10 @@ rag_limiter = SlidingWindowRateLimiter(
     max_requests=settings.rate_limit_rag_max,
     window_seconds=settings.rate_limit_rag_window,
 )
+ws_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.rate_limit_ws_max,
+    window_seconds=settings.rate_limit_ws_window,
+)
 
 
 class RateLimit:

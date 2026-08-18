@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -12,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserSetting
-from app.models.workspace import WorkspaceMember
 from app.providers.factory import make_provider
 from app.providers.registry import PROVIDERS
 from app.services.llm import get_llm_service
@@ -63,15 +60,14 @@ class UpdateExtractionProviderRequest(BaseModel):
 
 
 async def _require_admin(user: User, db: AsyncSession) -> None:
-    """Verify user is an owner of at least one workspace (admin proxy)."""
-    from fastapi import HTTPException
-    result = await db.execute(
-        select(WorkspaceMember).where(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.role == "owner",
-        ).limit(1)
-    )
-    if not result.scalar_one_or_none():
+    """Verify the user is in the ADMIN_USERNAMES whitelist.
+
+    Server-wide settings are privileged operations; workspace ownership is NOT
+    sufficient — any registered user can create a workspace and become its
+    owner. Fail-closed: an empty whitelist denies everyone.
+    """
+    admins = {name.strip() for name in settings.admin_usernames.split(",") if name.strip()}
+    if not user.username or user.username not in admins:
         raise HTTPException(status_code=403, detail="需要管理员权限")
 
 
@@ -444,7 +440,8 @@ async def update_fork_settings(
         if req.fork_context_strategy not in valid_strategies:
             raise HTTPException(
                 400,
-                f"Invalid strategy: {req.fork_context_strategy}. Must be one of: {valid_strategies}",
+                f"Invalid strategy: {req.fork_context_strategy}. "
+                f"Must be one of: {valid_strategies}",
             )
         _update_env("FORK_CONTEXT_STRATEGY", req.fork_context_strategy)
         settings.fork_context_strategy = req.fork_context_strategy
