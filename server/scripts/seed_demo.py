@@ -110,16 +110,24 @@ async def _ai_reply(messages: list[dict]) -> str:
     return result.content.strip()
 
 
-async def _llm_json(system: str, user: str, max_tokens: int = 1400) -> dict:
-    """One-shot structured extraction (real LLM). Falls back to {} on parse error."""
-    try:
-        result = await get_llm_service().complete_simple(
-            system, user, max_tokens=max_tokens, temperature=0.4, timeout=120
-        )
-        return _parse_json(result)
-    except Exception as e:
-        print(f"  ⚠ 结构化提取失败，跳过: {e}")
-        return {}
+async def _llm_json(system: str, user: str, max_tokens: int = 1400, retries: int = 3) -> dict:
+    """Structured extraction (real LLM) with retry — transient empty/invalid
+    responses are common with long structured outputs. Falls back to {} only
+    after exhausting retries."""
+    last_err: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            result = await get_llm_service().complete_simple(
+                system, user, max_tokens=max_tokens, temperature=0.4, timeout=120
+            )
+            return _parse_json(result)
+        except Exception as e:
+            last_err = e
+            if attempt < retries:
+                print(f"  ⚠ 结构化提取失败（第 {attempt}/{retries} 次），重试: {e}")
+                await asyncio.sleep(2)  # brief backoff between retries
+    print(f"  ⚠ 结构化提取失败，跳过: {last_err}")
+    return {}
 
 
 async def _run_conversation(db, chat: AiChat, node: dict) -> list[dict]:
