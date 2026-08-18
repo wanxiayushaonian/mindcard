@@ -20,6 +20,7 @@ from app.database import get_db
 from app.services.rag import rag_service
 from app.services.topology import topology_service
 from app.services.web_search import web_search_service
+from app.utils.helpers import parse_uuid
 
 MAX_TOOL_ROUNDS = 5
 
@@ -103,6 +104,22 @@ async def chat_websocket(websocket: WebSocket):
                     return False
                 return True
         except (ValueError, TypeError):
+            return False
+
+    async def _verify_workspace_access(workspace_id: str | None) -> bool:
+        """Check that the authenticated user is a member of the workspace."""
+        if not workspace_id:
+            return True
+        from app.utils.auth import get_workspace_membership
+        from app.models.user import User
+        try:
+            async for db in get_db():
+                db_user = await db.get(User, uuid.UUID(user_id))
+                if db_user is None:
+                    return False
+                await get_workspace_membership(parse_uuid(workspace_id), db_user, db)
+                return True
+        except Exception:
             return False
 
     def _make_serializable(obj: Any) -> Any:
@@ -532,6 +549,11 @@ async def chat_websocket(websocket: WebSocket):
                     await safe_send({"type": "error", "content": "无权访问该对话"})
                     continue
 
+                # Verify workspace membership
+                if not await _verify_workspace_access(workspace_id):
+                    await safe_send({"type": "error", "content": "无权访问该空间"})
+                    continue
+
                 current_task = asyncio.create_task(
                     handle_chat(
                         message, history, web_search,
@@ -560,6 +582,17 @@ async def chat_websocket(websocket: WebSocket):
                 if chat_id and not await _verify_chat_ownership(chat_id):
                     await safe_send({"type": "error", "content": "无权访问该对话"})
                     continue
+
+                # Verify workspace membership for all requested workspaces
+                if workspace_ids:
+                    allowed = True
+                    for wid in workspace_ids:
+                        if not await _verify_workspace_access(wid):
+                            allowed = False
+                            break
+                    if not allowed:
+                        await safe_send({"type": "error", "content": "无权访问该空间"})
+                        continue
 
                 current_task = asyncio.create_task(
                     handle_rag(

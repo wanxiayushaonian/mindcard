@@ -12,7 +12,7 @@ function getMermaid() {
       const instance = m.default;
       instance.initialize({
         startOnLoad: false,
-        securityLevel: "loose",
+        securityLevel: "strict",
         theme: document.documentElement.classList.contains("dark") ? "dark" : "default",
       });
       return instance;
