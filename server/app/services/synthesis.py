@@ -1,13 +1,15 @@
 """Shared synthesis logic used by both topic-based and node-based synthesis."""
 
+import json
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.card import Card
+from app.models.card import Card, CardRelation
 from app.models.chat import AiChat
-from app.models.topology import NodeCard
+from app.models.topology import NodeCard, NodeRef
 
 # ── Synthesis mode prompts ──────────────────────────────────────────────
 
@@ -88,14 +90,93 @@ REFINE_SYSTEM_PROMPT = (
     "1. 忠实于草稿内容，不要编造草稿中不存在的信息。\n"
     "2. 改进结构与表达：清晰的标题层级、逻辑分段、要点化。\n"
     "3. 突出：主题概览、关键洞察、知识之间的关系、可进一步探索的方向。\n"
-    "4. 使用中文，Markdown 格式。"
+    "4. 如果提供了「森林思维特征统计」，请在报告末尾加入一节「思维模式分析」，"
+    "解读这些统计反映了怎样的思考习惯（例如：是否善于深挖、是否善于连接、"
+    "是否有孤立的想法、发散与聚焦的平衡）。\n"
+    "5. 使用中文，Markdown 格式。"
 )
 
 
-async def produce_synthesis(goal: str, draft: str) -> str:
+async def compute_forest_stats(db: AsyncSession, ws_id: UUID) -> dict[str, Any]:
+    """Compute deterministic thinking-pattern metrics from the topology forest.
+
+    These numbers feed the refinement prompt's 「思维模式分析」 section (VISION
+    理念9) — they describe *how* the user explores, not just what they wrote.
+    """
+    nodes = list((await db.execute(
+        select(AiChat).where(
+            AiChat.workspace_id == ws_id,
+            AiChat.chat_status != "archived",
+        )
+    )).scalars().all())
+    branches = [n for n in nodes if n.parent_id is not None]
+
+    node_ids = [n.id for n in nodes]
+    card_count_map: dict[UUID, int] = {}
+    all_card_ids: list[UUID] = []
+    if node_ids:
+        rows = (await db.execute(
+            select(NodeCard.chat_id, NodeCard.card_id).where(NodeCard.chat_id.in_(node_ids))
+        )).all()
+        for chat_id, card_id in rows:
+            card_count_map[chat_id] = card_count_map.get(chat_id, 0) + 1
+            all_card_ids.append(card_id)
+
+    total_cards = len(set(all_card_ids))
+
+    relation_count = 0
+    if all_card_ids:
+        relation_count = (await db.execute(
+            select(func.count()).select_from(CardRelation).where(
+                (CardRelation.card_id.in_(all_card_ids))
+                | (CardRelation.related_card_id.in_(all_card_ids))
+            )
+        )).scalar() or 0
+
+    ref_count = 0
+    ref_node_ids: set[UUID] = set()
+    if node_ids:
+        ref_rows = (await db.execute(
+            select(NodeRef.source_chat_id, NodeRef.target_chat_id).where(
+                (NodeRef.source_chat_id.in_(node_ids)) | (NodeRef.target_chat_id.in_(node_ids))
+            )
+        )).all()
+        ref_count = len(ref_rows)
+        for s_id, t_id in ref_rows:
+            ref_node_ids.add(s_id)
+            ref_node_ids.add(t_id)
+
+    max_depth = max((n.depth or 0) for n in nodes) if nodes else 0
+
+    top_branches = sorted(
+        ((n.title or "未命名", card_count_map.get(n.id, 0)) for n in branches),
+        key=lambda x: x[1],
+        reverse=True,
+    )[:5]
+
+    isolated_branches = [
+        n.title or "未命名"
+        for n in branches
+        if n.id not in ref_node_ids and card_count_map.get(n.id, 0) < 2
+    ][:5]
+
+    return {
+        "total_branches": len(branches),
+        "max_depth": max_depth,
+        "total_cards": total_cards,
+        "card_relation_count": relation_count,
+        "card_relation_density": round(relation_count / total_cards, 2) if total_cards else 0,
+        "cross_branch_refs": ref_count,
+        "top_branches": [{"title": t, "cards": c} for t, c in top_branches],
+        "isolated_branches": isolated_branches,
+    }
+
+
+async def produce_synthesis(goal: str, draft: str, stats: dict[str, Any] | None = None) -> str:
     """Two-pass synthesis, pass 2: refine the agent's forest-walk draft with the
     stronger synthesis LLM. Falls back to the draft if the refinement model is
-    unavailable or returns empty."""
+    unavailable or returns empty. `stats` are forest thinking-pattern metrics
+    (VISION 理念9) injected for the 「思维模式分析」 section."""
     import logging
 
     from app.services.llm import get_llm_service
@@ -107,9 +188,16 @@ async def produce_synthesis(goal: str, draft: str) -> str:
     provider_name = service.synthesis_provider_name
     logger.info("produce_synthesis: provider=%s, draft_len=%d", provider_name, len(draft))
 
+    user_content = f"收敛目标：{goal}\n\nagent 走查草稿：\n{draft}"
+    if stats:
+        user_content += (
+            "\n\n## 森林思维特征统计（用于「思维模式分析」）\n"
+            + json.dumps(stats, ensure_ascii=False, indent=1)
+        )
+
     messages = [
         {"role": "system", "content": REFINE_SYSTEM_PROMPT},
-        {"role": "user", "content": f"收敛目标：{goal}\n\nagent 走查草稿：\n{draft}"},
+        {"role": "user", "content": user_content},
     ]
     try:
         result = await provider.chat(messages, max_tokens=8192, temperature=0.4, timeout=120)

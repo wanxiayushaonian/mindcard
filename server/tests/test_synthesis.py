@@ -43,3 +43,20 @@ def test_produce_synthesis_falls_back_on_empty_refinement() -> None:
         result = asyncio.run(produce_synthesis("收敛目标", "草稿内容"))
 
     assert result == "草稿内容"
+
+
+def test_produce_synthesis_injects_forest_stats_into_prompt() -> None:
+    """Thinking-pattern metrics (VISION 理念9) must reach the refine prompt."""
+    provider = MagicMock()
+    provider.chat = AsyncMock(return_value=MagicMock(content="报告", usage={"total_tokens": 50}))
+    service = MagicMock()
+    service._build_synthesis_provider.return_value = provider
+    service.synthesis_provider_name = "claude"
+
+    with patch("app.services.llm.get_llm_service", return_value=service):
+        asyncio.run(produce_synthesis("目标", "草稿", {"total_branches": 3, "max_depth": 2}))
+
+    messages = provider.chat.await_args.args[0]
+    user_content = messages[1]["content"]
+    assert "total_branches" in user_content
+    assert "思维特征统计" in user_content

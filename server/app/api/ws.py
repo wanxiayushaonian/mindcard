@@ -484,9 +484,21 @@ async def chat_websocket(websocket: WebSocket):
         # Pass 2: refine the draft with the stronger synthesis LLM.
         await safe_send({"type": "synthesis_progress", "stage": "refining"})
         try:
-            from app.services.synthesis import produce_synthesis
+            from app.services.synthesis import compute_forest_stats, produce_synthesis
 
-            report = await produce_synthesis(goal, draft)
+            # Thinking-pattern metrics (VISION 理念9) for the report's
+            # 「思维模式分析」 section. Optional — best-effort.
+            stats = None
+            try:
+                import uuid as _uuid
+
+                async for db_session in get_db():
+                    stats = await compute_forest_stats(db_session, _uuid.UUID(workspace_id))
+                    break
+            except Exception:
+                stats = None
+
+            report = await produce_synthesis(goal, draft, stats)
         except Exception as e:
             logger.error(f"Synthesis refine error: {e}", exc_info=True)
             report = draft  # fall back to the raw draft
