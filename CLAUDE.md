@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **产品理念与方向见 [`VISION.md`](VISION.md)** —— 这是 MindCard 的产品宪法（为什么做、什么是对的）。
+> 开发新功能前先对照 VISION，确认它服务"发散→沉淀→收敛→复现"的认知循环。
+
 ## Project Overview
 
 MindCard — a knowledge card management platform with WeChat mini-program, Python backend, and Next.js web frontend. Core loop: **cards (Markdown) → BGE-M3 embeddings → topic clusters / topology tree / knowledge graph → AI chat with multi-level RAG**. Includes conversation forking (branching memory), workspace memories with decay, graph community reports (GraphRAG-style), multi-provider LLM support, Redis rate limiting, and per-user LLM cost quotas.
