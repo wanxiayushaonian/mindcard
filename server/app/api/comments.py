@@ -131,7 +131,7 @@ async def delete_comment(
         raise HTTPException(status_code=404, detail="卡片不存在")
     membership = await get_workspace_membership(card.workspace_id, user, db)
     comment = await db.get(Comment, parse_uuid(comment_id))
-    if not comment:
+    if not comment or comment.card_id != card.id:
         raise HTTPException(status_code=404, detail="评论不存在")
     if membership.role not in ("owner", "admin") and comment.author_id != user.id:
         raise HTTPException(status_code=403, detail="只能删除自己发布的评论")

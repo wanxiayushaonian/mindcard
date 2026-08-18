@@ -47,7 +47,11 @@ async def mark_read(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    notif = await db.get(Notification, uuid.UUID(notification_id))
+    try:
+        notif_id = uuid.UUID(notification_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="通知不存在")
+    notif = await db.get(Notification, notif_id)
     if not notif or notif.user_id != user.id:
         raise HTTPException(status_code=404, detail="通知不存在")
     notif.is_read = True
