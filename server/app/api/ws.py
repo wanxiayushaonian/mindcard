@@ -26,6 +26,14 @@ from app.utils.usage import get_daily_total
 
 MAX_TOOL_ROUNDS = 5
 
+# Tools available to the forest-level synthesis agent (VISION 理念6).
+_SYNTHESIS_TOOLS = {
+    "topology_forest_map",
+    "get_node_detail",
+    "get_card_relations",
+    "get_node_subtree",
+}
+
 router = APIRouter()
 
 
@@ -168,6 +176,7 @@ async def chat_websocket(websocket: WebSocket):
         workspace_id: str | None,
         chat_id: str | None = None,
         current_fork_id: str | None = None,
+        max_rounds: int = MAX_TOOL_ROUNDS,
     ) -> AsyncGenerator[str | dict[str, Any], None]:
         """Run the tool execution loop around the LLM.
 
@@ -180,7 +189,7 @@ async def chat_websocket(websocket: WebSocket):
 
         active_fork_id = current_fork_id
 
-        for round_idx in range(MAX_TOOL_ROUNDS):
+        for round_idx in range(max_rounds):
             full_response = ""
             tool_calls_collected: list[dict[str, Any]] = []
 
@@ -398,6 +407,70 @@ async def chat_websocket(websocket: WebSocket):
             if chat_id:
                 err_payload["chat_id"] = chat_id
             await safe_send(err_payload)
+
+    # ── Synthesis mode: forest-level convergence (VISION 理念6) ────────────
+
+    async def handle_synthesis(goal: str, workspace_id: str | None) -> None:
+        """Let the LLM walk the topology forest with the exploration tools and
+        produce a convergent report (阶段1 目标导向下钻 → 两遍式合成第一遍).
+
+        Streams `synthesis_start`, tool events, `content` chunks, then
+        `synthesis_complete {report}`. No chat_id — it's a workspace-level op.
+        """
+        from app.tools.registry import get_all_tool_specs
+
+        if not workspace_id:
+            await safe_send({"type": "error", "content": "synthesis 需要 workspace_id"})
+            return
+
+        tools = [
+            s for s in get_all_tool_specs()
+            if s.get("name") in _SYNTHESIS_TOOLS
+        ]
+
+        system_content = (
+            "你是 MindCard 的知识森林收敛分析员。用户会给出一个收敛目标。\n"
+            "你的任务是走查工作区的知识拓扑森林（对话分叉 + 沉淀卡片 + 关系），"
+            "然后产出一份结构化的 Markdown 报告。\n\n"
+            "分析步骤：\n"
+            "1. 先用 topology_forest_map 看整片森林的结构与各分支摘要。\n"
+            "2. 根据收敛目标，用 get_node_detail 或 get_node_subtree 深入相关分支，"
+            "用 get_card_relations 查看关键卡片的连接。\n"
+            "3. 观察：哪些分支被充分探索、哪些是孤立的；卡片之间的关系揭示了怎样的思考结构；"
+            "是否有本该连接却未连接的知识。\n"
+            "4. 最后综合成一份 Markdown 报告，包含：主题概览、关键洞察、"
+            "知识之间的关系、以及可进一步探索的方向。\n\n"
+            "如果森林为空或目标无法从森林中获取信息，如实说明，不要编造。"
+        )
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": f"收敛目标：{goal}"},
+        ]
+
+        await safe_send({"type": "synthesis_start", "goal": goal})
+
+        full_response = ""
+        try:
+            async for db_session in get_db():
+                try:
+                    async for chunk in _run_tool_loop(
+                        messages, tools, db_session, workspace_id,
+                        chat_id=None, current_fork_id=None,
+                        max_rounds=10,
+                    ):
+                        if isinstance(chunk, dict):
+                            await safe_send(chunk)
+                        else:
+                            full_response += chunk
+                            await safe_send({"type": "content", "content": chunk})
+                finally:
+                    break
+        except Exception as e:
+            logger.error(f"Synthesis error: {e}", exc_info=True)
+            await safe_send({"type": "synthesis_error", "message": str(e)})
+            return
+
+        await safe_send({"type": "synthesis_complete", "report": full_response})
 
     async def handle_rag(
         question: str,
@@ -643,6 +716,32 @@ async def chat_websocket(websocket: WebSocket):
                         current_fork_id=current_fork_id,
                         context_card_ids=context_card_ids,
                     )
+                )
+
+            elif msg_type == "synthesis":
+                # Forest-level convergence (VISION 理念6)
+                if current_task and not current_task.done():
+                    current_task.cancel()
+
+                if not await ws_limiter.is_allowed(user_id):
+                    await safe_send({"type": "error", "content": "消息过于频繁，请稍后再试"})
+                    continue
+
+                if await _quota_exceeded(user_id):
+                    await safe_send({"type": "error", "content": "今日 LLM 配额已用尽，请明天再试"})
+                    continue
+
+                goal = msg.get("goal", "").strip()
+                workspace_id = msg.get("workspace_id")
+                if not goal:
+                    await safe_send({"type": "error", "content": "synthesis 需要 goal"})
+                    continue
+                if not await _verify_workspace_access(workspace_id):
+                    await safe_send({"type": "error", "content": "无权访问该空间"})
+                    continue
+
+                current_task = asyncio.create_task(
+                    handle_synthesis(goal, workspace_id)
                 )
 
             elif msg_type == "cancel":
