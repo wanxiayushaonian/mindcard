@@ -63,7 +63,11 @@ async def create_workspace(
     db.add(member)
     await db.commit()
     await db.refresh(ws)
-    return ws
+    return WorkspaceResponse(
+        id=ws.id, local_id=ws.local_id, name=ws.name, icon=ws.icon,
+        color=ws.color, invite_code=ws.invite_code, created_at=ws.created_at,
+        member_role="owner",
+    )
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
@@ -103,7 +107,12 @@ async def update_workspace(
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(ws, field, value)
     await db.commit()
-    return ws
+    await db.refresh(ws)
+    return WorkspaceResponse(
+        id=ws.id, local_id=ws.local_id, name=ws.name, icon=ws.icon,
+        color=ws.color, invite_code=ws.invite_code, created_at=ws.created_at,
+        member_role=membership.role,
+    )
 
 
 @router.delete("/{workspace_id}")
@@ -228,10 +237,11 @@ async def remove_member(
     # Get target nickname for activity log
     from app.models.user import User as UserModel
     target_user = await db.get(UserModel, parse_uuid(user_id))
+    target_nickname = target_user.nickname if target_user else ""
     await create_activity(
         db, workspace_id=ws_id, actor_id=user.id,
         action="member.left", target_type="member",
-        metadata={"nickname": target_user.nickname or "", "removed_by": user.nickname or ""},
+        metadata={"nickname": target_nickname, "removed_by": user.nickname or ""},
     )
 
     await db.delete(target)
@@ -289,12 +299,13 @@ async def update_member_role(
     # Get target nickname for activity log
     from app.models.user import User as UserModel
     target_user = await db.get(UserModel, parse_uuid(user_id))
+    target_nickname = target_user.nickname if target_user else ""
     await create_activity(
         db, workspace_id=ws_id, actor_id=user.id,
         action="member.role_changed", target_type="member",
         target_id=user_id,
         metadata={
-            "nickname": target_user.nickname or "",
+            "nickname": target_nickname,
             "old_role": target.role,
             "new_role": req.role,
         },
