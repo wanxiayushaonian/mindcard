@@ -1,0 +1,14 @@
+# MindCard Web — Docker 构建上下文排除
+node_modules
+.next
+.git
+.gitignore
+.env*.local
+.env*.prod
+test-results
+playwright-report
+coverage
+__tests__
+e2e
+*.md
+.DS_Store

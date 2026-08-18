@@ -5,6 +5,7 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const nextConfig = {
   reactStrictMode: true,
   typescript: { ignoreBuildErrors: true },
+  output: "standalone",
 };
 
 module.exports = withNextIntl(nextConfig);
