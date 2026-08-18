@@ -198,6 +198,7 @@ async def main() -> None:
             name=DEMO_WS_NAME,
             owner_id=owner_id,
             invite_code=uuid.uuid4().hex[:8],
+            is_demo=True,
         )
         db.add(ws)
         await db.flush()

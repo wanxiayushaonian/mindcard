@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, Index, String
+from sqlalchemy import Boolean, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,8 @@ class Workspace(Base):
     icon: Mapped[str] = mapped_column(String(16), default="lightbulb")
     color: Mapped[str] = mapped_column(String(16), default="#94B4C8")
     invite_code: Mapped[str | None] = mapped_column(String(8), unique=True, nullable=True)
+    # Example-data workspace — auto-granted to every user (incl. new registrants).
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

@@ -1,5 +1,4 @@
 import re
-
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.utils.auth import (
     create_access_token,
     get_current_user,
@@ -115,6 +115,13 @@ async def register(
     )
     db.add(user)
     await db.flush()
+
+    # Grant example-data (demo) workspaces to every new user so the product
+    # showcases its flow (branch conversations / cards / topology) on first login.
+    demo_result = await db.execute(select(Workspace).where(Workspace.is_demo.is_(True)))
+    for demo_ws in demo_result.scalars().all():
+        db.add(WorkspaceMember(workspace_id=demo_ws.id, user_id=user.id, role="editor"))
+
     await db.commit()
 
     token = create_access_token(str(user.id))
