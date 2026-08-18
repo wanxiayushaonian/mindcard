@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.card import Card
 from app.models.chat import AiChat
 from app.models.topology import NodeCard
-from app.services.embedding import embedding_service
+from app.services.embedding import current_model_tag, embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +195,7 @@ class TopologyService:
         node = await db.get(AiChat, node_id)
         if node:
             node.embedding = mean.tolist()
+            node.embedding_model = current_model_tag()
             node.updated_at = datetime.now(timezone.utc)
             await db.flush()
 

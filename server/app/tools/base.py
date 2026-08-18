@@ -34,10 +34,15 @@ class ToolResult:
 
 @dataclass
 class ChatResponse:
-    """Unified response from chat() — supports both text and tool calls."""
+    """Unified response from chat() — supports both text and tool calls.
+
+    ``usage`` (when provided by the provider) carries token counts in a
+    normalized shape: ``{"input_tokens", "output_tokens", "total_tokens"}``.
+    """
 
     content: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    usage: dict[str, int] | None = None
 
     @property
     def has_tool_calls(self) -> bool:

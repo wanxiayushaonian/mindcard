@@ -20,6 +20,7 @@ from app.schemas.chat import (
 )
 from app.utils.auth import get_current_user, get_workspace_membership, require_role
 from app.utils.helpers import parse_uuid
+from app.utils.usage import llm_quota_guard
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -631,6 +632,7 @@ async def summarize_chat(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _quota: None = Depends(llm_quota_guard),
 ):
     """Summarize a conversation into a card. Runs LLM in background."""
     chat = await db.get(AiChat, parse_uuid(chat_id))
@@ -734,10 +736,11 @@ async def _generate_summary_card(
             await db.flush()
 
             # Generate embedding and classify
-            from app.services.embedding import embedding_service
+            from app.services.embedding import current_model_tag, embedding_service
             text = embedding_service.card_to_text(card.title, card.content, card.keywords, card.emotion_tag)
             embedding = await embedding_service.embed(text)
             card.embedding = embedding
+            card.embedding_model = current_model_tag()
             await db.commit()
 
             # Assign to topic

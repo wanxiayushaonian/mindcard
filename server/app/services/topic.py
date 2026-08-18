@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.card import Card
 from app.models.topic import Topic, TopicCard
+from app.services.embedding import current_model_tag
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ class TopicService:
         topic = await db.get(Topic, topic_id)
         if topic:
             topic.centroid = mean.tolist()
+            topic.embedding_model = current_model_tag()
             topic.updated_at = datetime.now(timezone.utc)
             await db.flush()
 

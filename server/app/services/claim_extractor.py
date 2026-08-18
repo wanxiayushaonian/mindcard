@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.embedding import embedding_service
+from app.services.embedding import current_model_tag, embedding_service
 from app.services.llm import get_llm_service
 
 logger = logging.getLogger(__name__)
@@ -125,6 +125,7 @@ class ClaimExtractor:
                 importance=importance,
                 source_card_ids=[],
                 embedding=embedding,
+                embedding_model=current_model_tag(),
             )
             db.add(memory)
 

@@ -10,6 +10,7 @@ from app.config import settings
 from app.providers.base import LLMProvider
 from app.providers.factory import make_provider
 from app.tools.base import ChatResponse
+from app.utils.usage import estimate_tokens, get_current_user_id, schedule_usage_record
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,8 @@ class LLMService:
     def _build_extraction_provider(self) -> LLMProvider:
         provider_name = settings.extraction_llm_provider or settings.default_llm_provider
         api_key, base_url = self._resolve_credentials(provider_name)
-        return make_provider(provider_name, api_key, base_url, settings.extraction_llm_model or None)
+        model = settings.extraction_llm_model or None
+        return make_provider(provider_name, api_key, base_url, model)
 
     def reset_extraction_provider(self) -> None:
         self._extraction_provider = None
@@ -97,10 +99,12 @@ class LLMService:
         timeout: float = 60,
         tools: list[dict[str, Any]] | None = None,
     ) -> ChatResponse:
-        return await self._provider.chat(
+        result = await self._provider.chat(
             messages, max_tokens=max_tokens, temperature=temperature,
             timeout=timeout, tools=tools,
         )
+        schedule_usage_record(get_current_user_id(), result.usage)
+        return result
 
     async def complete_simple(
         self,
@@ -140,10 +144,17 @@ class LLMService:
                 messages, max_tokens=max_tokens, temperature=temperature, timeout=timeout
             )
             if not result.content.strip():
-                logger.warning("extraction_complete_simple: empty response from %s/%s", provider_name, model_name)
+                logger.warning(
+                    "extraction_complete_simple: empty response from %s/%s",
+                    provider_name, model_name,
+                )
+            schedule_usage_record(get_current_user_id(), result.usage)
             return result.content.strip()
         except Exception as e:
-            logger.error("extraction_complete_simple failed: %s %s: %s", provider_name, model_name, e)
+            logger.error(
+                "extraction_complete_simple failed: %s %s: %s",
+                provider_name, model_name, e,
+            )
             raise
 
     async def stream(
@@ -153,10 +164,22 @@ class LLMService:
         temperature: float = 0.7,
         tools: list[dict[str, Any]] | None = None,
     ) -> AsyncGenerator[str | dict[str, Any], None]:
-        async for chunk in self._provider.chat_stream(
-            messages, max_tokens=max_tokens, temperature=temperature, tools=tools
-        ):
-            yield chunk
+        collected: list[str] = []
+        try:
+            # mypy: abstract async-generator methods are inferred as coroutines
+            # (base.py has no yield), so the call needs an explicit ignore.
+            async for chunk in self._provider.chat_stream(  # type: ignore[attr-defined]
+                messages, max_tokens=max_tokens, temperature=temperature, tools=tools
+            ):
+                if isinstance(chunk, str):
+                    collected.append(chunk)
+                yield chunk
+        finally:
+            # Streams rarely report usage; estimate from lengths so streaming
+            # calls still count toward the daily quota.
+            user_id = get_current_user_id()
+            if user_id:
+                schedule_usage_record(user_id, estimate_tokens(messages, "".join(collected)))
 
 
 def get_llm_service() -> LLMService:

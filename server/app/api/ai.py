@@ -11,6 +11,7 @@ from app.models.user import User
 from app.services.llm import get_llm_service
 from app.utils.auth import get_current_user
 from app.utils.rate_limit import ai_rate_limit
+from app.utils.usage import llm_quota_guard
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ class SegmentResponse(BaseModel):
 
 
 @router.post("/polish", response_model=TextResponse)
-async def polish_text(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
+async def polish_text(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit), _quota: None = Depends(llm_quota_guard)):
     """润色文字，保持原意，优化表达。"""
     result = await get_llm_service().complete_simple(
         "你是一个文字润色专家。请润色以下灵感文字，保持原意不变，优化语言表达和逻辑结构。直接输出润色后的文字，不要加任何前缀说明或解释。",
@@ -52,7 +53,7 @@ async def polish_text(req: TextRequest, user: User = Depends(get_current_user), 
 
 
 @router.post("/supplement", response_model=TextResponse)
-async def supplement_text(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
+async def supplement_text(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit), _quota: None = Depends(llm_quota_guard)):
     """拓展灵感内容，补充思路。"""
     result = await get_llm_service().complete_simple(
         "你是一个灵感拓展助手。基于用户的灵感内容，从多个角度补充拓展思路。直接输出补充内容，格式清晰有条理。",
@@ -62,7 +63,7 @@ async def supplement_text(req: TextRequest, user: User = Depends(get_current_use
 
 
 @router.post("/generate-title", response_model=TitleResponse)
-async def generate_title(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
+async def generate_title(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit), _quota: None = Depends(llm_quota_guard)):
     """生成简短标题。"""
     provider_name = get_llm_service().extraction_provider_name
     model_name = get_llm_service().extraction_model_name or "(默认)"
@@ -89,7 +90,7 @@ async def generate_title(req: TextRequest, user: User = Depends(get_current_user
 
 
 @router.post("/extract-keywords", response_model=KeywordsResponse)
-async def extract_keywords(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
+async def extract_keywords(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit), _quota: None = Depends(llm_quota_guard)):
     """提取关键词。"""
     provider_name = get_llm_service().extraction_provider_name
     model_name = get_llm_service().extraction_model_name or "(默认)"
@@ -120,7 +121,7 @@ async def extract_keywords(req: TextRequest, user: User = Depends(get_current_us
 
 
 @router.post("/segment-content", response_model=SegmentResponse)
-async def segment_content(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit)):
+async def segment_content(req: TextRequest, user: User = Depends(get_current_user), _: None = Depends(ai_rate_limit), _quota: None = Depends(llm_quota_guard)):
     """将 AI 输出智能分段为多个独立内容块。"""
     raw = await get_llm_service().complete_simple(
         "你是一个内容分析助手。请将以下内容按逻辑主题分段。每段需要有一个简短标题（不超过10字）和对应的正文内容。"

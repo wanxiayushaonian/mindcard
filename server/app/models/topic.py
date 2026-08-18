@@ -19,6 +19,7 @@ class Topic(Base):
     )
     name: Mapped[str] = mapped_column(String(128), default="")
     centroid: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     card_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

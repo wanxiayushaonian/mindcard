@@ -66,10 +66,16 @@ class Settings(BaseSettings):
     # (provider switching, web-search config, .env writes). Empty = all denied.
     admin_usernames: str = ""
 
+    # LLM daily token quota per user (0 = unlimited). Guards against runaway
+    # spend when multiple users share a provider API key.
+    llm_daily_quota_tokens: int = 0
+
     # CORS
     cors_origins: str = "*"
 
     # Rate limiting
+    rate_limit_backend: str = "memory"  # "memory" (per-process) | "redis" (shared across workers)
+    redis_url: str = "redis://localhost:6379/0"  # used when rate_limit_backend == "redis"
     rate_limit_auth_max: int = 10
     rate_limit_auth_window: int = 60
     rate_limit_ai_max: int = 20

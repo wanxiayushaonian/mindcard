@@ -39,6 +39,7 @@ class AiChat(Base):
     depth: Mapped[int] = mapped_column(Integer, default=0)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)
     core_entity_ids: Mapped[list[str] | None] = mapped_column(ARRAY(UUID(as_uuid=True)), default=list)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))

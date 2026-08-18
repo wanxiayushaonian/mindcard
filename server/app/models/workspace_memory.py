@@ -33,6 +33,7 @@ class WorkspaceMemory(Base):
     embedding: Mapped[list[float] | None] = mapped_column(
         Vector(settings.embedding_dim), nullable=True
     )
+    embedding_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_accessed_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )

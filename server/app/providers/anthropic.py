@@ -170,9 +170,20 @@ class AnthropicProvider(LLMProvider):
                                 "name": block["name"],
                                 "arguments": block.get("input", {}),
                             })
+                    usage: dict[str, int] | None = None
+                    raw_usage = data.get("usage")
+                    if raw_usage:
+                        inp = raw_usage.get("input_tokens", 0)
+                        out = raw_usage.get("output_tokens", 0)
+                        usage = {
+                            "input_tokens": inp,
+                            "output_tokens": out,
+                            "total_tokens": inp + out,
+                        }
                     return ChatResponse(
                         content="".join(text_parts),
                         tool_calls=tool_calls,
+                        usage=usage,
                     )
             except httpx.HTTPStatusError:
                 if attempt < 3:

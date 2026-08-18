@@ -22,10 +22,23 @@ from app.services.topology import topology_service
 from app.services.web_search import web_search_service
 from app.utils.helpers import parse_uuid
 from app.utils.rate_limit import ws_limiter
+from app.utils.usage import get_daily_total
 
 MAX_TOOL_ROUNDS = 5
 
 router = APIRouter()
+
+
+async def _quota_exceeded(user_id: str) -> bool:
+    """True when the user has exhausted today's LLM token quota (0 = disabled)."""
+    from app.config import settings
+
+    if settings.llm_daily_quota_tokens <= 0:
+        return False
+    try:
+        return await get_daily_total(uuid.UUID(user_id)) >= settings.llm_daily_quota_tokens
+    except (ValueError, TypeError):
+        return False
 logger = logging.getLogger(__name__)
 
 def _strip_thinking(text: str) -> tuple[str, str]:
@@ -89,6 +102,10 @@ async def chat_websocket(websocket: WebSocket):
         await websocket.close(code=4001)
         return
 
+    # Attribute LLM usage to this user for the whole WS session.
+    from app.utils.usage import set_current_user_id
+    set_current_user_id(user_id)
+
     closed = False
     current_task: asyncio.Task | None = None
     send_lock = asyncio.Lock()
@@ -111,8 +128,8 @@ async def chat_websocket(websocket: WebSocket):
         """Check that the authenticated user is a member of the workspace."""
         if not workspace_id:
             return True
-        from app.utils.auth import get_workspace_membership
         from app.models.user import User
+        from app.utils.auth import get_workspace_membership
         try:
             async for db in get_db():
                 db_user = await db.get(User, uuid.UUID(user_id))
@@ -306,7 +323,9 @@ async def chat_websocket(websocket: WebSocket):
                 if web_search:
                     search_results = await web_search_service.search(message, max_results=8)
                     if search_results:
-                        user_message = message + "\n\n" + web_search_service.format_results(search_results)
+                        user_message = (
+                            message + "\n\n" + web_search_service.format_results(search_results)
+                        )
                         await safe_send({
                             "type": "web_search_results",
                             "results": [
@@ -330,7 +349,9 @@ async def chat_websocket(websocket: WebSocket):
                             await safe_send({"type": "content", "content": chunk})
                     break
             else:
-                async for chunk in rag_service.chat_stream(message, history=history, web_search=web_search):
+                async for chunk in rag_service.chat_stream(
+                    message, history=history, web_search=web_search
+                ):
                     if isinstance(chunk, dict):
                         if chunk.get("type") == "thinking":
                             streamed_thinking = True
@@ -539,8 +560,13 @@ async def chat_websocket(websocket: WebSocket):
                     current_task.cancel()
 
                 # Rate limit per user (LLM cost protection)
-                if not ws_limiter.is_allowed(user_id):
+                if not await ws_limiter.is_allowed(user_id):
                     await safe_send({"type": "error", "content": "消息过于频繁，请稍后再试"})
+                    continue
+
+                # Daily LLM quota check
+                if await _quota_exceeded(user_id):
+                    await safe_send({"type": "error", "content": "今日 LLM 配额已用尽，请明天再试"})
                     continue
 
                 message = msg.get("message", "")
@@ -574,8 +600,13 @@ async def chat_websocket(websocket: WebSocket):
                     current_task.cancel()
 
                 # Rate limit per user (LLM cost protection)
-                if not ws_limiter.is_allowed(user_id):
+                if not await ws_limiter.is_allowed(user_id):
                     await safe_send({"type": "error", "content": "消息过于频繁，请稍后再试"})
+                    continue
+
+                # Daily LLM quota check
+                if await _quota_exceeded(user_id):
+                    await safe_send({"type": "error", "content": "今日 LLM 配额已用尽，请明天再试"})
                     continue
 
                 question = msg.get("question", "")

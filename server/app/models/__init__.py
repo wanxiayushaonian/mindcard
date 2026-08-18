@@ -7,6 +7,7 @@ from .card_processing_job import CardProcessingJob
 from .chat import AiChat, ChatMessage
 from .comment import Comment
 from .graph import Community, CommunityReport, EntityCard, GraphEntity, GraphRelation
+from .llm_usage import LLMUsageDaily
 from .notification import Notification
 from .synthesis_template import SynthesisTemplate
 from .topic import Topic, TopicCard
@@ -37,6 +38,7 @@ __all__ = [
     "EntityCard",
     "Community",
     "CommunityReport",
+    "LLMUsageDaily",
     "BranchInsight",
     "SynthesisTemplate",
 ]

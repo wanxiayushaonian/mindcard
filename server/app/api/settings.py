@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
+from app.models.card import Card
+from app.models.card_chunk import CardChunk
+from app.models.chat import AiChat
+from app.models.graph import CommunityReport, GraphEntity
+from app.models.topic import Topic
 from app.models.user import User, UserSetting
+from app.models.workspace_memory import WorkspaceMemory
 from app.providers.factory import make_provider
 from app.providers.registry import PROVIDERS
+from app.services.embedding import current_model_tag
 from app.services.llm import get_llm_service
 from app.utils.auth import get_current_user
 
@@ -447,3 +456,56 @@ async def update_fork_settings(
         settings.fork_context_strategy = req.fork_context_strategy
 
     return {"ok": True}
+
+
+# ── Embedding model metadata ─────────────────────────────────────────
+
+
+class EmbeddingMetaResponse(BaseModel):
+    """Vector counts per embedding-model tag across all vector tables."""
+
+    configured_model: str
+    tables: dict[str, dict[str, int]]
+    unversioned: int  # vectors stored before version tagging (embedding_model IS NULL)
+
+
+@router.get("/embedding-meta", response_model=EmbeddingMetaResponse)
+async def get_embedding_meta(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EmbeddingMetaResponse:
+    """Admin: audit which embedding model produced the stored vectors.
+
+    Exposes how many vectors live under each model tag so mixed-model data
+    (e.g. after switching EMBEDDING_MODEL) can be spotted and re-embedded.
+    """
+    await _require_admin(user, db)
+
+    tables: dict[str, dict[str, int]] = {}
+    unversioned = 0
+    model_targets: list[tuple[str, Any]] = [
+        ("cards", Card),
+        ("card_chunks", CardChunk),
+        ("graph_entities", GraphEntity),
+        ("community_reports", CommunityReport),
+        ("ai_chats", AiChat),
+        ("topics", Topic),
+        ("workspace_memories", WorkspaceMemory),
+    ]
+    for name, model in model_targets:
+        rows = (
+            await db.execute(
+                select(model.embedding_model, func.count())
+                .where(model.embedding.isnot(None))
+                .group_by(model.embedding_model)
+            )
+        ).all()
+        counts = {tag: count for tag, count in rows if tag}
+        tables[name] = counts
+        unversioned += sum(count for tag, count in rows if not tag)
+
+    return EmbeddingMetaResponse(
+        configured_model=current_model_tag(),
+        tables=tables,
+        unversioned=unversioned,
+    )

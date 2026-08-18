@@ -224,7 +224,7 @@ async def _process_card(
 
     async with async_session() as db:
         from app.models.card import Card
-        from app.services.embedding import embedding_service
+        from app.services.embedding import current_model_tag, embedding_service
 
         db_card = await db.get(Card, card_id)
         if not db_card:
@@ -243,6 +243,7 @@ async def _process_card(
         logger.info("Embedding card %s: text length=%d", card_id, len(text))
         embedding = await embedding_service.embed(text)
         db_card.embedding = embedding
+        db_card.embedding_model = current_model_tag()
         await db.commit()
         logger.info("Embedding saved for card %s (dim=%d)", card_id, len(embedding))
 
@@ -269,6 +270,7 @@ async def _process_card(
                         chunk_index=idx,
                         chunk_text=chunk_text,
                         embedding=chunk_emb,
+                        embedding_model=current_model_tag(),
                     ))
             await db.commit()
             logger.info("Chunk storage: card %s → %d chunks stored", card_id, len(chunks) if is_chunked else 0)

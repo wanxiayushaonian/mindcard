@@ -24,6 +24,7 @@ class GraphEntity(Base):
     entity_type: Mapped[str | None] = mapped_column(String(64))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     access_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
@@ -120,6 +121,7 @@ class CommunityReport(Base):
     findings: Mapped[list | None] = mapped_column(ARRAY(Text), nullable=True)
     rating: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (

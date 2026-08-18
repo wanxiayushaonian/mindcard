@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Card processing job recovery failed (continuing startup): %s", e)
 
+    # Warn when stored vectors were produced by a different embedding model
+    from app.services.embedding import check_embedding_consistency
+    try:
+        await check_embedding_consistency()
+    except Exception as e:
+        logger.warning("Embedding consistency check failed (continuing startup): %s", e)
+
     yield
     # Shutdown: cleanup
     from app.services.embedding import embedding_service

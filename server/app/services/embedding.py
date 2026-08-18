@@ -5,6 +5,18 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+def current_model_tag() -> str:
+    """Tag identifying the active embedding model, e.g. ``openai/BAAI/bge-m3``.
+
+    Written into ``embedding_model`` columns whenever a vector is stored so
+    mixed-model data can be detected and re-embedded after a model change.
+    """
+    from app.config import settings
+
+    provider = settings.embedding_provider.strip().lower()
+    return f"{provider}/{settings.embedding_model}"
+
+
 class EmbeddingService:
     """Embedding service supporting Ollama (local) or OpenAI-compatible APIs.
 
@@ -15,13 +27,18 @@ class EmbeddingService:
     columns are fixed to vector(1024).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         from app.config import settings
         self._provider = settings.embedding_provider.strip().lower()
         self._base_url = (settings.embedding_base_url or settings.ollama_base_url).rstrip("/")
         self._model = settings.embedding_model
         self._api_key = settings.embedding_api_key
         self._client: httpx.AsyncClient | None = None
+
+    @property
+    def model_tag(self) -> str:
+        """Provider/model tag for the vectors this service generates."""
+        return current_model_tag()
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -191,10 +208,51 @@ class EmbeddingService:
 
         return chunks
 
-    async def close(self):
+    async def close(self) -> None:
         """Close the HTTP client."""
         if self._client and not self._client.is_closed:
             await self._client.aclose()
+
+
+async def check_embedding_consistency() -> str | None:
+    """Compare stored vector tags against the configured embedding model.
+
+    Returns the dominant ``embedding_model`` tag found in ``cards`` (or None).
+    Logs a WARNING when the stored vectors were produced by a different model
+    than currently configured — a sign that retrieval quality may be degraded
+    and re-embedding is needed. Called on startup.
+    """
+    from sqlalchemy import func, select
+
+    from app.database import async_session
+    from app.models.card import Card
+
+    configured = current_model_tag()
+    async with async_session() as db:
+        rows = (
+            await db.execute(
+                select(Card.embedding_model, func.count())
+                .where(Card.embedding.isnot(None))
+                .group_by(Card.embedding_model)
+            )
+        ).all()
+
+    if not rows:
+        return None
+    dominant_tag = max(rows, key=lambda r: r[1])[0]
+    dominant = dominant_tag if isinstance(dominant_tag, str) else None
+    if dominant and dominant != configured:
+        logger.warning(
+            "Embedding model drift: stored vectors tagged '%s', configured '%s' — "
+            "mixed-model retrieval may degrade. Re-embedding recommended.",
+            dominant, configured,
+        )
+    elif dominant is None:
+        logger.info(
+            "Stored vectors predate embedding_model tagging (NULL) — "
+            "re-embedding will version them."
+        )
+    return dominant
 
 
 embedding_service = EmbeddingService()

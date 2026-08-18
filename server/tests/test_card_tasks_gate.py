@@ -25,13 +25,20 @@ def _make_fake_embedding_module() -> tuple[ModuleType, MagicMock]:
     mock_svc.embed = AsyncMock(return_value=[0.1] * 1024)
     mock_svc.card_to_text = MagicMock(return_value="title content")
     fake_mod.embedding_service = mock_svc
+    fake_mod.current_model_tag = MagicMock(return_value="test/bge-m3")
     return fake_mod, mock_svc
 
 
 def _make_fake_card_module(card: MagicMock) -> ModuleType:
-    """Return a fake app.models.card module whose Card sentinel resolves to *card*."""
+    """Return a fake app.models.card module whose Card sentinel resolves to *card*.
+
+    models/__init__.py imports ``Card`` and ``CardRelation`` together, so the
+    fake must mirror both exports or importing it triggers an ImportError when
+    the app.models package is first initialized.
+    """
     fake_mod = ModuleType("app.models.card")
     fake_mod.Card = object()  # only used as the key passed to db.get()
+    fake_mod.CardRelation = object()
     return fake_mod
 
 

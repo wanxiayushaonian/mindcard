@@ -240,7 +240,7 @@ class CommunityDetector:
         title, summary, findings, rating = self._parse_report(response or "")
 
         # Generate embedding for the report
-        from app.services.embedding import embedding_service
+        from app.services.embedding import current_model_tag, embedding_service
         embed_text = f"{title}: {summary}"
         try:
             embedding = await embedding_service.embed(embed_text)
@@ -255,6 +255,7 @@ class CommunityDetector:
             findings=findings,
             rating=rating,
             embedding=embedding,
+            embedding_model=current_model_tag() if embedding else None,
         )
 
     @staticmethod

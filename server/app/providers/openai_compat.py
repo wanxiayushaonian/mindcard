@@ -152,7 +152,15 @@ class OpenAICompatProvider(LLMProvider):
                             self.base_url, self.model, max_tokens,
                             data["choices"][0].get("finish_reason"),
                         )
-                    return ChatResponse(content=content, tool_calls=tool_calls)
+                    usage: dict[str, int] | None = None
+                    raw_usage = data.get("usage")
+                    if raw_usage:
+                        usage = {
+                            "input_tokens": raw_usage.get("prompt_tokens", 0),
+                            "output_tokens": raw_usage.get("completion_tokens", 0),
+                            "total_tokens": raw_usage.get("total_tokens", 0),
+                        }
+                    return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
             except httpx.HTTPStatusError:
                 if attempt < 3:
                     await asyncio.sleep(2 ** attempt)

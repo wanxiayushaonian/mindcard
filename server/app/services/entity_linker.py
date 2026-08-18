@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.graph import EntityCard, GraphEntity, GraphRelation
-from app.services.embedding import embedding_service
+from app.services.embedding import current_model_tag, embedding_service
 from app.services.triple_extractor import ExtractedEntity, ExtractedTriple
 
 logger = logging.getLogger(__name__)
@@ -140,6 +140,7 @@ class EntityLinker:
             entity_type=entity_type,
             description=description,
             embedding=embedding,
+            embedding_model=current_model_tag(),
             access_count=1,
         )
         self.db.add(new_entity)
