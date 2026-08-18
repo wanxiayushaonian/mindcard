@@ -138,13 +138,74 @@ MindCard 把**灵感生成的地方**搬到 AI agent 面前——让 AI 作为"�
 
 ### P0 — 森林级收敛（理念6）
 
-**现状**：收敛只有单会话/单主题级。
-**愿景**：把整片拓扑森林（全部分叉 + 沉淀卡片）交给更强 LLM，产出报告 / 思维分析。
+**现状**：收敛只有单会话/单主题级（`consolidation` / `synthesis` / INSIGHT 社区级）。
+**愿景**：把整片拓扑森林（分叉 + 沉淀卡片 + 关系）交给 agent，产出报告 / 思维分析。
 
-**修正**：
-1. 设计"森林快照"：把拓扑森林序列化为一份可注入的上下文（分支结构 + 各分支摘要 + 卡片清单）
-2. 新增收敛服务：调用更强 LLM，输出（a）结构化的主题报告（b）思维路径分析
-3. 前端：收敛结果页（现有 `synthesis` 页可作起点）
+#### 为什么不能一次性注入
+
+- 50 分支 × 20 卡 × 300 token ≈ **30 万 token**，任何单次 prompt 都装不下
+- 扁平混入丢失结构信息：LLM 分不清"这条思想从哪个分支长出"
+- 必须分层 + agent 目标导向；也不能盲走逐层压缩（每层压缩损失保真度，且不区分相关/无关分支）
+
+#### 输入源（已有压缩产物，agent 无需读原始对话）
+
+| 源 | 现成产物 |
+|----|---------|
+| 分支对话内容 | `AiChat.summary`（consolidation 每 5 轮更新）+ `topology.update_node_summary_from_chat` |
+| 沉淀卡片 | `NodeCard` 下辖的 Card |
+| 卡片关系 | `CardRelation` + `NodeRef`（跨分支引用）+ `TopicCard`（主题） |
+
+#### 三阶段流程
+
+**阶段0 — 森林地图**（一次装下，~2-5k token）
+- 输入 `workspace_id`；输出全部节点 `{node_id, title, depth, node_type, card_count, summary截断, child_count}`
+- 作用：agent 先"看全景"，决定往哪下钻（不盲走）
+
+**阶段1 — 目标导向下钻**（复用现有 `_run_tool_loop`）
+- 用户给目标（如"总结我的机器学习学习历程"）→ agent 看地图 → 选择相关分支 → 逐节点拉详情注入
+- 每节点上下文上限：下辖卡片取 top N（按重要度/更新），每卡内容截断 ~300 token；关系以 `A --[extends]--> B` 注入
+- 分析中积累证据 + 识别主题 + 记录"该连未连"的关系空缺（理念8 的数据源）
+
+**阶段2 — 两遍式合成**
+- 第一遍：探索 agent 已收集证据/草稿（普通模型，负责"找"）
+- 第二遍：`produce_synthesis` 调**更强 LLM**（复用 `extraction_llm_provider` 模式，新增 `synthesis_llm_provider` 配置）负责"写"
+- 输出：`{report(markdown), themes[], thinking_patterns}`；`thinking_patterns` 喂给理念9
+
+#### 工具清单（塞进 `app/tools/`）
+
+```
+topology_forest_map(workspace_id)      # 阶段0 森林地图
+get_node_detail(node_id)               # 节点摘要 + 下辖卡片 + 关系 + 子分支
+get_card_relations(card_id)            # 单卡关系（CardRelation + NodeRef）
+get_node_subtree(node_id)              # 子树（用于"整支分析"）
+produce_synthesis(draft, structure)    # 阶段2 调更强 LLM 出报告
+```
+
+#### WS 事件协议扩展
+
+```
+synthesis_start     { goal }
+synthesis_progress  { stage, detail }      # 如 {stage:"exploring", detail:"分支: 机器学习"}
+tool_executing / tool_executed             # 已有，agent 下钻时自然产生
+synthesis_complete  { report, thinking_patterns }
+synthesis_error     { message }
+```
+
+#### 前端收敛页
+
+- 扩展 `app/[locale]/workspaces/[id]/synthesis/`
+- 输入：收敛目标（textarea）
+- 过程可视化：正在探索的分支实时高亮（树状走查动画）+ 工具调用时间线
+- 结果：报告 markdown + 思维模式摘要 + "该连未连"建议列表
+- 动作：保存报告为卡片 / 导出 markdown
+
+#### 实现步骤（排期）
+
+1. 阶段0+1 工具：`topology_forest_map` / `get_node_detail` / `get_card_relations` / `get_node_subtree`
+2. agent 循环接入：注册新工具到 `_run_tool_loop`，新增 `synthesis` 模式
+3. 阶段2：`produce_synthesis` + `synthesis_llm_provider` 配置
+4. 前端收敛页：WS 事件 + 过程可视化 + 报告展示
+5. 思维模式分析对接理念9
 
 ### P1 — 复现循环（理念7）
 
