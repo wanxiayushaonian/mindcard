@@ -72,6 +72,11 @@ def test_workspace_memory_response_schema():
         "title": "Test",
         "body": "content",
         "source_chat_id": None,
+        "memory_type": "fact",
+        "confidence": 1.0,
+        "importance": 0.5,
+        "source_card_ids": [],
+        "last_accessed_at": None,
         "updated_at": None,
         "created_at": datetime.now(timezone.utc),
     }
@@ -91,6 +96,11 @@ def test_workspace_memory_response_schema_with_all_fields():
         "title": "Full Test",
         "body": "full body",
         "source_chat_id": str(uuid.uuid4()),
+        "memory_type": "insight",
+        "confidence": 0.9,
+        "importance": 0.7,
+        "source_card_ids": [str(uuid.uuid4())],
+        "last_accessed_at": now,
         "updated_at": now,
         "created_at": now,
     }

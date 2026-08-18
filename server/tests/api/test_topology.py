@@ -43,6 +43,7 @@ class TestListNodes:
             mock_execute_result(),                             # card_ids
             mock_execute_result(),                             # child_ids
             mock_execute_result(),                             # ref_ids
+            mock_execute_result(),                             # incoming refs
         ])
 
         resp = await client.get(f"/api/topology/?workspace_id={test_workspace.id}")
@@ -61,6 +62,7 @@ class TestListNodes:
             mock_execute_result(),                             # card_ids for root
             mock_execute_result(),                             # child_ids for root
             mock_execute_result(),                             # ref_ids for root
+            mock_execute_result(),                             # incoming refs for root
         ])
 
         async def refresh(obj):
@@ -104,6 +106,7 @@ class TestCreateNode:
             mock_execute_result(),                             # card_ids
             mock_execute_result(),                             # child_ids
             mock_execute_result(),                             # ref_ids
+            mock_execute_result(),                             # incoming refs
         ])
 
         async def refresh(obj):
@@ -136,6 +139,7 @@ class TestGetNode:
             mock_execute_result(),                  # card_ids
             mock_execute_result(),                  # child_ids
             mock_execute_result(),                  # ref_ids
+            mock_execute_result(),                  # incoming refs
         ])
 
         resp = await client.get(f"/api/topology/nodes/{node.id}")
@@ -164,6 +168,7 @@ class TestUpdateNode:
             mock_execute_result(),                             # card_ids
             mock_execute_result(),                             # child_ids
             mock_execute_result(),                             # ref_ids
+            mock_execute_result(),                             # incoming refs
         ])
 
         async def refresh(obj):
@@ -230,6 +235,7 @@ class TestNodeCards:
             mock_execute_result(),                             # card_ids
             mock_execute_result(),                             # child_ids
             mock_execute_result(),                             # ref_ids
+            mock_execute_result(),                             # incoming refs
         ])
 
         resp = await client.post(f"/api/topology/{node.id}/cards", json={
@@ -278,6 +284,7 @@ class TestNodeRefs:
             mock_execute_result(),                             # card_ids
             mock_execute_result(),                             # child_ids
             mock_execute_result(),                             # ref_ids
+            mock_execute_result(),                             # incoming refs
         ])
 
         resp = await client.post(f"/api/topology/{source.id}/refs", json={
