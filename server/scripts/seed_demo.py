@@ -201,7 +201,10 @@ async def main() -> None:
         )
         db.add(ws)
         await db.flush()
-        db.add(WorkspaceMember(workspace_id=ws.id, user_id=owner_id, role="owner"))
+        # Share the demo workspace with every user so any logged-in account sees it
+        all_users = (await db.execute(select(User.id))).scalars().all()
+        for uid in all_users:
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=uid, role="editor"))
 
         print("创建对话树（主线 + 分叉）…")
         await _create_chat_tree(db, ROOT, ws.id, owner_id, None, 0)
