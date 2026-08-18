@@ -1,7 +1,10 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+MemoryType = Literal["fact", "preference", "insight", "summary", "claim", "archived"]
 
 
 class WorkspaceMemoryCreate(BaseModel):
@@ -9,7 +12,7 @@ class WorkspaceMemoryCreate(BaseModel):
     title: str
     body: str
     source_chat_id: str | None = None
-    memory_type: str = "fact"
+    memory_type: MemoryType = "fact"
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     importance: float = Field(default=0.5, ge=0.0, le=1.0)
     source_card_ids: list[str] = []
@@ -18,7 +21,7 @@ class WorkspaceMemoryCreate(BaseModel):
 class WorkspaceMemoryUpdate(BaseModel):
     title: str | None = None
     body: str | None = None
-    memory_type: str | None = None
+    memory_type: MemoryType | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     importance: float | None = Field(default=None, ge=0.0, le=1.0)
     source_card_ids: list[str] | None = None

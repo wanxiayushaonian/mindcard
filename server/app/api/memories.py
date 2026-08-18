@@ -80,7 +80,8 @@ async def upsert_memory(
     if existing:
         existing.title = body.title
         existing.body = body.body
-        if body.source_chat_id:
+        # Only clear source_chat_id when the client explicitly sends null
+        if "source_chat_id" in body.model_dump(exclude_unset=True):
             existing.source_chat_id = body.source_chat_id
         existing.memory_type = body.memory_type
         existing.confidence = body.confidence
