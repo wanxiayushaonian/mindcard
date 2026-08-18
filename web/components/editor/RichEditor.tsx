@@ -27,6 +27,18 @@ function getMarkdown(ed: any): string {
   return storage.markdown?.getMarkdown() ?? "";
 }
 
+// Serialize a ProseMirror fragment (e.g. the current selection) to markdown via
+// tiptap-markdown's serializer. Falls back to plain text if the serializer is
+// not ready (first paint) or the fragment can't be handled.
+function serializeFragmentToMarkdown(serializer: any, content: any): string {
+  try {
+    const md = serializer?.serialize?.(content) ?? "";
+    return typeof md === "string" ? md.trim() : "";
+  } catch {
+    return content?.textBetween?.(0, content.size, "\n").trim() ?? "";
+  }
+}
+
 export interface RichEditorHandle {
   getContent: () => string;
   setContent: (md: string) => void;
@@ -70,6 +82,11 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
     // Debounce timer for content sync
     const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+    // Captures tiptap-markdown's serializer once the editor initializes so the
+    // clipboardTextSerializer below (invoked at copy time) can serialize the
+    // copied selection to markdown instead of plain text.
+    const mdSerializerRef = useRef<any>(null);
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -91,7 +108,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         Markdown.configure({
           html: false,
           transformPastedText: true,
-          transformCopiedText: true,
+          transformCopiedText: false, // we override clipboardTextSerializer below
           bulletListMarker: "-",
           linkify: true,
           breaks: false,
@@ -104,6 +121,9 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
           class: "tiptap",
           style: `min-height: ${minHeight}`,
         },
+        // Copying a selection yields markdown (not plain text / rich HTML).
+        clipboardTextSerializer: (slice: any) =>
+          serializeFragmentToMarkdown(mdSerializerRef.current, slice?.content),
       },
       onUpdate: ({ editor: ed }) => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -116,6 +136,12 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         }
       },
     });
+
+    // Expose the serializer to clipboardTextSerializer once available
+    useEffect(() => {
+      if (!editor) return;
+      mdSerializerRef.current = (editor.storage as any)?.markdown?.serializer ?? null;
+    }, [editor]);
 
     // Sync external content changes into the editor
     const lastExternalContent = useRef(content);
@@ -151,9 +177,12 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         editor?.commands.focus();
       },
       getSelection: () => {
-        if (!editor) return "";
-        const { from, to } = editor.state.selection;
-        return editor.state.doc.textBetween(from, to, " ");
+        if (!editor || editor.state.selection.empty) return "";
+        const slice = editor.state.selection.content();
+        return serializeFragmentToMarkdown(
+          (editor.storage as any)?.markdown?.serializer,
+          slice.content
+        );
       },
       getHTML: () => {
         if (!editor) return "";

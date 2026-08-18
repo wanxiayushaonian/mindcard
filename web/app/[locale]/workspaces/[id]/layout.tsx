@@ -558,11 +558,13 @@ function PanelLayout({
 }) {
   const { leftCollapsed, rightCollapsed, toggleLeft, toggleRight } = usePanelStore();
 
-  // Editor only shown on pages that support AI chat
+  // Editor only shown on pages that support AI chat.
+  // leftW/rightW/editorW always sum to 100; the editor panel stays mounted at
+  // width 0 when both side panels are expanded so its width transition runs
+  // smoothly (a conditional mount would make it "pop" instead of animating).
   const leftW = leftCollapsed ? 15 : 50;
   const rightW = rightCollapsed ? 15 : 50;
-  const showEditor = canShowAiChat && (leftCollapsed || rightCollapsed);
-  const editorW = showEditor ? 100 - leftW - rightW : 0;
+  const editorW = 100 - leftW - rightW;
 
   // Fallback: AI chat not available -> full width, no editor
   if (!canShowAiChat) {
@@ -610,17 +612,18 @@ function PanelLayout({
         <div className="h-full overflow-x-hidden overflow-y-auto">{children}</div>
       </div>
 
-      {/* Middle Panel - Editor */}
-      {showEditor && (
-        <div
-          className="h-full overflow-hidden border-r border-border"
-          style={{ width: `${editorW}%`, transition: "width 300ms cubic-bezier(0.4,0,0.2,1), opacity 200ms ease", willChange: "width" }}
-        >
-          <EditorErrorBoundary errorLabel={errorLabels.editorError} retryLabel={errorLabels.resetEditor}>
-            <EditorPanel workspaceId={workspaceId} />
-          </EditorErrorBoundary>
-        </div>
-      )}
+      {/* Middle Panel - Editor. Always mounted: at 0-width (both side panels
+          expanded) it is invisible, but the width transition below animates it
+          smoothly in/out as the side panels collapse/expand. The border-r is
+          dropped at 0 width to avoid a stray 1px divider between the panels. */}
+      <div
+        className={`h-full overflow-hidden ${editorW > 0 ? "border-r border-border" : ""}`}
+        style={{ width: `${editorW}%`, transition: "width 300ms cubic-bezier(0.4,0,0.2,1)", willChange: "width" }}
+      >
+        <EditorErrorBoundary errorLabel={errorLabels.editorError} retryLabel={errorLabels.resetEditor}>
+          <EditorPanel workspaceId={workspaceId} />
+        </EditorErrorBoundary>
+      </div>
 
       {/* Right Panel - AI Chat */}
       <div
