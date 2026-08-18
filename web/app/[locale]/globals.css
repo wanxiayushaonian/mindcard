@@ -7,6 +7,10 @@
   --color-white: #FFFFFF;
   --color-primary: #94B4C8;
   --color-primary-dark: #5A6A7A;
+  /* Action/button color — dark enough that white text passes WCAG AA
+     (4.5:1). Unlike --color-primary it must not be lightened in dark mode,
+     otherwise button labels become unreadable. */
+  --color-accent: #4C6E89;
   --color-text: #2C3E50;
   --color-text-secondary: #8E99A4;
   --color-danger: #E25D5D;
@@ -39,6 +43,7 @@
   --color-white: #1F2937;
   --color-primary: #94B4C8;
   --color-primary-dark: #B8D4E3;
+  --color-accent: #54738C;
   --color-text: #F3F4F6;
   --color-text-secondary: #9CA3AF;
   --color-danger: #F87171;

@@ -98,7 +98,7 @@ export default function ApiKeysPage() {
         </span>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition hover:bg-primary-dark"
+          className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:bg-accent-dark"
         >
           <Plus size={14} /> {t("generateNewKey")}
         </button>
@@ -120,7 +120,7 @@ export default function ApiKeysPage() {
             <button
               onClick={handleCreate}
               disabled={creating}
-              className="rounded-lg bg-primary px-4 py-1.5 text-xs text-white disabled:opacity-50"
+              className="rounded-lg bg-accent px-4 py-1.5 text-xs text-white disabled:opacity-50"
             >
               {creating ? t("creating") : tCommon("create")}
             </button>

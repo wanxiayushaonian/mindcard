@@ -14,6 +14,10 @@ const config: Config = {
           dark: "var(--color-primary-dark)",
           light: "#B8D4E3",
         },
+        accent: {
+          DEFAULT: "var(--color-accent)",
+          dark: "#3D5A70",
+        },
         bg: "var(--color-bg)",
         surface: "var(--color-surface)",
         text: {

@@ -39,7 +39,7 @@ class ChatErrorBoundary extends Component<{ children: ReactNode; errorLabel: str
                 .forEach((k) => localStorage.removeItem(k));
               this.setState({ hasError: false });
             }}
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs text-white hover:bg-primary-dark"
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white hover:bg-accent-dark"
           >
             {this.props.resetLabel}
           </button>
@@ -60,7 +60,7 @@ class EditorErrorBoundary extends Component<{ children: ReactNode; errorLabel: s
           <p className="text-sm text-text-secondary">{this.props.errorLabel}</p>
           <button
             onClick={() => this.setState({ hasError: false })}
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs text-white hover:bg-primary-dark"
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white hover:bg-accent-dark"
           >
             {this.props.retryLabel}
           </button>
@@ -459,7 +459,7 @@ function MembersPanel({
                       {m.nickname || tCommon("unknownUser")}
                     </span>
                     {currentUser && m.user_id === currentUser.id && (
-                      <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-white">
+                      <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-white">
                         {tCommon("me")}
                       </span>
                     )}

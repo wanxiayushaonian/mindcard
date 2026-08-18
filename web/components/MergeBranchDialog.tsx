@@ -266,7 +266,7 @@ export function MergeBranchDialog({
             type="button"
             onClick={handleSubmit}
             disabled={!targetId || merging}
-            className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-xs text-white disabled:opacity-50"
+            className="flex items-center gap-1 rounded bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-50"
           >
             {merging ? <span className="animate-spin">⟳</span> : <GitMerge className="h-3 w-3" />}
             {merging ? t("merging") : t("merge")}

@@ -350,7 +350,7 @@ function RAGContent() {
           <button
             onClick={() => switchMode("rag")}
             className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              mode === "rag" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
+              mode === "rag" ? "bg-accent text-white" : "text-text-secondary hover:text-text"
             }`}
           >
             {tChat("knowledgeQA")}
@@ -358,7 +358,7 @@ function RAGContent() {
           <button
             onClick={() => switchMode("chat")}
             className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              mode === "chat" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
+              mode === "chat" ? "bg-accent text-white" : "text-text-secondary hover:text-text"
             }`}
           >
             {tChat("freeChat")}
@@ -456,7 +456,7 @@ function RAGContent() {
                 <div
                   className={`max-w-[85%] rounded-2xl px-4 py-3 ${
                     msg.role === "user"
-                      ? "bg-primary text-white"
+                      ? "bg-accent text-white"
                       : "bg-surface text-text shadow-sm"
                   }`}
                 >
@@ -585,7 +585,7 @@ function RAGContent() {
                 <button
                   onClick={handleSend}
                   disabled={!input.trim()}
-                  className="rounded-2xl bg-primary px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+                  className="rounded-2xl bg-accent px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
                 >
                   {tCommon("send")}
                 </button>

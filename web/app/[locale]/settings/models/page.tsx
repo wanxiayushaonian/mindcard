@@ -512,7 +512,7 @@ function WebSearchSettingsSection() {
                 <button
                   onClick={() => handleSave({ api_key: apiKeyInput })}
                   disabled={saving || !apiKeyInput.trim()}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark disabled:opacity-50"
+                  className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-accent-dark disabled:opacity-50"
                 >
                   {tCommon("save")}
                 </button>
@@ -539,7 +539,7 @@ function WebSearchSettingsSection() {
                 <button
                   onClick={() => handleSave({ base_url: baseUrlInput })}
                   disabled={saving || !baseUrlInput.trim()}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark disabled:opacity-50"
+                  className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-accent-dark disabled:opacity-50"
                 >
                   {tCommon("save")}
                 </button>

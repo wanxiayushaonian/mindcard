@@ -361,7 +361,7 @@ export default function WorkspacePage() {
               <button
                 onClick={() => setShowCreate(true)}
                 title={t("newCard")}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-white shadow-sm transition hover:bg-primary-dark"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-white shadow-sm transition hover:bg-accent-dark"
               >
                 <Plus size={13} />
               </button>
@@ -392,7 +392,7 @@ export default function WorkspacePage() {
                   }}
                   className={`flex h-7 w-7 items-center justify-center rounded-full transition ${
                     active
-                      ? "bg-primary text-white shadow-sm"
+                      ? "bg-accent text-white shadow-sm"
                       : "text-text-secondary/60 hover:bg-muted hover:text-text-secondary"
                   }`}
                 >
@@ -429,7 +429,7 @@ export default function WorkspacePage() {
                       setFilters(next);
                     }}
                     className={`rounded-full px-3 py-1 text-xs transition ${
-                      active ? "bg-primary text-white" : "bg-muted text-text-secondary hover:bg-muted/80"
+                      active ? "bg-accent text-white" : "bg-muted text-text-secondary hover:bg-muted/80"
                     }`}
                   >
                     {label}
@@ -440,7 +440,7 @@ export default function WorkspacePage() {
             {canCreate && (
               <button
                 onClick={() => setShowCreate(true)}
-                className="flex items-center gap-1 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-dark"
+                className="flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-accent-dark"
               >
                 <Plus size={16} /> {t("newCard")}
               </button>
@@ -512,7 +512,7 @@ export default function WorkspacePage() {
               onClick={() => setFilters((prev) => { const next = { ...prev }; delete next.emotion_tag; return next; })}
               className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] transition ${
                 !filters.emotion_tag
-                  ? "bg-primary text-white"
+                  ? "bg-accent text-white"
                   : "bg-muted/40 text-text-secondary hover:bg-muted border border-border"
               }`}
             >
@@ -531,7 +531,7 @@ export default function WorkspacePage() {
                 }}
                 className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] transition ${
                   filters.emotion_tag === zhValue
-                    ? "bg-primary text-white"
+                    ? "bg-accent text-white"
                     : "bg-muted/40 text-text-secondary hover:bg-muted border border-border"
                 }`}
               >
@@ -663,7 +663,7 @@ export default function WorkspacePage() {
                   onClick={() => setEmotionTag(emotionTag === zhValue ? "" : zhValue)}
                   className={`rounded-full px-3 py-1 text-xs transition ${
                     emotionTag === zhValue
-                      ? "bg-primary text-white"
+                      ? "bg-accent text-white"
                       : "bg-muted text-text-secondary hover:bg-muted/80"
                   }`}
                 >

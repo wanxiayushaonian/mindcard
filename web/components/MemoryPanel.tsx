@@ -215,7 +215,7 @@ function EditForm({ initial, workspaceId, onDone, mutate }: EditFormProps) {
           type="button"
           onClick={handleSave}
           disabled={saving || !slug.trim() || !title.trim() || !body.trim()}
-          className="flex items-center gap-1 rounded bg-primary px-2.5 py-1 text-xs text-white disabled:opacity-50"
+          className="flex items-center gap-1 rounded bg-accent px-2.5 py-1 text-xs text-white disabled:opacity-50"
         >
           {saving ? <span className="animate-spin">⟳</span> : <Check className="h-3 w-3" />}
           {tc("save")}
@@ -319,7 +319,7 @@ export function MemoryPanel({ workspaceId, onClose }: MemoryPanelProps) {
           type="button"
           onClick={() => setTypeFilter(null)}
           className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition ${
-            typeFilter === null ? "bg-primary text-white" : "text-text-secondary hover:bg-gray-100"
+            typeFilter === null ? "bg-accent text-white" : "text-text-secondary hover:bg-gray-100"
           }`}
         >
           {t("filterAll")}

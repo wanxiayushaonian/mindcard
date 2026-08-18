@@ -749,7 +749,7 @@ export default function NetworkPage() {
           <button
             onClick={() => setViewMode("graph")}
             className={`px-3 py-1 text-xs transition-colors ${
-              viewMode === "graph" ? "bg-primary text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
+              viewMode === "graph" ? "bg-accent text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
             }`}
           >
             {t("viewGraph")}
@@ -757,7 +757,7 @@ export default function NetworkPage() {
           <button
             onClick={() => setViewMode("tree")}
             className={`px-3 py-1 text-xs transition-colors ${
-              viewMode === "tree" ? "bg-primary text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
+              viewMode === "tree" ? "bg-accent text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
             }`}
           >
             {t("viewTree")}
@@ -770,7 +770,7 @@ export default function NetworkPage() {
               onClick={() => setSelectedTags(new Set())}
               className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
                 selectedTags.size === 0
-                  ? "bg-primary text-white"
+                  ? "bg-accent text-white"
                   : "bg-gray-100 text-text-secondary hover:bg-gray-200"
               }`}
             >
@@ -782,7 +782,7 @@ export default function NetworkPage() {
                 onClick={() => toggleTag(kw)}
                 className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition ${
                   selectedTags.has(kw)
-                    ? "bg-primary text-white"
+                    ? "bg-accent text-white"
                     : "bg-gray-100 text-text-secondary hover:bg-gray-200"
                 }`}
               >
@@ -810,7 +810,7 @@ export default function NetworkPage() {
               onClick={() => setShowForceSettings(!showForceSettings)}
               className={`flex-shrink-0 rounded-full px-3 py-1 text-xs transition flex items-center gap-1 ${
                 showForceSettings
-                  ? "bg-primary text-white"
+                  ? "bg-accent text-white"
                   : "bg-gray-100 text-text-secondary hover:bg-gray-200"
               }`}
               title={t("forceParams")}
@@ -1056,7 +1056,7 @@ export default function NetworkPage() {
                     }
                   }}
                   className={`px-2 py-0.5 text-[10px] transition-colors ${
-                    sliderMode === m ? "bg-primary text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
+                    sliderMode === m ? "bg-accent text-white" : "bg-surface text-text-secondary hover:bg-gray-100"
                   }`}
                 >
                   {m === "all" ? t("timeAll") : m === "time" ? t("timeTime") : t("timeEvent")}
@@ -1168,7 +1168,7 @@ export default function NetworkPage() {
             onClick={() =>
               router.push(`/workspaces/${workspaceId}/card/${selectedNode.id}`)
             }
-            className="w-full rounded-lg bg-primary px-3 py-1.5 text-xs text-white transition hover:bg-primary-dark"
+            className="w-full rounded-lg bg-accent px-3 py-1.5 text-xs text-white transition hover:bg-accent-dark"
           >
             {t("viewDetails")}
           </button>

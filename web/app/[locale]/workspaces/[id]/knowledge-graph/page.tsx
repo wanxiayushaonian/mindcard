@@ -416,7 +416,7 @@ export default function KnowledgeGraphPage() {
           <button
             onClick={() => setHighlightMode("neighbors")}
             className={`px-2 py-0.5 rounded-full transition ${
-              highlightMode === "neighbors" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
+              highlightMode === "neighbors" ? "bg-accent text-white" : "text-text-secondary hover:text-text"
             }`}
           >
             {t("neighbors")}
@@ -424,7 +424,7 @@ export default function KnowledgeGraphPage() {
           <button
             onClick={() => setHighlightMode("dfs")}
             className={`px-2 py-0.5 rounded-full transition ${
-              highlightMode === "dfs" ? "bg-primary text-white" : "text-text-secondary hover:text-text"
+              highlightMode === "dfs" ? "bg-accent text-white" : "text-text-secondary hover:text-text"
             }`}
           >
             {t("dfs")}
@@ -457,7 +457,7 @@ export default function KnowledgeGraphPage() {
           onClick={() => setShowForceSettings(!showForceSettings)}
           className={`absolute top-4 right-4 z-10 flex items-center gap-1 rounded-full px-3 py-1.5 text-xs transition shadow-sm ${
             showForceSettings
-              ? "bg-primary text-white"
+              ? "bg-accent text-white"
               : "bg-surface/90 text-text-secondary border border-border backdrop-blur-sm hover:bg-surface"
           }`}
           title={t("forceParams")}

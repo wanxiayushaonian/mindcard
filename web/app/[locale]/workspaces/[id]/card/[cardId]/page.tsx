@@ -320,7 +320,7 @@ export default function CardDetailPage() {
                   onClick={() => setEditEmotionTag(editEmotionTag === zhValue ? "" : zhValue)}
                   className={`rounded-full px-3 py-1 text-xs transition ${
                     editEmotionTag === zhValue
-                      ? "bg-primary text-white"
+                      ? "bg-accent text-white"
                       : "bg-muted text-text-secondary hover:bg-muted/80"
                   }`}
                 >
@@ -388,7 +388,7 @@ export default function CardDetailPage() {
               <button
                 onClick={handleSave}
                 disabled={!editContent.trim() || saving}
-                className="rounded-xl bg-primary px-4 py-2 text-sm text-white transition disabled:opacity-50 hover:bg-primary/90"
+                className="rounded-xl bg-accent px-4 py-2 text-sm text-white transition disabled:opacity-50 hover:bg-accent/90"
               >
                 {saving ? "…" : tCommon("save")}
               </button>
@@ -491,7 +491,7 @@ export default function CardDetailPage() {
                 <div className="flex flex-col gap-1">
                   <button
                     onClick={() => router.push(`/workspaces/${workspaceId}/card/${sc.id}`)}
-                    className="rounded-lg bg-primary px-3 py-1 text-xs text-white"
+                    className="rounded-lg bg-accent px-3 py-1 text-xs text-white"
                   >
                     {tCommon("view")}
                   </button>
@@ -565,7 +565,7 @@ export default function CardDetailPage() {
             <button
               onClick={handleAddComment}
               disabled={!commentText.trim()}
-              className="rounded-2xl bg-primary px-4 py-2 text-sm text-white disabled:bg-gray-300"
+              className="rounded-2xl bg-accent px-4 py-2 text-sm text-white disabled:bg-gray-300"
             >
               {tCommon("send")}
             </button>

@@ -67,7 +67,7 @@ export function Modal({
             <button
               onClick={onConfirm}
               disabled={confirmDisabled || loading}
-              className="rounded-xl bg-primary px-6 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-xl bg-accent px-6 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               {loading ? t("processing") : (confirmText || t("confirm"))}
             </button>

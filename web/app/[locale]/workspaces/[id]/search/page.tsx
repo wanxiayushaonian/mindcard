@@ -68,7 +68,7 @@ export default function SearchPage() {
           <button
             onClick={handleSearch}
             disabled={loading || !query.trim()}
-            className="rounded-xl bg-primary px-6 py-3 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-xl bg-accent px-6 py-3 text-sm font-medium text-white disabled:opacity-50"
           >
             {loading ? t("searching") : t("searchButton")}
           </button>
@@ -81,7 +81,7 @@ export default function SearchPage() {
               onClick={() => setMode(m)}
               className={`rounded-lg px-3 py-1 text-xs ${
                 mode === m
-                  ? "bg-primary text-white"
+                  ? "bg-accent text-white"
                   : "bg-gray-100 text-text-secondary hover:bg-gray-200"
               }`}
             >

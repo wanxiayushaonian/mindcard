@@ -140,7 +140,7 @@ export function SearchModal({
                 onClick={() => setMode(m)}
                 className={`rounded-md px-2.5 py-1 text-xs transition ${
                   mode === m
-                    ? "bg-primary text-white"
+                    ? "bg-accent text-white"
                     : "text-text-secondary hover:bg-gray-100"
                 }`}
               >

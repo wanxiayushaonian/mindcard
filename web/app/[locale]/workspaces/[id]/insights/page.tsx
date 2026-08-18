@@ -47,7 +47,7 @@ export default function InsightsPage() {
         <button
           onClick={handleGenerate}
           disabled={loading}
-          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary-dark disabled:opacity-50"
+          className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark disabled:opacity-50"
         >
           {loading ? t("analyzing") : t("generate")}
         </button>

@@ -54,7 +54,7 @@ function CallbackContent() {
         {isError && (
           <button
             onClick={() => router.replace("/login")}
-            className="mt-4 rounded-lg bg-primary px-6 py-2 text-sm text-white"
+            className="mt-4 rounded-lg bg-accent px-6 py-2 text-sm text-white"
           >
             {t("backToLogin")}
           </button>

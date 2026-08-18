@@ -206,7 +206,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-dark py-2.5 text-sm font-medium text-white shadow-md shadow-primary/25 transition duration-200 hover:shadow-lg hover:shadow-primary/30 hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+              className="w-full rounded-xl bg-gradient-to-r from-accent to-accent-dark py-2.5 text-sm font-medium text-white shadow-md shadow-primary/25 transition duration-200 hover:shadow-lg hover:shadow-primary/30 hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               {loading ? tCommon("processing") : mode === "register" ? t("register") : t("login")}
             </button>
