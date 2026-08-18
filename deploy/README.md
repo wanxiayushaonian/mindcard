@@ -1,16 +1,19 @@
 # MindCard 生产部署手册
 
-部署目标：`mindcard.online`（前端） + `api.mindcard.online`（API）→ 单台服务器 `120.27.215.72`
+部署目标：`mindcard.online`（单域，前端 + `/api` 同域转发）→ 美国服务器 `64.83.21.83`
 
 ```
                         公网 80/443
-                            │  nginx (宿主机, TLS)
+                            │  Caddy (宿主机, 自动 HTTPS)
               ┌─────────────┴─────────────┐
-mindcard.online ─▶  web 容器 :3000    api.mindcard.online ─▶  server 容器 :8000
+mindcard.online ─▶  web 容器 :3000   /api/* + /ws ─▶ server 容器 :8000
                                                             │
                                                /api/ws WebSocket upgrade
                                Docker: mindcard-app + mindcard-postgres + mindcard-redis
 ```
+
+> 前端构建参数 `NEXT_PUBLIC_API_URL` 必须用 `https://mindcard.online`（**同域**，Caddy 路径
+> 转发 `/api/*` → 后端）。不要用独立的 `api.` 子域——Caddy 未配置该域名，且需额外 DNS 记录。
 
 ---
 
@@ -18,8 +21,8 @@ mindcard.online ─▶  web 容器 :3000    api.mindcard.online ─▶  server �
 
 | 项 | 要求 |
 |----|------|
-| DNS | `mindcard.online` A → `120.27.215.72`；`api.mindcard.online` A → `120.27.215.72` |
-| 服务器 | Docker（含 compose）、nginx、certbot；防火墙放行 80/443 |
+| DNS | `mindcard.online` A → `64.83.21.83`（单条即可，无需 `api.` 子域） |
+| 服务器 | Docker（含 compose）、Caddy；防火墙放行 80/443 |
 | 资源 | 2 核 4G 起步（无 Ollama 时可跑）；数据库在容器内 |
 
 ```bash
@@ -127,7 +130,7 @@ curl http://127.0.0.1:8000/health   # 期望 {"status":"ok"}
 ```bash
 cd web
 docker build \
-  --build-arg NEXT_PUBLIC_API_URL=https://api.mindcard.online \
+  --build-arg NEXT_PUBLIC_API_URL=https://mindcard.online \
   -t mindcard-web:latest .
 
 docker run -d --name mindcard-web \
@@ -139,19 +142,22 @@ docker run -d --name mindcard-web \
 验证：`curl http://127.0.0.1:3000` 应返回 HTML。
 
 > `NEXT_PUBLIC_API_URL` 在构建时内联进 JS，改地址必须重新构建镜像。
+> 必须用同域 `https://mindcard.online`（Caddy 路径转发 `/api/*` → 后端）。
 
 ---
 
-## 4. nginx + HTTPS
+## 4. Caddy + HTTPS（当前架构）
 
 ```bash
-# 部署反代配置
-sudo cp deploy/nginx/mindcard.conf /etc/nginx/conf.d/
-sudo nginx -t && sudo systemctl reload nginx
-
-# 签发证书（自动改写配置：加 443 + HTTP→HTTPS 重定向）
-sudo certbot --nginx -d mindcard.online -d api.mindcard.online
-sudo certbot renew --dry-run   # 验证自动续期
+# Caddy 单域配置：mindcard.online → web:3000，/api/* + /ws → server:8000
+cat > /etc/caddy/Caddyfile <<'EOF'
+mindcard.online {
+    reverse_proxy localhost:3000
+    reverse_proxy /api/* localhost:8000
+    reverse_proxy /ws localhost:8000
+}
+EOF
+systemctl reload caddy   # 自动申请/续期 TLS 证书
 ```
 
 WebSocket 已通过 `Upgrade`/`Connection` 头透传，无需额外配置。
@@ -162,11 +168,11 @@ WebSocket 已通过 `Upgrade`/`Connection` 头透传，无需额外配置。
 
 ```bash
 curl -I https://mindcard.online                     # 前端 200
-curl https://api.mindcard.online/health             # {"status":"ok"}
-curl https://api.mindcard.online/api/auth/login -X POST \
+curl https://mindcard.online/health                 # {"status":"ok"}（经 Caddy 转发到后端）
+curl https://mindcard.online/api/auth/login -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"username":"x","password":"x"}'              # 登录接口可达
-# WebSocket 冒烟（可选）：浏览器控制台 new WebSocket("wss://api.mindcard.online/api/ws?token=<JWT>")
+  -d '{"username":"x","password":"x"}'              # 登录接口可达（422 = 到达后端）
+# WebSocket 冒烟（可选）：浏览器控制台 new WebSocket("wss://mindcard.online/api/ws?token=<JWT>")
 ```
 
 浏览器端验证：注册 → 建空间 → 建卡片（触发 embedding）→ 搜索/RAG 对话（验证 LLM + WebSocket 流式）。
@@ -178,7 +184,7 @@ curl https://api.mindcard.online/api/auth/login -X POST \
 ```bash
 cd server && docker build -t mindcard-app:latest . \
   && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-cd web && docker build --build-arg NEXT_PUBLIC_API_URL=https://api.mindcard.online -t mindcard-web:latest . \
+cd web && docker build --build-arg NEXT_PUBLIC_API_URL=https://mindcard.online -t mindcard-web:latest . \
   && docker rm -f mindcard-web && docker run -d --name mindcard-web --restart unless-stopped -p 3000:3000 mindcard-web:latest
 ```
 
