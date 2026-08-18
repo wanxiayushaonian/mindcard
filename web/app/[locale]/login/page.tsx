@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { mutate } from "swr";
 import { useTranslations } from "next-intl";
-import { AtSign, Cpu, GitBranch, Lock, MessageSquare, Search, Sparkles, User } from "lucide-react";
+import { AtSign, Cpu, GitBranch, Lock, MessageSquare, Search, User } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { authApi } from "@/lib/api";
 import { translateBackendError } from "@/lib/backend-errors";
@@ -70,9 +71,14 @@ export default function LoginPage() {
         {/* Product showcase — hidden on small screens */}
         <div className="hidden lg:block">
           <div className="mb-10">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-dark shadow-lg shadow-primary/30">
-              <Sparkles className="h-7 w-7 text-white" />
-            </div>
+            <Image
+              src="/icon-192.png"
+              alt="MindCard"
+              width={64}
+              height={64}
+              priority
+              className="mb-4 rounded-2xl shadow-lg shadow-primary/30"
+            />
             <h1 className="text-3xl font-bold tracking-tight text-text">MindCard</h1>
             <p className="mt-2 max-w-sm text-base leading-relaxed text-text-secondary">
               {t("tagline")}
@@ -100,9 +106,14 @@ export default function LoginPage() {
         <div className="rounded-card border border-border/50 bg-surface/90 p-8 shadow-xl shadow-primary/10 backdrop-blur-sm sm:p-10">
           {/* Brand — only shown on small screens (large screens show it in the left column) */}
           <div className="mb-8 flex flex-col items-center text-center lg:hidden">
-            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-dark shadow-lg shadow-primary/30">
-              <Sparkles className="h-7 w-7 text-white" />
-            </div>
+            <Image
+              src="/icon-192.png"
+              alt="MindCard"
+              width={56}
+              height={56}
+              priority
+              className="mb-3 rounded-2xl shadow-lg shadow-primary/30"
+            />
             <h1 className="text-2xl font-bold tracking-tight text-text">MindCard</h1>
             <p className="mt-1.5 text-sm text-text-secondary">{t("subtitle")}</p>
           </div>
