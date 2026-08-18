@@ -172,7 +172,13 @@ async def generate_invite_code(
         raise HTTPException(status_code=404, detail="Workspace not found")
 
     chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    code = "".join(random.choice(chars) for _ in range(6))
+    code = ""
+    for _ in range(10):
+        candidate = "".join(random.choice(chars) for _ in range(6))
+        exists = await db.execute(select(Workspace.id).where(Workspace.invite_code == candidate))
+        if not exists.scalar_one_or_none():
+            code = candidate
+            break
     ws.invite_code = code
     await db.commit()
     return {"invite_code": code}

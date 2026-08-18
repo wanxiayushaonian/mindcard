@@ -74,15 +74,18 @@ async def list_cards(
     descending = order == "desc"
 
     if cursor:
-        val_str, id_str = decode_cursor(cursor)
-        cursor_id = UUID(id_str)
-        # Parse value based on sort column type
-        if sort_by in ("created_at", "updated_at"):
-            from datetime import datetime as dt
+        try:
+            val_str, id_str = decode_cursor(cursor)
+            cursor_id = UUID(id_str)
+            # Parse value based on sort column type
+            if sort_by in ("created_at", "updated_at"):
+                from datetime import datetime as dt
 
-            cursor_val = dt.fromisoformat(val_str)
-        else:
-            cursor_val = val_str
+                cursor_val = dt.fromisoformat(val_str)
+            else:
+                cursor_val = val_str
+        except (ValueError, TypeError, KeyError):
+            raise HTTPException(status_code=400, detail="Invalid cursor")
 
         if descending:
             query = query.where(tuple_(sort_col, Card.id) < (cursor_val, cursor_id))

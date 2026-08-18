@@ -190,7 +190,11 @@ class TestInviteCode:
         membership = _make_membership(ws.id, test_user.id, "owner")
 
         mock_db.get = AsyncMock(return_value=ws)
-        mock_db.execute = AsyncMock(return_value=mock_execute_result(scalar_one=membership))
+        # membership query, then invite-code collision check (None = no collision)
+        mock_db.execute = AsyncMock(side_effect=[
+            mock_execute_result(scalar_one=membership),
+            mock_execute_result(scalar_one=None),
+        ])
 
         resp = await client.post(f"/api/workspaces/{ws.id}/invite-code")
 

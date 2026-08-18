@@ -26,7 +26,7 @@ async def list_activities(
 
     result = await db.execute(
         select(ActivityLog, User.nickname)
-        .join(User, User.id == ActivityLog.actor_id)
+        .outerjoin(User, User.id == ActivityLog.actor_id)
         .where(ActivityLog.workspace_id == ws_id)
         .order_by(ActivityLog.created_at.desc())
         .limit(limit)
