@@ -170,9 +170,14 @@ async def create_cards_batch(
     ws_id = parse_uuid(req.workspace_id)
     default_chat_id = parse_uuid(req.chat_id) if req.chat_id else None
 
-    # Check local_id uniqueness
+    # Check local_id uniqueness (workspace-scoped)
     local_ids = [c.local_id for c in req.cards]
-    existing = await db.execute(select(Card.local_id).where(Card.local_id.in_(local_ids)))
+    existing = await db.execute(
+        select(Card.local_id).where(
+            Card.local_id.in_(local_ids),
+            Card.workspace_id == ws_id,
+        )
+    )
     conflicts = [row[0] for row in existing.all()]
     if conflicts:
         raise HTTPException(status_code=409, detail=f"local_id 已存在: {', '.join(conflicts[:10])}")
@@ -379,6 +384,12 @@ async def add_relation(
         raise HTTPException(status_code=404, detail="卡片不存在")
     membership = await get_workspace_membership(card.workspace_id, user, db)
     require_role(membership, "owner", "admin", "editor")
+
+    related_card = await db.get(Card, parse_uuid(req.related_card_id))
+    if not related_card:
+        raise HTTPException(status_code=404, detail="关联卡片不存在")
+    if related_card.workspace_id != card.workspace_id:
+        raise HTTPException(status_code=400, detail="只能关联同一空间的卡片")
 
     existing = await db.execute(
         select(CardRelation).where(
