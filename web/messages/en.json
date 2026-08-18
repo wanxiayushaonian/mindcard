@@ -847,7 +847,16 @@
     "exportFailed": "Export failed: {error}",
     "exportPdfFailed": "PDF export failed: {error}",
     "unnamedCard": "Untitled Card",
-    "previewNotFound": "Preview element not found"
+    "previewNotFound": "Preview element not found",
+    "forestConvergence": "Forest Convergence",
+    "forestGoalPlaceholder": "Enter a convergence goal, e.g. summarize this space's learning journey and find key connections",
+    "startConvergence": "Start Convergence",
+    "stopConvergence": "Stop",
+    "exploring": "Walking the forest…",
+    "walkLog": "Exploration Path",
+    "walkLogEmpty": "No exploration yet",
+    "reportEmpty": "The convergence report will appear here",
+    "connectionLost": "Connection lost"
   },
   "insight": {
     "title": "Knowledge Insights",

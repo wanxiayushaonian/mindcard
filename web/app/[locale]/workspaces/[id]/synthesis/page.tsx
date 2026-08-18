@@ -14,6 +14,7 @@ import {
   type SynthesisTemplate,
 } from "@/lib/api";
 import SimpleMarkdownRenderer from "@/components/SimpleMarkdownRenderer";
+import { ForestConvergencePanel } from "@/components/ForestConvergencePanel";
 import { RichEditor } from "@/components/editor";
 import { toast } from "@/lib/toast";
 import { LoadingState } from "@/components/LoadingState";
@@ -111,6 +112,8 @@ function SynthesisContent() {
   const templateList = templates?.templates ?? [];
 
   const [mode, setMode] = useState("free");
+  // Standard topic/node synthesis vs. agent-driven forest convergence (VISION 理念6)
+  const [viewMode, setViewMode] = useState<"standard" | "forest">("standard");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [preview, setPreview] = useState(false);
@@ -703,6 +706,30 @@ function SynthesisContent() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Standard vs. forest-convergence (agent) view toggle */}
+          <div className="flex rounded-lg border border-border p-0.5">
+            <button
+              onClick={() => setViewMode("standard")}
+              className={`rounded-md px-2 py-1 text-xs transition ${
+                viewMode === "standard"
+                  ? "bg-accent text-white"
+                  : "text-text-secondary hover:text-text"
+              }`}
+            >
+              {t("topicSynthesis")}
+            </button>
+            <button
+              onClick={() => setViewMode("forest")}
+              className={`rounded-md px-2 py-1 text-xs transition ${
+                viewMode === "forest"
+                  ? "bg-accent text-white"
+                  : "text-text-secondary hover:text-text"
+              }`}
+            >
+              {t("forestConvergence")}
+            </button>
+          </div>
+
           {/* Mode / Template selector */}
           <select
             value={selectedTemplateId ? `template:${selectedTemplateId}` : mode}
@@ -834,7 +861,12 @@ function SynthesisContent() {
       </div>
 
       {/* Main content area */}
-      <div className="flex flex-1 overflow-hidden">
+      {viewMode === "forest" ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <ForestConvergencePanel workspaceId={workspaceId} />
+        </div>
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar: source cards */}
         <div className="w-64 shrink-0 flex flex-col border-r border-border bg-surface">
           {/* Header */}
@@ -1018,6 +1050,7 @@ function SynthesisContent() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Template management modal */}
       {showTemplateModal && (

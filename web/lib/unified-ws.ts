@@ -22,7 +22,11 @@ export type StreamEventType =
   | "error"
   | "cancelled"
   | "pong"
-  | "ws_reconnected";
+  | "ws_reconnected"
+  | "synthesis_start"
+  | "synthesis_progress"
+  | "synthesis_complete"
+  | "synthesis_error";
 
 export interface BudgetAllocationStat {
   bucket: string;
@@ -77,6 +81,11 @@ export interface StreamEvent {
   result?: string;            // tool_executed: result of tool execution
   context_debug?: ContextDebugData;  // context_debug: full retrieval metadata
   metadata?: Record<string, unknown>;
+  // synthesis events (VISION 理念6)
+  goal?: string;              // synthesis_start: the convergence goal
+  report?: string;            // synthesis_complete: the generated report
+  message?: string;           // synthesis_error: error detail
+  stage?: string;             // synthesis_progress: current stage
 }
 
 // ---- Client message types ----
@@ -111,7 +120,13 @@ export interface PingMessage {
   type: "ping";
 }
 
-export type WSMessage = ChatMessage | RAGMessage | CancelMessage | PingMessage;
+export interface SynthesisMessage {
+  type: "synthesis";
+  goal: string;
+  workspace_id: string;
+}
+
+export type WSMessage = ChatMessage | RAGMessage | CancelMessage | PingMessage | SynthesisMessage;
 
 // ---- Connection manager ----
 

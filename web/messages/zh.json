@@ -847,7 +847,16 @@
     "exportFailed": "导出失败: {error}",
     "exportPdfFailed": "PDF 导出失败: {error}",
     "unnamedCard": "未命名卡片",
-    "previewNotFound": "预览元素未找到"
+    "previewNotFound": "预览元素未找到",
+    "forestConvergence": "森林收敛",
+    "forestGoalPlaceholder": "输入收敛目标，例如：总结这个空间的学习历程，找出关键知识之间的关联",
+    "startConvergence": "开始收敛",
+    "stopConvergence": "停止",
+    "exploring": "正在走查森林…",
+    "walkLog": "探索路径",
+    "walkLogEmpty": "尚未开始探索",
+    "reportEmpty": "收敛报告将显示在这里",
+    "connectionLost": "连接中断"
   },
   "insight": {
     "title": "知识洞察",
