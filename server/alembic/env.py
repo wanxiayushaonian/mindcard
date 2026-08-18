@@ -1,5 +1,6 @@
 import asyncio
 import os
+from pathlib import Path
 from logging.config import fileConfig
 
 from alembic import context
@@ -13,7 +14,18 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Allow DATABASE_URL env var to override alembic.ini (container/multi-env deploys)
+# The app reads DATABASE_URL from server/.env (pydantic-settings); alembic only
+# sees real env vars. Load .env here so local `alembic upgrade` targets the same
+# database the app uses, instead of silently hitting the alembic.ini default.
+# An explicitly exported shell/container DATABASE_URL still wins (load_dotenv
+# does not override existing env vars).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
+
 if os.environ.get("DATABASE_URL"):
     config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 

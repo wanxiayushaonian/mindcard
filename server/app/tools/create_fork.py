@@ -130,6 +130,24 @@ class CreateForkTool(Tool):
         db.add(child_chat)
         await db.flush()
 
+        # Move the triggering user message to the child chat. That message is
+        # what caused the branch, so it belongs to the branch — leaving it in
+        # the parent makes it render at parent level (before the divider) on
+        # reload, while the live UI shows it inside the fork. Moving it keeps
+        # the parent ending at the divider and the child owning the question.
+        trigger_result = await db.execute(
+            select(ChatMessage)
+            .where(
+                ChatMessage.chat_id == parent_chat.id,
+                ChatMessage.role == "user",
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .limit(1)
+        )
+        trigger_msg = trigger_result.scalar_one_or_none()
+        if trigger_msg:
+            trigger_msg.chat_id = child_chat.id
+
         # Insert fork-divider into parent chat
         divider = ChatMessage(
             chat_id=parent_chat.id,
