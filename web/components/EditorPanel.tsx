@@ -15,7 +15,7 @@ interface EditorPanelProps {
 export function EditorPanel({ workspaceId }: EditorPanelProps) {
   const t = useTranslations("editor");
   const tc = useTranslations("card");
-  const { editorContent, setEditorContent } = usePanelStore();
+  const { editorContent, setEditorContent, chatContext } = usePanelStore();
   const [precipitating, setPrecipitating] = useState(false);
   const editorRef = useRef<RichEditorHandle>(null);
 
@@ -39,6 +39,10 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
         title,
         content: selected,
         keywords,
+        // Source-mount the card under the conversation that is currently open
+        // (VISION 理念4) so it hangs where the idea was born, not where the
+        // embedding classifier thinks it fits.
+        chat_id: chatContext.forkId || chatContext.chatId || undefined,
       });
       window.dispatchEvent(new CustomEvent("card-precipitated"));
       toast(tc("precipitated", { title: title || tc("unnamedCard") }), "success");
@@ -47,7 +51,7 @@ export function EditorPanel({ workspaceId }: EditorPanelProps) {
     } finally {
       setPrecipitating(false);
     }
-  }, [workspaceId, tc]);
+  }, [workspaceId, tc, chatContext]);
 
   const charCount = editorContent.length;
   const lineCount = editorContent ? editorContent.split("\n").length : 0;

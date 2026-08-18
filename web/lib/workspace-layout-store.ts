@@ -5,12 +5,17 @@ interface PanelState {
   rightCollapsed: boolean;
   showAiChat: boolean;
   editorContent: string;
+  // Active conversation context (which chat/fork is open) — lets other
+  // components (e.g. the editor's precipitate-to-card) know where a
+  // sedimented card should be source-mounted in the topology tree.
+  chatContext: { chatId: string | null; forkId: string | null };
   _hydrated: boolean;
   toggleLeft: () => void;
   toggleRight: () => void;
   setShowAiChat: (show: boolean) => void;
   setEditorContent: (content: string) => void;
   appendToEditor: (content: string) => void;
+  setChatContext: (chatId: string | null, forkId: string | null) => void;
   hydrate: () => void;
 }
 
@@ -59,6 +64,7 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   rightCollapsed: false,
   showAiChat: true,
   editorContent: "",
+  chatContext: { chatId: null, forkId: null },
   _hydrated: false,
 
   hydrate: () => {
@@ -95,6 +101,8 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     saveEditorContent(content);
     set({ editorContent: content });
   },
+
+  setChatContext: (chatId, forkId) => set({ chatContext: { chatId, forkId } }),
 
   appendToEditor: (content) => {
     const current = get().editorContent;

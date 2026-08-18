@@ -292,6 +292,7 @@ export const cardApi = {
     color?: string;
     emotion_tag?: string;
     parent_card_ids?: string[];
+    chat_id?: string;
   }) =>
     request<Card>("/api/cards/", {
       method: "POST",

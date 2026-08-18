@@ -228,6 +228,12 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   }, []);
   useEffect(() => { chatIdRef.current = chatId; }, [chatId]);
 
+  // Publish the active conversation context so other components (e.g. the
+  // editor's precipitate-to-card) can source-mount cards under this node.
+  useEffect(() => {
+    usePanelStore.getState().setChatContext(chatId, activeForkId);
+  }, [chatId, activeForkId]);
+
   // Persist which forks are expanded so a reload / chat switch remembers them.
   useEffect(() => {
     if (!chatId) return;
