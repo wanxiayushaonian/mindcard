@@ -11,6 +11,7 @@ import { toast } from "@/lib/toast";
 import AssistantResponse from "@/components/AssistantResponse";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { ForkDivider } from "@/components/ForkDivider";
+import { ForkExpandable } from "@/components/ForkExpandable";
 import { ForkBreadcrumb } from "@/components/ForkBreadcrumb";
 import { LinkBranchDialog } from "@/components/LinkBranchDialog";
 import { MergeBranchDialog } from "@/components/MergeBranchDialog";
@@ -118,6 +119,22 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       localStorage.removeItem(chatStorageKey);
     }
   };
+
+  // Expanded-fork persistence: remember which forks the user has expanded,
+  // keyed per chat so switching conversations restores each one's branches.
+  const expandedForksKey = (chatId: string) => `mindcard-expanded-forks-${chatId}`;
+  const loadExpandedForkIds = (chatId: string): Set<string> => {
+    try {
+      const raw = localStorage.getItem(expandedForksKey(chatId));
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr)
+        ? new Set(arr.filter((x): x is string => typeof x === "string"))
+        : new Set();
+    } catch {
+      return new Set();
+    }
+  };
   const [showHistory, setShowHistory] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showLinkBranch, setShowLinkBranch] = useState(false);
@@ -190,6 +207,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   const [expandedForks, setExpandedForks] = useState<Set<string>>(new Set());
   const [activeForkId, setActiveForkId] = useState<string | null>(null);
   const chatIdRef = useRef<string | null>(null);
+  // Tracks whether the user explicitly clicked "new chat"; suppresses the
+  // default-to-主线 auto-load that would otherwise run on the next render.
+  const startedNewChatRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
   const [chatPath, setChatPath] = useState<ChatPathNode[]>([]);
   const isComposingRef = useRef(false);
@@ -207,6 +227,16 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     setExpandedForks(next);
   }, []);
   useEffect(() => { chatIdRef.current = chatId; }, [chatId]);
+
+  // Persist which forks are expanded so a reload / chat switch remembers them.
+  useEffect(() => {
+    if (!chatId) return;
+    try {
+      localStorage.setItem(expandedForksKey(chatId), JSON.stringify([...expandedForks]));
+    } catch {
+      // storage quota exceeded — ignore
+    }
+  }, [expandedForks, chatId]);
   // expandedForksRef is kept in sync by syncExpandedForks — no useEffect needed
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { forkMetaRef.current = forkMeta; }, [forkMeta]);
@@ -339,6 +369,60 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, isStreaming]);
 
+  // Fetch a child chat's messages and inject them inline under its fork divider.
+  // Used on manual expand (toggleFork) and when restoring expanded forks after
+  // a reload (loadChat). When `restoreSet` is provided, recursively restores any
+  // nested forks the user had also expanded — full-depth persistence.
+  const loadForkContent = useCallback(
+    (forkId: string, rootChatId: string | null, opts?: { scroll?: boolean }, restoreSet?: Set<string>) => {
+      const isReal = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(forkId);
+      if (!rootChatId || !isReal) return;
+      chatApi.get(forkId).then((detail) => {
+        if (detail.messages.length === 0) return;
+        const realMsgCount = detail.messages.filter((m) => m.role !== "fork-divider").length;
+        const nestedForkMeta: Record<string, ForkMetaEntry> = {};
+        const forkMsgs: Message[] = detail.messages.map((m) => {
+          if (m.role === "fork-divider" || m.content.startsWith(FORK_PREFIX)) {
+            const parsed = decodeForkContent(m.content);
+            const nestedId = m.metadata_?.child_chat_id || `fork-loaded-${m.id}`;
+            nestedForkMeta[nestedId] = parsed
+              ? { ...parsed, msgId: m.id, messageCount: m.metadata_?.child_message_count, profile: m.metadata_?.fork_profile }
+              : { title: m.metadata_?.branch_label || m.content || t('newBranch'), nodeId: "", collapsed: false, completed: true, msgId: m.id, depth: m.metadata_?.depth || 0, messageCount: m.metadata_?.child_message_count, profile: m.metadata_?.fork_profile };
+            return { role: "fork-divider" as const, content: m.metadata_?.branch_label || parsed?.title || m.content || t('newBranch'), childChatId: nestedId };
+          }
+          return { role: m.role as "user" | "assistant", content: m.content, childChatId: forkId, webSearchResults: m.web_search_results || undefined, sources: m.source_cards || undefined, createdAt: m.created_at, thinking: m.metadata_?.thinking || undefined, toolCalls: m.metadata_?.tool_calls || undefined, contextDebug: m.metadata_?.context_debug || undefined };
+        });
+        // Update the live message count for this fork
+        setForkMeta((prev) => ({ ...prev, [forkId]: { ...prev[forkId], messageCount: realMsgCount }, ...nestedForkMeta }));
+        forkMetaRef.current = { ...forkMetaRef.current, [forkId]: { ...forkMetaRef.current[forkId], messageCount: realMsgCount }, ...nestedForkMeta };
+        if (opts?.scroll) scrollTargetForkRef.current = forkId;
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.role === "fork-divider" && m.childChatId === forkId);
+          if (idx === -1) return prev;
+          const subForkIds = new Set(forkMsgs.filter((m) => m.role === "fork-divider").map((m) => m.childChatId!));
+          const filtered = prev.filter((m) => {
+            if (m.role === "fork-divider" && m.childChatId === forkId) return true;
+            if (m.childChatId === forkId) return false;
+            if (m.childChatId && subForkIds.has(m.childChatId)) return false;
+            return true;
+          });
+          const result = [...filtered];
+          result.splice(idx + 1, 0, ...forkMsgs);
+          return result;
+        });
+        // Recursively restore nested forks that were expanded before the reload
+        if (restoreSet) {
+          for (const nestedId of Object.keys(nestedForkMeta)) {
+            if (restoreSet.has(nestedId)) {
+              loadForkContent(nestedId, rootChatId, { scroll: false }, restoreSet);
+            }
+          }
+        }
+      }).catch(() => {});
+    },
+    [t]
+  );
+
   // Toggle fork expansion (for ForkDivider clicks)
   const toggleFork = useCallback((forkId: string) => {
     syncExpandedForks((prev) => {
@@ -380,45 +464,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
         setActiveForkId(forkId);
         activeChatIdRef.current = forkId;
         // Load fork messages from child chat
-        const rootId = chatIdRef.current;
-        const isReal = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(forkId);
-        if (rootId && isReal) {
-          chatApi.get(forkId).then((detail) => {
-            if (detail.messages.length > 0) {
-              const realMsgCount = detail.messages.filter((m) => m.role !== "fork-divider").length;
-              const nestedForkMeta: Record<string, ForkMetaEntry> = {};
-              const forkMsgs: Message[] = detail.messages.map((m) => {
-                if (m.role === "fork-divider" || m.content.startsWith(FORK_PREFIX)) {
-                  const parsed = decodeForkContent(m.content);
-                  const nestedId = m.metadata_?.child_chat_id || `fork-loaded-${m.id}`;
-                  nestedForkMeta[nestedId] = parsed
-                    ? { ...parsed, msgId: m.id, messageCount: m.metadata_?.child_message_count, profile: m.metadata_?.fork_profile }
-                    : { title: m.metadata_?.branch_label || m.content || t('newBranch'), nodeId: "", collapsed: false, completed: true, msgId: m.id, depth: m.metadata_?.depth || 0, messageCount: m.metadata_?.child_message_count, profile: m.metadata_?.fork_profile };
-                  return { role: "fork-divider" as const, content: m.metadata_?.branch_label || parsed?.title || m.content || t('newBranch'), childChatId: nestedId };
-                }
-                return { role: m.role as "user" | "assistant", content: m.content, childChatId: forkId, webSearchResults: m.web_search_results || undefined, sources: m.source_cards || undefined, createdAt: m.created_at, thinking: m.metadata_?.thinking || undefined, toolCalls: m.metadata_?.tool_calls || undefined, contextDebug: m.metadata_?.context_debug || undefined };
-              });
-              // Update the live message count for this fork
-              setForkMeta((prev) => ({ ...prev, [forkId]: { ...prev[forkId], messageCount: realMsgCount }, ...nestedForkMeta }));
-              forkMetaRef.current = { ...forkMetaRef.current, [forkId]: { ...forkMetaRef.current[forkId], messageCount: realMsgCount }, ...nestedForkMeta };
-              scrollTargetForkRef.current = forkId;
-              setMessages((prev) => {
-                const idx = prev.findIndex((m) => m.role === "fork-divider" && m.childChatId === forkId);
-                if (idx === -1) return prev;
-                const subForkIds = new Set(forkMsgs.filter((m) => m.role === "fork-divider").map((m) => m.childChatId!));
-                const filtered = prev.filter((m) => {
-                  if (m.role === "fork-divider" && m.childChatId === forkId) return true;
-                  if (m.childChatId === forkId) return false;
-                  if (m.childChatId && subForkIds.has(m.childChatId)) return false;
-                  return true;
-                });
-                const result = [...filtered];
-                result.splice(idx + 1, 0, ...forkMsgs);
-                return result;
-              });
-            }
-          }).catch(() => {});
-        }
+        loadForkContent(forkId, chatIdRef.current, { scroll: true });
       }
       return next;
     });
@@ -493,46 +539,7 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     activeChatIdRef.current = targetChatId;
 
     // Load fork messages from child chat for display (skip synthetic IDs)
-    const isRealId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetChatId);
-    if (rootChatId && isRealId) {
-      try {
-        const childDetail = await chatApi.get(targetChatId);
-        if (childDetail.messages.length > 0) {
-          const realMsgCount = childDetail.messages.filter((m) => m.role !== "fork-divider").length;
-          const nestedForkMeta: Record<string, ForkMetaEntry> = {};
-          const forkMsgs: Message[] = childDetail.messages.map((m) => {
-            if (m.role === "fork-divider" || m.content.startsWith(FORK_PREFIX)) {
-              const parsed = decodeForkContent(m.content);
-              const nestedId = m.metadata_?.child_chat_id || `fork-loaded-${m.id}`;
-              nestedForkMeta[nestedId] = parsed
-                ? { ...parsed, msgId: m.id, messageCount: m.metadata_?.child_message_count, profile: m.metadata_?.fork_profile }
-                : { title: m.metadata_?.branch_label || m.content || t('newBranch'), nodeId: "", collapsed: false, completed: true, msgId: m.id, depth: m.metadata_?.depth || 0, messageCount: m.metadata_?.child_message_count, profile: m.metadata_?.fork_profile };
-              return { role: "fork-divider" as const, content: m.metadata_?.branch_label || parsed?.title || m.content || t('newBranch'), childChatId: nestedId };
-            }
-            return { role: m.role as "user" | "assistant", content: m.content, childChatId: targetChatId, webSearchResults: m.web_search_results || undefined, sources: m.source_cards || undefined, createdAt: m.created_at, thinking: m.metadata_?.thinking || undefined, toolCalls: m.metadata_?.tool_calls || undefined, contextDebug: m.metadata_?.context_debug || undefined };
-          });
-          setForkMeta((prev) => ({ ...prev, [targetChatId]: { ...prev[targetChatId], messageCount: realMsgCount }, ...nestedForkMeta }));
-          forkMetaRef.current = { ...forkMetaRef.current, [targetChatId]: { ...forkMetaRef.current[targetChatId], messageCount: realMsgCount }, ...nestedForkMeta };
-          scrollTargetForkRef.current = targetChatId;
-          setMessages((prev) => {
-            const dividerIdx = prev.findIndex((m) => m.role === "fork-divider" && m.childChatId === targetChatId);
-            if (dividerIdx === -1) return prev;
-            const subForkIds = new Set(forkMsgs.filter((m) => m.role === "fork-divider").map((m) => m.childChatId!));
-            const withoutOld = prev.filter((m) => {
-              if (m.role === "fork-divider" && m.childChatId === targetChatId) return true;
-              if (m.childChatId === targetChatId) return false;
-              if (m.childChatId && subForkIds.has(m.childChatId)) return false;
-              return true;
-            });
-            const result = [...withoutOld];
-            result.splice(dividerIdx + 1, 0, ...forkMsgs);
-            return result;
-          });
-        }
-      } catch (e) {
-        console.error("Failed to load fork messages:", e);
-      }
-    }
+    loadForkContent(targetChatId, rootChatId, { scroll: true });
   }, []);
 
   // Initialize WebSocket client
@@ -710,8 +717,9 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           }
         } else {
           // No placeholder — insert fork-divider before the (user, assistant) pair
-          // and move both into the fork's scope.
-          let triggeringQuestion: string | null = null;
+          // and move both into the fork's scope. The triggering user message is
+          // moved to the child chat by the backend's create_fork tool, so no
+          // copy is added here.
           setMessages((prev) => {
             const updated = [...prev];
             const si = streamIdx(updated);
@@ -724,7 +732,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
               // user messages and answer both questions simultaneously.
               let dividerAt = si;
               if (si > 0 && updated[si - 1].role === "user" && !updated[si - 1].childChatId) {
-                triggeringQuestion = updated[si - 1].content;
                 updated[si - 1] = { ...updated[si - 1], childChatId };
                 dividerAt = si - 1;
               }
@@ -738,13 +745,6 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
           // Update backend divider with encoded content
           if (event.divider_msg_id && chatIdRef.current) {
             chatApi.updateMessage(chatIdRef.current, event.divider_msg_id, "fork-divider", encoded).catch(() => {});
-          }
-          // Persist the triggering user question to the child chat. The frontend
-          // childChatId field is UI-only; without this, reloading the child chat
-          // loses the user question (chat_id stays parent's), leaving an orphan
-          // assistant reply with no context.
-          if (triggeringQuestion) {
-            chatApi.addMessage(childChatId, "user", triggeringQuestion).catch(() => {});
           }
         }
         // Auto-expand the new fork so streaming content is immediately visible
@@ -984,8 +984,15 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
       setShowHistory(false);
       setForkMode(false);
       setRetrievalLevel(undefined);
-      // Forks start collapsed; user clicks to expand
-      syncExpandedForks(new Set());
+      // Restore previously-expanded forks for this chat, dropping ids that no
+      // longer exist, and lazy-load their contents. Nested forks that were also
+      // expanded are restored recursively inside loadForkContent.
+      const restored = loadExpandedForkIds(detail.id);
+      const valid = new Set(Object.keys(newForkMeta).filter((id) => restored.has(id)));
+      syncExpandedForks(valid);
+      for (const id of valid) {
+        loadForkContent(id, detail.id, { scroll: false }, restored);
+      }
       setActiveForkId(null);
       activeChatIdRef.current = null;
       return true;
@@ -1052,7 +1059,20 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     }
   }, [workspaceId]);
 
+  // Default chat = the workspace's main line (主线) node, loaded once the
+  // topology (fetched via SWR) is available. Without this, sending the first
+  // message in a fresh workspace creates a new root chat that sits parallel to
+  // 主线 instead of living on the main line.
+  useEffect(() => {
+    if (!workspaceId || chatId || startedNewChatRef.current) return;
+    if (localStorage.getItem(chatStorageKey)) return; // saved chat handled above
+    const rootNode = topologyNodes?.find((n) => n.node_type === "root" || !n.parent_id);
+    if (!rootNode) return;
+    loadChatAndFocusFork(rootNode.id).catch(() => {});
+  }, [workspaceId, topologyNodes, chatId]);
+
   const startNewChat = () => {
+    startedNewChatRef.current = true;
     stopStream();
     setChatId(null);
     setMessages([]);
@@ -1213,6 +1233,19 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
     });
 
     let currentChatId = chatIdRef.current;
+    if (!currentChatId && workspaceId && !startedNewChatRef.current) {
+      // Default into the workspace's main line (主线) instead of creating a
+      // parallel root chat, using the already-loaded topology. (If the topology
+      // hasn't loaded yet — user messages within the first frames — fall
+      // through to create; the mount-time default-chat effect will have set the
+      // 主线 by then in the normal flow.)
+      const rootNode = topologyNodes?.find((n) => n.node_type === "root" || !n.parent_id);
+      if (rootNode) {
+        currentChatId = rootNode.id;
+        chatIdRef.current = rootNode.id;
+        setChatId(rootNode.id);
+      }
+    }
     if (!currentChatId) {
       try {
         const chat = await chatApi.create({
@@ -1232,7 +1265,10 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
 
     if (currentChatId) {
       const saveTarget = activeChildChatId || currentChatId;
-      saveMessage(saveTarget, "user", question);
+      // Await the save so that when the LLM triggers a fork mid-stream, the
+      // backend's create_fork tool is guaranteed to find this message and move
+      // it into the child chat (no race between the REST save and the stream).
+      await saveMessage(saveTarget, "user", question);
     }
 
     // Track which chat this stream belongs to (for scoping WS events)
@@ -1644,19 +1680,19 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                           childChatId={forkId}
                           label={meta.title}
                           depth={forkDepthLevel}
-                        messageCount={meta.messageCount ?? children.length}
+                          messageCount={meta.messageCount ?? children.length}
                           collapsed={!isExpanded}
                           profile={meta.profile}
                           onToggle={(cid) => toggleFork(cid)}
                         />
-                        {isExpanded && (
-                          <div className="ml-3 mt-2 space-y-3 rounded-lg bg-gray-50/60 p-3 dark:bg-gray-900/30" style={{ borderLeft: `3px solid ${forkColor}` }}>
-                            {children.length === 0 ? (
-                              <p className="text-xs text-text-secondary italic py-2">{tFork('emptyHint')}</p>
-                            ) : children}
-                            <div id={`fork-end-${forkId}`} />
-                          </div>
-                        )}
+                        <ForkExpandable
+                          isExpanded={isExpanded}
+                          forkId={forkId}
+                          color={forkColor}
+                          emptyHint={tFork('emptyHint')}
+                        >
+                          {children}
+                        </ForkExpandable>
                       </div>
                     );
                     i = nextIdx;
@@ -1668,7 +1704,10 @@ export function AiChatPanel({ workspaceId, cardId, onClose }: AiChatPanelProps) 
                 // ── Root message: render normally ──
                 out.push(
                   <div key={msg._key || `msg-${i}`} data-msg-idx={msg.role === "user" ? i : undefined} data-fork-child={msg.childChatId || ""} className={`group/msg mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 backdrop-blur-sm ${msg.role === "user" ? "bg-primary/20 text-foreground border border-primary/30 shadow-sm" : "bg-surface text-text shadow-sm"}`}>
+                    {/* User messages keep a bubble; assistant output is flat — no
+                        card/background/shadow — so long AI answers read like a
+                        document instead of a chat bubble. */}
+                    <div className={msg.role === "user" ? "max-w-[85%] rounded-2xl px-3.5 py-2.5 backdrop-blur-sm bg-primary/20 text-foreground border border-primary/30 shadow-sm" : "w-full text-text"}>
                       {msg.role === "assistant" ? (
                         msg._isSearching ? (
                           <div className="flex items-center gap-2 text-sm text-text-secondary"><Globe size={14} className="animate-pulse" /><span className="animate-pulse">{t('searchingWeb')}</span></div>
