@@ -96,7 +96,9 @@ async def synthesize_topic(
     if not topic:
         raise HTTPException(404, "Topic not found")
 
-    await get_workspace_membership(topic.workspace_id, user, db)
+    membership = await get_workspace_membership(topic.workspace_id, user, db)
+    # Synthesis consumes LLM tokens — restrict to editor and above
+    require_role(membership, "owner", "admin", "editor")
 
     # Fetch card IDs for this topic
     if req.card_ids:

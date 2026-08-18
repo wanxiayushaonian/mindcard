@@ -247,11 +247,13 @@ async def get_chat(
     messages = result.scalars().all()
 
     # Build child message count map for fork-divider messages (single batch query)
-    child_chat_ids = [
-        uuid.UUID(m.metadata_["child_chat_id"])
-        for m in messages
-        if m.role == "fork-divider" and m.metadata_ and m.metadata_.get("child_chat_id")
-    ]
+    child_chat_ids = []
+    for m in messages:
+        if m.role == "fork-divider" and m.metadata_ and m.metadata_.get("child_chat_id"):
+            try:
+                child_chat_ids.append(uuid.UUID(m.metadata_["child_chat_id"]))
+            except (ValueError, TypeError):
+                logger.warning("Skipping malformed fork-divider child_chat_id in chat %s", chat_id)
     child_count_map: dict[str, int] = {}
     if child_chat_ids:
         count_result = await db.execute(
@@ -340,6 +342,10 @@ async def add_messages_batch(
             chat_id=chat.id,
             role=item.role,
             content=item.content,
+            web_search_results=item.web_search_results,
+            source_cards=item.source_cards,
+            fork_id=item.fork_id,
+            metadata_=item.metadata_,
         )
         db.add(msg)
         msgs.append(msg)
@@ -376,8 +382,14 @@ async def update_message(
         raise HTTPException(status_code=404, detail="消息不存在")
     msg.role = req.role
     msg.content = req.content
+    if req.web_search_results is not None:
+        msg.web_search_results = req.web_search_results
+    if req.source_cards is not None:
+        msg.source_cards = req.source_cards
     if req.fork_id is not None:
         msg.fork_id = req.fork_id
+    if req.metadata_ is not None:
+        msg.metadata_ = req.metadata_
     await db.commit()
     await db.refresh(msg)
     return msg
